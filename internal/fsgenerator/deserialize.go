@@ -55,7 +55,7 @@ func mergeFromBytesFunction(fields []*protoast.Field) fsast.Func {
 		Doc:        mergeFromBytesDoc(),
 		Name:       "merge_from_bytes",
 		Parameters: []fsast.Parameter{{Name: "data", Type: fstypes.Named("PackedByteArray")}},
-		ReturnType: fstypes.Named("foundry.proto.ProtobufError"),
+		ReturnType: fstypes.Named("ProtobufError"),
 		Body:       body,
 	}
 }

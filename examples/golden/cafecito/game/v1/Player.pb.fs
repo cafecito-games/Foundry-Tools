@@ -31,7 +31,7 @@ func to_bytes() -> PackedByteArray:
 	return result
 
 ## Merges protobuf wire data into this message.
-func merge_from_bytes(data: PackedByteArray) -> foundry.proto.ProtobufError:
+func merge_from_bytes(data: PackedByteArray) -> ProtobufError:
 	var offset: int = 0
 	while offset < data.size():
 		var tag_read: FieldRead[int] = foundry.proto.Wire.decode_varint(data, offset)

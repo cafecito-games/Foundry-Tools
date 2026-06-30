@@ -147,7 +147,8 @@ func TestGenerateScalarSerialization(t *testing.T) {
 	require.Contains(t, source, "_name = string_read.value")
 	require.Contains(t, source, "_level = value_read.value")
 	require.Contains(t, source, "## Serializes this message to protobuf wire data.\nfunc to_bytes() -> PackedByteArray:")
-	require.Contains(t, source, "## Merges protobuf wire data into this message.\nfunc merge_from_bytes(data: PackedByteArray) -> foundry.proto.ProtobufError:")
+	require.Contains(t, source, "## Merges protobuf wire data into this message.\nfunc merge_from_bytes(data: PackedByteArray) -> ProtobufError:")
+	require.NotContains(t, source, "func merge_from_bytes(data: PackedByteArray) -> foundry.proto.ProtobufError:")
 }
 
 func TestGenerateBoolAndBytesWireCode(t *testing.T) {
