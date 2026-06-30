@@ -1,6 +1,7 @@
 package protoparse
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/cafecito-games/foundry-tools/internal/protoast"
@@ -49,7 +50,9 @@ func ResolveExternalWithFiles(file *protoast.ProtoFile, inputPath string, fs FS)
 	visited := map[string]bool{}
 	var imported []ImportedFile
 	for _, imp := range file.Imports {
-		collectImportedTypes(registry, visited, &imported, imp.Path, fs)
+		if err := collectImportedTypes(registry, visited, &imported, imp.Path, fs); err != nil {
+			return nil, err
+		}
 	}
 	if len(registry) != 0 {
 		lookup := buildLookup(registry, file.Package)
@@ -65,25 +68,25 @@ func ResolveExternalWithFiles(file *protoast.ProtoFile, inputPath string, fs FS)
 // short-circuit, preventing infinite loops on circular imports. The
 // imported slice receives the parsed file alongside the import path in
 // the order files are first visited.
-func collectImportedTypes(out map[string]importedType, visited map[string]bool, imported *[]ImportedFile, path string, fs FS) {
+func collectImportedTypes(out map[string]importedType, visited map[string]bool, imported *[]ImportedFile, path string, fs FS) error {
 	if visited[path] {
-		return
+		return nil
 	}
 	visited[path] = true
 	if !fs.Exists(path) {
-		return
+		return fmt.Errorf("import %q not found", path)
 	}
 	data, err := fs.Read(path)
 	if err != nil {
-		return
+		return fmt.Errorf("read import %q: %w", path, err)
 	}
 	tokens, err := Tokenize(string(data), path)
 	if err != nil {
-		return
+		return fmt.Errorf("tokenize import %q: %w", path, err)
 	}
 	impFile, err := Parse(tokens, path)
 	if err != nil {
-		return
+		return fmt.Errorf("parse import %q: %w", path, err)
 	}
 	if imported != nil {
 		*imported = append(*imported, ImportedFile{File: impFile, Filename: path})
@@ -107,9 +110,12 @@ func collectImportedTypes(out map[string]importedType, visited map[string]bool, 
 	}
 	for _, nested := range impFile.Imports {
 		if nested.Public {
-			collectImportedTypes(out, visited, imported, nested.Path, fs)
+			if err := collectImportedTypes(out, visited, imported, nested.Path, fs); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 // collectFromMessage recursively records a message and all of its

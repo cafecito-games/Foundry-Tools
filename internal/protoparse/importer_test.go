@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cafecito-games/foundry-tools/internal/protoast"
@@ -558,7 +559,7 @@ func TestResolveExternalWithFiles_FollowsPublicReExports(t *testing.T) {
 	}
 }
 
-func TestResolveExternal_MissingImportSilent(t *testing.T) {
+func TestResolveExternal_MissingImportErrors(t *testing.T) {
 	in := `syntax = "proto3";
 import "missing.proto";
 message M {
@@ -566,7 +567,9 @@ message M {
 }`
 	fs := &memFS{files: map[string]string{}}
 	file := parseFile(t, in)
-	if err := protoparse.ResolveExternal(file, "in.proto", fs); err != nil {
-		t.Fatalf("expected no error, got %v", err)
+	if err := protoparse.ResolveExternal(file, "in.proto", fs); err == nil {
+		t.Fatal("expected missing import error")
+	} else if !strings.Contains(err.Error(), `import "missing.proto" not found`) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
