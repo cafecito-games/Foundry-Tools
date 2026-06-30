@@ -8,6 +8,7 @@ import (
 
 // Class represents a Foundry Script class declaration.
 type Class struct {
+	Doc     []string
 	Final   bool
 	Name    string
 	Extends string
@@ -24,6 +25,7 @@ type Var struct {
 
 // Func represents a typed function declaration.
 type Func struct {
+	Doc        []string
 	Static     bool
 	Name       string
 	Parameters []Parameter
@@ -32,15 +34,34 @@ type Func struct {
 	Body       []Node
 }
 
+// Doc adds documentation comments above another node.
+type Doc struct {
+	Lines []string
+	Node  Node
+}
+
 // Parameter represents a typed function parameter.
 type Parameter struct {
 	Name string
 	Type fstypes.Type
 }
 
+func renderDoc(builder *strings.Builder, indent int, lines []string) {
+	for _, line := range lines {
+		builder.WriteString(indentation(indent))
+		builder.WriteString("##")
+		if line != "" {
+			builder.WriteByte(' ')
+			builder.WriteString(line)
+		}
+		builder.WriteByte('\n')
+	}
+}
+
 // RenderAt renders c at indent.
 func (c Class) RenderAt(indent int) string {
 	var builder strings.Builder
+	renderDoc(&builder, indent, c.Doc)
 	builder.WriteString(indentation(indent))
 	if c.Final {
 		builder.WriteString("final ")
@@ -59,6 +80,16 @@ func (c Class) RenderAt(indent int) string {
 	for _, member := range c.Members {
 		builder.WriteByte('\n')
 		builder.WriteString(member.RenderAt(indent))
+	}
+	return builder.String()
+}
+
+// RenderAt renders d at indent.
+func (d Doc) RenderAt(indent int) string {
+	var builder strings.Builder
+	renderDoc(&builder, indent, d.Lines)
+	if d.Node != nil {
+		builder.WriteString(d.Node.RenderAt(indent))
 	}
 	return builder.String()
 }
@@ -84,6 +115,7 @@ func (v Var) RenderAt(indent int) string {
 // RenderAt renders fn at indent.
 func (fn Func) RenderAt(indent int) string {
 	var builder strings.Builder
+	renderDoc(&builder, indent, fn.Doc)
 	builder.WriteString(indentation(indent))
 	if fn.Static {
 		builder.WriteString("static ")
