@@ -20,12 +20,12 @@ mkdir -p "$OUT"
   -o "$OUT" \
   "$ROOT/tests/integration/fixtures/basic/player.proto"
 
-if rg -n '(^|[^_])func [A-Za-z0-9_]+\(.*Variant|-> Variant' "$OUT"; then
+if grep -R -n -E -e '(^|[^_])func [A-Za-z0-9_]+\(.*Variant|-> Variant' "$OUT"; then
   echo "public Variant signature found in generated Foundry Script"
   exit 1
 fi
 
-if rg -n -- '-> foundry\.proto\.DecodeResult\[|: foundry\.proto\.FieldRead\[|uses (foundry\.proto\.)?Message\[' "$OUT"; then
+if grep -R -n -E -e '-> foundry\.proto\.DecodeResult\[|: foundry\.proto\.FieldRead\[|uses (foundry\.proto\.)?Message\[' "$OUT"; then
   echo "dotted runtime generic type annotation found in generated Foundry Script"
   exit 1
 fi
