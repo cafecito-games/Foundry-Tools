@@ -18,6 +18,11 @@ type Expr struct {
 	Code string
 }
 
+// Raw renders preformatted Foundry Script code.
+type Raw struct {
+	Code string
+}
+
 // RenderAt renders r at indent.
 func (r Return) RenderAt(indent int) string {
 	var builder strings.Builder
@@ -49,4 +54,10 @@ func (e Expr) RenderAt(indent int) string {
 	builder.WriteString(e.Code)
 	builder.WriteByte('\n')
 	return builder.String()
+}
+
+// RenderAt renders r without applying indentation.
+func (r Raw) RenderAt(level int) string {
+	_ = level
+	return r.Code
 }

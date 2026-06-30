@@ -35,3 +35,33 @@ func TestScalarTypeMapping(t *testing.T) {
 	require.Equal(t, "String", ScalarType("string").Render())
 	require.Equal(t, "PackedByteArray", ScalarType("bytes").Render())
 }
+
+func TestGenerateMessageAndEnumSkeletons(t *testing.T) {
+	file := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.game.v1",
+		Messages: []*protoast.Message{{
+			Name: "Player",
+			Fields: []*protoast.Field{{
+				FieldType: "string",
+				Name:      "name",
+				Number:    1,
+			}},
+		}},
+		Enums: []*protoast.Enum{{
+			Name: "PlayerStatus",
+			Values: []*protoast.EnumValue{
+				{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0},
+				{Name: "PLAYER_STATUS_ONLINE", Number: 1},
+			},
+		}},
+	}
+
+	files, err := Generate(file, "examples/example.proto", nil)
+	require.NoError(t, err)
+	require.Len(t, files, 2)
+	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "final class_name Player extends RefCounted uses foundry.proto.Message[Player]")
+	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var _name: String = \"\"")
+	require.Contains(t, files["cafecito/game/v1/PlayerStatus.pb.fs"], "enum_name PlayerStatus")
+	require.NoError(t, CheckPublicAPI(files["cafecito/game/v1/Player.pb.fs"]))
+}

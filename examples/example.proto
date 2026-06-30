@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package cafecito.game.v1;
+
+message Player {
+  string name = 1;
+}
+
+enum PlayerStatus {
+  PLAYER_STATUS_UNSPECIFIED = 0;
+  PLAYER_STATUS_ONLINE = 1;
+}
