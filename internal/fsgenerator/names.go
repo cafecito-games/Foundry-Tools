@@ -33,7 +33,7 @@ func NamespaceFor(file *protoast.ProtoFile) string {
 // ValidateNamespace validates a dotted Foundry Script namespace.
 func ValidateNamespace(namespace string) error {
 	if namespace == "" {
-		return nil
+		return fmt.Errorf("namespace is required")
 	}
 	for _, part := range strings.Split(namespace, ".") {
 		if !identifierPattern.MatchString(part) {

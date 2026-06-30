@@ -16,10 +16,28 @@ func TestNamespaceFromPackageAndOption(t *testing.T) {
 }
 
 func TestValidateNamespace(t *testing.T) {
-	require.NoError(t, ValidateNamespace(""))
+	require.Error(t, ValidateNamespace(""))
 	require.NoError(t, ValidateNamespace("cafecito.game_v1"))
 	require.Error(t, ValidateNamespace("cafecito..game"))
 	require.Error(t, ValidateNamespace("cafecito.1game"))
+}
+
+func TestGenerateRequiresNamespace(t *testing.T) {
+	file := &protoast.ProtoFile{
+		Syntax: "proto3",
+		Messages: []*protoast.Message{{
+			Name: "Player",
+			Fields: []*protoast.Field{{
+				FieldType: "string",
+				Name:      "name",
+				Number:    1,
+			}},
+		}},
+	}
+
+	_, err := Generate(file, "player.proto", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "namespace is required")
 }
 
 func TestTypeName(t *testing.T) {
