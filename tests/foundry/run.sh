@@ -18,4 +18,31 @@ if rg -n '(^|[^_])func [A-Za-z0-9_]+\(.*Variant|-> Variant' "$OUT"; then
   exit 1
 fi
 
-"$FOUNDRY" --headless --check-only --script "$ROOT/tests/foundry/main.fs" --path "$ROOT/tests/foundry"
+if rg -n -- '-> foundry\.proto\.DecodeResult\[|: foundry\.proto\.FieldRead\[|uses foundry\.proto\.Message\[' "$OUT"; then
+  echo "dotted runtime generic type annotation found in generated Foundry Script"
+  exit 1
+fi
+
+run_foundry_checked() {
+  local foundry_output
+  local foundry_status
+
+  set +e
+  foundry_output="$("$FOUNDRY" "$@" 2>&1)"
+  foundry_status=$?
+  set -e
+
+  printf '%s\n' "$foundry_output"
+
+  if [ "$foundry_status" -ne 0 ]; then
+    exit "$foundry_status"
+  fi
+
+  if grep -E 'SCRIPT ERROR|Parse Error|Failed to load script' <<<"$foundry_output"; then
+    echo "Foundry reported script parse/load diagnostics"
+    exit 1
+  fi
+}
+
+run_foundry_checked --headless --import --path "$ROOT/tests/foundry"
+run_foundry_checked --headless --check-only --script "$ROOT/tests/foundry/main.fs" --path "$ROOT/tests/foundry"

@@ -12,7 +12,7 @@ func mergeFromBytesFunction(fields []*protoast.Field) fsast.Func {
 	body := []fsast.Node{
 		rawLine("\tvar offset: int = 0"),
 		rawLine("\twhile offset < data.size():"),
-		rawLine("\t\tvar tag_read: foundry.proto.FieldRead[int] = foundry.proto.Wire.decode_varint(data, offset)"),
+		rawLine("\t\tvar tag_read: FieldRead[int] = foundry.proto.Wire.decode_varint(data, offset)"),
 		rawLine("\t\tif tag_read.error != foundry.proto.ProtobufError.OK:"),
 		rawLine("\t\t\treturn tag_read.error"),
 		rawLine("\t\toffset = tag_read.offset"),
@@ -40,11 +40,11 @@ func deserializeField(field *protoast.Field) []fsast.Node {
 	case "string":
 		return []fsast.Node{
 			rawLine(fmt.Sprintf("\t\t\t%d:", field.Number)),
-			rawLine("\t\t\t\tvar length_read: foundry.proto.FieldRead[int] = foundry.proto.Wire.decode_varint(data, offset)"),
+			rawLine("\t\t\t\tvar length_read: FieldRead[int] = foundry.proto.Wire.decode_varint(data, offset)"),
 			rawLine("\t\t\t\tif length_read.error != foundry.proto.ProtobufError.OK:"),
 			rawLine("\t\t\t\t\treturn length_read.error"),
 			rawLine("\t\t\t\toffset = length_read.offset"),
-			rawLine("\t\t\t\tvar string_read: foundry.proto.FieldRead[String] = foundry.proto.Wire.decode_string(data, offset, length_read.value)"),
+			rawLine("\t\t\t\tvar string_read: FieldRead[String] = foundry.proto.Wire.decode_string(data, offset, length_read.value)"),
 			rawLine("\t\t\t\tif string_read.error != foundry.proto.ProtobufError.OK:"),
 			rawLine("\t\t\t\t\treturn string_read.error"),
 			rawLine(fmt.Sprintf("\t\t\t\t_%s = string_read.value", field.Name)),
@@ -53,7 +53,7 @@ func deserializeField(field *protoast.Field) []fsast.Node {
 	default:
 		return []fsast.Node{
 			rawLine(fmt.Sprintf("\t\t\t%d:", field.Number)),
-			rawLine("\t\t\t\tvar value_read: foundry.proto.FieldRead[int] = foundry.proto.Wire.decode_varint(data, offset)"),
+			rawLine("\t\t\t\tvar value_read: FieldRead[int] = foundry.proto.Wire.decode_varint(data, offset)"),
 			rawLine("\t\t\t\tif value_read.error != foundry.proto.ProtobufError.OK:"),
 			rawLine("\t\t\t\t\treturn value_read.error"),
 			rawLine(fmt.Sprintf("\t\t\t\t_%s = value_read.value", field.Name)),

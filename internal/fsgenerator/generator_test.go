@@ -60,7 +60,8 @@ func TestGenerateMessageAndEnumSkeletons(t *testing.T) {
 	files, err := Generate(file, "examples/example.proto", nil)
 	require.NoError(t, err)
 	require.Len(t, files, 2)
-	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "final class_name Player extends RefCounted uses foundry.proto.Message[Player]")
+	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "final class_name Player extends RefCounted")
+	require.NotContains(t, files["cafecito/game/v1/Player.pb.fs"], " uses ")
 	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var _name: String = \"\"")
 	require.Contains(t, files["cafecito/game/v1/PlayerStatus.pb.fs"], "enum_name PlayerStatus")
 	require.NoError(t, CheckPublicAPI(files["cafecito/game/v1/Player.pb.fs"]))
@@ -85,7 +86,11 @@ func TestGenerateTypedAccessorsAndDecodeFactory(t *testing.T) {
 	require.Contains(t, source, "func set_name(value: String) -> void:")
 	require.Contains(t, source, "func get_name() -> String:")
 	require.Contains(t, source, "func set_level(value: int) -> void:")
-	require.Contains(t, source, "static func from_bytes(data: PackedByteArray) -> foundry.proto.DecodeResult[Player]:")
+	require.Contains(t, source, "static func from_bytes(data: PackedByteArray) -> DecodeResult[Player]:")
+	require.Contains(t, source, "var tag_read: FieldRead[int] =")
+	require.Contains(t, source, "var string_read: FieldRead[String] =")
+	require.NotContains(t, source, "-> foundry.proto.DecodeResult[")
+	require.NotContains(t, source, ": foundry.proto.FieldRead[")
 	require.NotContains(t, source, "Variant")
 }
 

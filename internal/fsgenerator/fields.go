@@ -34,11 +34,11 @@ func fromBytesFactory(className string) fsast.Func {
 		Static:     true,
 		Name:       "from_bytes",
 		Parameters: []fsast.Parameter{{Name: "data", Type: fstypes.Named("PackedByteArray")}},
-		ReturnType: fstypes.Generic("foundry.proto.DecodeResult", fstypes.Named(className)),
+		ReturnType: fstypes.Generic("DecodeResult", fstypes.Named(className)),
 		Body: []fsast.Node{
 			fsast.Raw{Code: "\tvar message: " + className + " = " + className + ".new()\n"},
 			fsast.Raw{Code: "\tvar err: foundry.proto.ProtobufError = message.merge_from_bytes(data)\n"},
-			fsast.Return{Value: "foundry.proto.DecodeResult[" + className + "].from(message, err)"},
+			fsast.Return{Value: "DecodeResult[" + className + "].from(message, err)"},
 		},
 	}
 }

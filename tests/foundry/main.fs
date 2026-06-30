@@ -1,11 +1,14 @@
+import cafecito.game.v1
+import foundry.proto
+
 extends SceneTree
 
 func _init() -> void:
-	var player: cafecito.game.v1.Player = cafecito.game.v1.Player.new()
+	var player: Player = Player.new()
 	player.set_name("Ava")
 	player.set_level(7)
 	var data: PackedByteArray = player.to_bytes()
-	var decoded: foundry.proto.DecodeResult[cafecito.game.v1.Player] = cafecito.game.v1.Player.from_bytes(data)
+	var decoded: DecodeResult[Player] = Player.from_bytes(data)
 	if not decoded.is_ok():
 		printerr("decode failed")
 		quit(1)

@@ -88,7 +88,6 @@ func renderMessage(namespace, typeName string, message *protoast.Message) string
 				Final:   true,
 				Name:    typeName,
 				Extends: "RefCounted",
-				Uses:    []string{"foundry.proto.Message[" + typeName + "]"},
 				Members: members,
 			},
 		},
