@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/cafecito-games/foundry-tools/internal/fsast"
-	"github.com/cafecito-games/foundry-tools/internal/fstypes"
 	"github.com/cafecito-games/foundry-tools/internal/protoast"
 )
 
@@ -77,26 +76,8 @@ func renderMessage(namespace, typeName string, message *protoast.Message) string
 	}
 	members = append(members,
 		fromBytesFactory(typeName),
-		fsast.Func{
-			Name:       "to_bytes",
-			ReturnType: fstypes.Named("PackedByteArray"),
-			Body: []fsast.Node{
-				fsast.Var{Name: "result", Type: fstypes.Named("PackedByteArray"), Value: "PackedByteArray()"},
-				fsast.Return{Value: "result"},
-			},
-		},
-		fsast.Func{
-			Name: "merge_from_bytes",
-			Parameters: []fsast.Parameter{{
-				Name: "data",
-				Type: fstypes.Named("PackedByteArray"),
-			}},
-			ReturnType: fstypes.Named("foundry.proto.ProtobufError"),
-			Body: []fsast.Node{
-				fsast.Var{Name: "_unused_size", Type: fstypes.Named("int"), Value: "data.size()"},
-				fsast.Return{Value: "foundry.proto.ProtobufError.OK"},
-			},
-		},
+		toBytesFunction(message.Fields),
+		mergeFromBytesFunction(message.Fields),
 	)
 
 	return fsast.File{

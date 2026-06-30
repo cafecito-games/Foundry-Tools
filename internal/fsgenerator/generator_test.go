@@ -88,3 +88,27 @@ func TestGenerateTypedAccessorsAndDecodeFactory(t *testing.T) {
 	require.Contains(t, source, "static func from_bytes(data: PackedByteArray) -> foundry.proto.DecodeResult[Player]:")
 	require.NotContains(t, source, "Variant")
 }
+
+func TestGenerateScalarSerialization(t *testing.T) {
+	file := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.game.v1",
+		Messages: []*protoast.Message{{
+			Name: "Player",
+			Fields: []*protoast.Field{
+				{FieldType: "string", Name: "name", Number: 1},
+				{FieldType: "int32", Name: "level", Number: 2},
+			},
+		}},
+	}
+
+	files, err := Generate(file, "player.proto", nil)
+	require.NoError(t, err)
+	source := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, source, "foundry.proto.Wire.encode_varint(10)")
+	require.Contains(t, source, "foundry.proto.Wire.encode_string(_name)")
+	require.Contains(t, source, "foundry.proto.Wire.encode_varint(16)")
+	require.Contains(t, source, "match field_number:")
+	require.Contains(t, source, "_name = string_read.value")
+	require.Contains(t, source, "_level = value_read.value")
+}
