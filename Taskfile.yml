@@ -1,0 +1,104 @@
+version: '3'
+
+vars:
+  PKG: ./...
+  BIN_DIR: bin
+  FOUNDRY_BIN:
+    sh: printf '%s' "${FOUNDRY_BIN:-$HOME/.foundry/bin/foundry.macos.editor.dev.arm64}"
+
+tasks:
+  default:
+    desc: Run the full local CI pipeline.
+    cmds:
+      - task: ci
+
+  build:
+    desc: Build all binaries into ./bin.
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/foundry-tools ./cmd/foundry-tools
+      - go build -o {{.BIN_DIR}}/protoc-gen-foundryscript ./cmd/protoc-gen-foundryscript
+
+  install:
+    desc: Install Foundry Tools binaries into $GOPATH/bin.
+    cmds:
+      - go install ./cmd/foundry-tools
+      - go install ./cmd/protoc-gen-foundryscript
+
+  test:
+    desc: Run unit tests.
+    cmds:
+      - go test -race -count=1 {{.PKG}}
+
+  test:cover:
+    desc: Run tests with coverage; output coverage.out.
+    cmds:
+      - go test -race -count=1 -coverprofile=coverage.out -covermode=atomic {{.PKG}}
+      - go tool cover -func=coverage.out | tail -1
+
+  integration:
+    desc: Run protoc, plugin, and Buf integration tests.
+    cmds:
+      - go test -tags=integration ./tests/integration/... -v -count=1
+
+  foundry:test:
+    desc: Run generated Foundry Script checks with a Foundry editor binary.
+    cmds:
+      - |
+        test -x "{{.FOUNDRY_BIN}}" || (echo "Foundry binary not found or not executable: {{.FOUNDRY_BIN}}" && exit 1)
+      - FOUNDRY_BIN="{{.FOUNDRY_BIN}}" bash tests/foundry/run.sh
+
+  lint:
+    desc: Run golangci-lint.
+    cmds:
+      - golangci-lint run
+
+  fmt:
+    desc: Format Go source.
+    cmds:
+      - go fmt {{.PKG}}
+      - go run golang.org/x/tools/cmd/goimports@latest -w .
+
+  fmt:check:
+    desc: Verify all Go files are formatted.
+    cmds:
+      - |
+        unformatted=$(gofmt -l . | grep -v '^vendor/' || true)
+        if [ -n "$unformatted" ]; then
+          echo "Unformatted files:"
+          echo "$unformatted"
+          exit 1
+        fi
+    silent: true
+
+  gen-options:
+    desc: Generate Go stubs for foundrytools/options.proto and refresh the embedded copy.
+    cmds:
+      - protoc -I proto --go_out=. --go_opt=module=github.com/cafecito-games/foundry-tools proto/foundrytools/options.proto
+      - cp proto/foundrytools/options.proto internal/foundrytoolspb/options.proto
+
+  tidy:
+    desc: Run go mod tidy.
+    cmds:
+      - go mod tidy
+
+  tidy:check:
+    desc: Verify go.mod/go.sum are tidy.
+    cmds:
+      - go mod tidy
+      - |
+        if ! git diff --quiet -- go.mod go.sum; then
+          echo "go.mod/go.sum are not tidy. Run 'task tidy' and commit the result."
+          git --no-pager diff -- go.mod go.sum
+          exit 1
+        fi
+    silent: true
+
+  ci:
+    desc: Full local CI pipeline without Foundry.
+    cmds:
+      - task: fmt:check
+      - task: tidy:check
+      - task: lint
+      - task: test
+      - task: build
