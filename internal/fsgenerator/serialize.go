@@ -15,6 +15,7 @@ func toBytesFunction(fields []*protoast.Field) fsast.Func {
 	}
 	body = append(body, fsast.Return{Value: "result"})
 	return fsast.Func{
+		Doc:        toBytesDoc(),
 		Name:       "to_bytes",
 		ReturnType: fstypes.Named("PackedByteArray"),
 		Body:       body,

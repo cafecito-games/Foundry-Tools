@@ -78,11 +78,16 @@ func TestGenerateMessageAndEnumSkeletons(t *testing.T) {
 	files, err := Generate(file, "examples/example.proto", nil)
 	require.NoError(t, err)
 	require.Len(t, files, 2)
-	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "final class_name Player extends RefCounted")
-	require.NotContains(t, files["cafecito/game/v1/Player.pb.fs"], " uses ")
-	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var _name: String = \"\"")
-	require.Contains(t, files["cafecito/game/v1/PlayerStatus.pb.fs"], "enum_name PlayerStatus")
-	require.NoError(t, CheckPublicAPI(files["cafecito/game/v1/Player.pb.fs"]))
+	messageSource := files["cafecito/game/v1/Player.pb.fs"]
+	enumSource := files["cafecito/game/v1/PlayerStatus.pb.fs"]
+	require.Contains(t, messageSource, "## Generated protobuf message binding for Player.\nfinal class_name Player extends RefCounted")
+	require.Contains(t, enumSource, "## Generated protobuf enum binding for PlayerStatus.\nenum_name PlayerStatus")
+	require.NotContains(t, messageSource, "## var _name")
+	require.Contains(t, messageSource, "final class_name Player extends RefCounted")
+	require.NotContains(t, messageSource, " uses ")
+	require.Contains(t, messageSource, "var _name: String = \"\"")
+	require.Contains(t, enumSource, "enum_name PlayerStatus")
+	require.NoError(t, CheckPublicAPI(messageSource))
 }
 
 func TestGenerateTypedAccessorsAndDecodeFactory(t *testing.T) {
@@ -105,6 +110,10 @@ func TestGenerateTypedAccessorsAndDecodeFactory(t *testing.T) {
 	require.Contains(t, source, "func get_name() -> String:")
 	require.Contains(t, source, "func set_level(value: int) -> void:")
 	require.Contains(t, source, "static func from_bytes(data: PackedByteArray) -> DecodeResult[Player]:")
+	require.Contains(t, source, "## Sets the name protobuf field.\nfunc set_name(value: String) -> void:")
+	require.Contains(t, source, "## Returns the name protobuf field.\nfunc get_name() -> String:")
+	require.Contains(t, source, "## Sets the level protobuf field.\nfunc set_level(value: int) -> void:")
+	require.Contains(t, source, "## Decodes protobuf wire data into a new Player message.\nstatic func from_bytes(data: PackedByteArray) -> DecodeResult[Player]:")
 	require.Contains(t, source, "var tag_read: FieldRead[int] =")
 	require.Contains(t, source, "var string_read: FieldRead[String] =")
 	require.NotContains(t, source, "-> foundry.proto.DecodeResult[")
@@ -137,6 +146,8 @@ func TestGenerateScalarSerialization(t *testing.T) {
 	require.Contains(t, source, "if length_read.value < 0 or offset + length_read.value > data.size():")
 	require.Contains(t, source, "_name = string_read.value")
 	require.Contains(t, source, "_level = value_read.value")
+	require.Contains(t, source, "## Serializes this message to protobuf wire data.\nfunc to_bytes() -> PackedByteArray:")
+	require.Contains(t, source, "## Merges protobuf wire data into this message.\nfunc merge_from_bytes(data: PackedByteArray) -> foundry.proto.ProtobufError:")
 }
 
 func TestGenerateBoolAndBytesWireCode(t *testing.T) {

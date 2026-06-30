@@ -58,6 +58,34 @@ func validateWireFields(message *protoast.Message) error {
 	return nil
 }
 
+func messageDoc(typeName string) []string {
+	return []string{"Generated protobuf message binding for " + typeName + "."}
+}
+
+func enumDoc(typeName string) []string {
+	return []string{"Generated protobuf enum binding for " + typeName + "."}
+}
+
+func setterDoc(fieldName string) []string {
+	return []string{"Sets the " + fieldName + " protobuf field."}
+}
+
+func getterDoc(fieldName string) []string {
+	return []string{"Returns the " + fieldName + " protobuf field."}
+}
+
+func fromBytesDoc(typeName string) []string {
+	return []string{"Decodes protobuf wire data into a new " + typeName + " message."}
+}
+
+func toBytesDoc() []string {
+	return []string{"Serializes this message to protobuf wire data."}
+}
+
+func mergeFromBytesDoc() []string {
+	return []string{"Merges protobuf wire data into this message."}
+}
+
 func renderEnum(namespace, typeName string, enum *protoast.Enum) string {
 	var builder strings.Builder
 	builder.WriteString("enum_name ")
@@ -73,8 +101,13 @@ func renderEnum(namespace, typeName string, enum *protoast.Enum) string {
 	builder.WriteString("}\n")
 
 	return fsast.File{
-		Namespace:    namespace,
-		Declarations: []fsast.Node{fsast.Raw{Code: builder.String()}},
+		Namespace: namespace,
+		Declarations: []fsast.Node{
+			fsast.Doc{
+				Lines: enumDoc(typeName),
+				Node:  fsast.Raw{Code: builder.String()},
+			},
+		},
 	}.Render()
 }
 
@@ -101,6 +134,7 @@ func renderMessage(namespace, typeName string, message *protoast.Message) string
 			// Current Foundry builds cannot resolve/apply imported runtime trait bodies
 			// such as foundry.proto.Message[T] here, so conformance is deferred.
 			fsast.Class{
+				Doc:     messageDoc(typeName),
 				Final:   true,
 				Name:    typeName,
 				Extends: "RefCounted",
