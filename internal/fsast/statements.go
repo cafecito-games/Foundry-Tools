@@ -15,7 +15,7 @@ type Assign struct {
 
 // Expr represents an expression statement.
 type Expr struct {
-	Value string
+	Code string
 }
 
 // RenderAt renders r at indent.
@@ -46,7 +46,7 @@ func (a Assign) RenderAt(indent int) string {
 func (e Expr) RenderAt(indent int) string {
 	var builder strings.Builder
 	builder.WriteString(indentation(indent))
-	builder.WriteString(e.Value)
+	builder.WriteString(e.Code)
 	builder.WriteByte('\n')
 	return builder.String()
 }

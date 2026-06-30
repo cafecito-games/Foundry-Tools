@@ -31,3 +31,7 @@ func TestFileRendering(t *testing.T) {
 
 	require.Equal(t, "namespace cafecito.game.v1\nimport foundry.proto\n\nfinal class_name Player extends RefCounted uses foundry.proto.Message[Player]\n\nvar _name: String = \"\"\n\nfunc get_name() -> String:\n\treturn _name\n", file.Render())
 }
+
+func TestExprRendering(t *testing.T) {
+	require.Equal(t, "\t\tdo_work()\n", Expr{Code: "do_work()"}.RenderAt(2))
+}
