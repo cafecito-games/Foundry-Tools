@@ -3,8 +3,15 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/cafecito-games/foundry-tools/internal/foundrytoolspb"
+	"github.com/cafecito-games/foundry-tools/internal/fsgenerator"
+	"github.com/cafecito-games/foundry-tools/internal/protoparse"
+	"github.com/cafecito-games/foundry-tools/internal/protovalidate"
+	"github.com/cafecito-games/foundry-tools/internal/runtime"
 	"github.com/spf13/cobra"
 )
 
@@ -47,5 +54,73 @@ func newProtoCommand(stdout io.Writer) *cobra.Command {
 			return err
 		},
 	})
+	cmd.AddCommand(newProtoGenerateCommand(stdout))
 	return cmd
+}
+
+func newProtoGenerateCommand(stdout io.Writer) *cobra.Command {
+	var opts struct {
+		outDir     string
+		importPath []string
+	}
+
+	cmd := &cobra.Command{
+		Use:   "generate [flags] <proto files...>",
+		Short: "Generate Foundry Script from protobuf files",
+		Args: func(_ *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return fmt.Errorf("at least one .proto file is required")
+			}
+			return nil
+		},
+		RunE: func(_ *cobra.Command, args []string) error {
+			parsedFiles, err := protoparse.ParseFiles(args, opts.importPath)
+			if err != nil {
+				return err
+			}
+			for _, parsed := range parsedFiles {
+				if validationErrors := protovalidate.Validate(parsed.File, parsed.Filename); len(validationErrors) != 0 {
+					return validationErrorList(validationErrors)
+				}
+				files, err := fsgenerator.Generate(parsed.File, parsed.Filename, nil)
+				if err != nil {
+					return err
+				}
+				if err := writeFiles(opts.outDir, files); err != nil {
+					return err
+				}
+			}
+			if err := writeFiles(opts.outDir, runtime.Files()); err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(stdout, "generated Foundry Script for %d proto file(s)\n", len(args))
+			return err
+		},
+	}
+	cmd.Flags().StringVarP(&opts.outDir, "out", "o", ".", "output directory")
+	cmd.Flags().StringArrayVarP(&opts.importPath, "proto_path", "I", nil, "proto import path")
+	return cmd
+}
+
+type validationErrorList []protovalidate.ValidationError
+
+func (l validationErrorList) Error() string {
+	messages := make([]string, 0, len(l))
+	for i := range l {
+		messages = append(messages, (&l[i]).Error())
+	}
+	return strings.Join(messages, "\n")
+}
+
+func writeFiles(outDir string, files map[string]string) error {
+	for name, source := range files {
+		path := filepath.Join(outDir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
 }
