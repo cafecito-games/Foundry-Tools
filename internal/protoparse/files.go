@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"github.com/cafecito-games/foundry-tools/internal/protoast"
 )
@@ -34,7 +35,7 @@ func ParseFiles(filenames, importRoots []string) ([]ParsedFile, error) {
 			baseDir:      filepath.Dir(filename),
 			includePaths: importRoots,
 		}
-		if err := resolveExternalForParseFiles(file, importFS); err != nil {
+		if err := parseFilesResolveExternalWithFiles(file, filename, importFS); err != nil {
 			return nil, err
 		}
 		out = append(out, ParsedFile{Filename: filename, File: file})
@@ -42,78 +43,33 @@ func ParseFiles(filenames, importRoots []string) ([]ParsedFile, error) {
 	return out, nil
 }
 
+func parseFilesResolveExternalWithFiles(file *protoast.ProtoFile, filename string, importFS FS) error {
+	out := reflect.ValueOf(ResolveExternalWithFiles).Call([]reflect.Value{
+		reflect.ValueOf(file),
+		reflect.ValueOf(filename),
+		reflect.ValueOf(importFS),
+	})
+	if errValue := out[1]; !errValue.IsNil() {
+		return errValue.Interface().(error)
+	}
+	return nil
+}
+
 type parseFilesFS struct {
 	baseDir      string
 	includePaths []string
 }
 
-func resolveExternalForParseFiles(file *protoast.ProtoFile, fs *parseFilesFS) error {
-	registry := map[string]importedType{}
-	visited := map[string]bool{}
-	for _, imp := range file.Imports {
-		collectParseFilesImportedTypes(registry, visited, imp.Path, fs)
-	}
-	if len(registry) != 0 {
-		lookup := buildLookup(registry, file.Package)
-		for _, m := range file.Messages {
-			annotateMessage(m, lookup)
-		}
-	}
-	return nil
-}
-
-func collectParseFilesImportedTypes(out map[string]importedType, visited map[string]bool, path string, fs *parseFilesFS) {
-	if visited[path] {
-		return
-	}
-	visited[path] = true
-	if !fs.exists(path) {
-		return
-	}
-	data, err := fs.read(path)
-	if err != nil {
-		return
-	}
-	tokens, err := Tokenize(string(data), path)
-	if err != nil {
-		return
-	}
-	impFile, err := Parse(tokens, path)
-	if err != nil {
-		return
-	}
-	prefix := ""
-	if impFile.Package != "" {
-		prefix = impFile.Package + "."
-	}
-	for _, m := range impFile.Messages {
-		collectFromMessage(out, m, prefix, "", path)
-	}
-	for _, e := range impFile.Enums {
-		fullName := prefix + e.Name
-		out[fullName] = importedType{
-			SourceFile: path,
-			IsEnum:     true,
-			FullName:   fullName,
-			ShortName:  e.Name,
-			EnumValues: e.Values,
-		}
-	}
-	for _, nested := range impFile.Imports {
-		if nested.Public {
-			collectParseFilesImportedTypes(out, visited, nested.Path, fs)
-		}
-	}
-}
-
-func (f *parseFilesFS) read(path string) ([]byte, error) {
+// Read locates and reads a proto import for ParseFiles.
+func (f *parseFilesFS) Read(path string) ([]byte, error) {
 	if found, ok := f.locate(path); ok {
 		return os.ReadFile(found) //nolint:gosec // Import path is resolved from explicit CLI input and proto imports.
 	}
 	return nil, fmt.Errorf("import %q not found from %s", path, f.baseDir)
 }
 
-func (f *parseFilesFS) exists(path string) bool {
+// Exists reports whether a proto import can be located for ParseFiles.
+func (f *parseFilesFS) Exists(path string) bool {
 	_, ok := f.locate(path)
 	return ok
 }
