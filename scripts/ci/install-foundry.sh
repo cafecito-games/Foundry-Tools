@@ -13,9 +13,24 @@ fi
 mkdir -p "$FOUNDRY_CACHE_DIR"
 
 release_error="$(mktemp)"
-if ! release_json="$(gh api "repos/$FOUNDRY_REPO/releases/tags/$FOUNDRY_RELEASE_TAG" 2>"$release_error")"; then
+release_json=""
+if ! release_json="$(gh api "repos/$FOUNDRY_REPO/releases/tags/$FOUNDRY_RELEASE_TAG" 2>"$release_error")" || [ -z "$release_json" ]; then
+  tag_lookup_error="$(cat "$release_error")"
+  if releases_json="$(gh api "repos/$FOUNDRY_REPO/releases?per_page=100" 2>"$release_error")"; then
+    release_json="$(
+      jq -c --arg tag "$FOUNDRY_RELEASE_TAG" '
+        [.[] | select(.tag_name == $tag)][0] // empty
+      ' <<<"$releases_json"
+    )"
+  fi
+fi
+
+if [ -z "$release_json" ]; then
   echo "Unable to read Foundry release $FOUNDRY_REPO@$FOUNDRY_RELEASE_TAG." >&2
   echo "If this release or its assets are draft/private, set FOUNDRY_RELEASE_TOKEN or GH_TOKEN with access to the release." >&2
+  if [ -n "${tag_lookup_error:-}" ]; then
+    echo "$tag_lookup_error" >&2
+  fi
   cat "$release_error" >&2
   rm -f "$release_error"
   exit 1
@@ -39,15 +54,20 @@ fi
 asset_id="$(cut -f1 <<<"$asset_info")"
 asset_name="$(cut -f2- <<<"$asset_info")"
 archive="$FOUNDRY_CACHE_DIR/$asset_name"
+safe_tag="$(printf '%s' "$FOUNDRY_RELEASE_TAG" | tr -c '[:alnum:]._-' '_')"
+safe_asset="$(printf '%s' "${asset_name%.zip}" | tr -c '[:alnum:]._-' '_')"
+extract_dir="$FOUNDRY_CACHE_DIR/$safe_tag/$safe_asset"
 
 echo "Downloading Foundry asset $asset_name from $FOUNDRY_REPO@$FOUNDRY_RELEASE_TAG..."
 gh api "repos/$FOUNDRY_REPO/releases/assets/$asset_id" \
   -H "Accept: application/octet-stream" > "$archive"
 
-unzip -o "$archive" -d "$FOUNDRY_CACHE_DIR"
+rm -rf "$extract_dir"
+mkdir -p "$extract_dir"
+unzip -o "$archive" -d "$extract_dir"
 
 foundry_bin="$(
-  find "$FOUNDRY_CACHE_DIR" -type f -name 'foundry*' -perm -111 | sort | head -n 1
+  find "$extract_dir" -type f -name 'foundry*' -perm -111 | sort | head -n 1
 )"
 
 if [ -z "$foundry_bin" ]; then
