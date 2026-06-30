@@ -29,10 +29,9 @@ type ImportedFile struct {
 // registry of imported types, and annotates Field/MapField/Oneof
 // references in file with SourceFile/FullTypePath/IsEnum metadata.
 //
-// Missing or malformed imports are silently skipped — the validator is
-// responsible for reporting unresolved type references. The inputPath
-// argument is retained for parity with the Python CLI; resolution
-// itself is delegated entirely to fs.
+// Missing or malformed imports are returned as errors. The inputPath
+// argument is retained for parity with the Python CLI; resolution itself
+// is delegated entirely to fs.
 func ResolveExternal(file *protoast.ProtoFile, inputPath string, fs FS) error {
 	_, err := ResolveExternalWithFiles(file, inputPath, fs)
 	return err
