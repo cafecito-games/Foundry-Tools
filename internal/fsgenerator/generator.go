@@ -51,7 +51,7 @@ func Generate(file *protoast.ProtoFile, sourceName string, _ []FileEntry) (Gener
 func validateWireFields(message *protoast.Message) error {
 	for _, field := range message.Fields {
 		switch field.FieldType {
-		case "float", "double", "fixed32", "fixed64", "sfixed32", "sfixed64":
+		case "float", "double", "fixed32", "fixed64", "sfixed32", "sfixed64", "sint32", "sint64":
 			return fmt.Errorf("unsupported scalar type %s for wire generation", field.FieldType)
 		}
 	}

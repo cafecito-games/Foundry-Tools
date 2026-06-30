@@ -64,6 +64,8 @@ func deserializeField(field *protoast.Field) []fsast.Node {
 	case "bool":
 		return []fsast.Node{
 			rawLine(fmt.Sprintf("\t\t\t%d:", field.Number)),
+			rawLine("\t\t\t\tif wire_type != foundry.proto.Wire.WIRE_VARINT:"),
+			rawLine("\t\t\t\t\treturn foundry.proto.ProtobufError.WIRE_TYPE_MISMATCH"),
 			rawLine("\t\t\t\tvar value_read: FieldRead[int] = foundry.proto.Wire.decode_varint(data, offset)"),
 			rawLine("\t\t\t\tif value_read.error != foundry.proto.ProtobufError.OK:"),
 			rawLine("\t\t\t\t\treturn value_read.error"),
@@ -73,10 +75,14 @@ func deserializeField(field *protoast.Field) []fsast.Node {
 	case "string":
 		return []fsast.Node{
 			rawLine(fmt.Sprintf("\t\t\t%d:", field.Number)),
+			rawLine("\t\t\t\tif wire_type != foundry.proto.Wire.WIRE_LENGTH_DELIMITED:"),
+			rawLine("\t\t\t\t\treturn foundry.proto.ProtobufError.WIRE_TYPE_MISMATCH"),
 			rawLine("\t\t\t\tvar length_read: FieldRead[int] = foundry.proto.Wire.decode_varint(data, offset)"),
 			rawLine("\t\t\t\tif length_read.error != foundry.proto.ProtobufError.OK:"),
 			rawLine("\t\t\t\t\treturn length_read.error"),
 			rawLine("\t\t\t\toffset = length_read.offset"),
+			rawLine("\t\t\t\tif length_read.value < 0 or offset + length_read.value > data.size():"),
+			rawLine("\t\t\t\t\treturn foundry.proto.ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH"),
 			rawLine("\t\t\t\tvar string_read: FieldRead[String] = foundry.proto.Wire.decode_string(data, offset, length_read.value)"),
 			rawLine("\t\t\t\tif string_read.error != foundry.proto.ProtobufError.OK:"),
 			rawLine("\t\t\t\t\treturn string_read.error"),
@@ -86,10 +92,14 @@ func deserializeField(field *protoast.Field) []fsast.Node {
 	case "bytes":
 		return []fsast.Node{
 			rawLine(fmt.Sprintf("\t\t\t%d:", field.Number)),
+			rawLine("\t\t\t\tif wire_type != foundry.proto.Wire.WIRE_LENGTH_DELIMITED:"),
+			rawLine("\t\t\t\t\treturn foundry.proto.ProtobufError.WIRE_TYPE_MISMATCH"),
 			rawLine("\t\t\t\tvar length_read: FieldRead[int] = foundry.proto.Wire.decode_varint(data, offset)"),
 			rawLine("\t\t\t\tif length_read.error != foundry.proto.ProtobufError.OK:"),
 			rawLine("\t\t\t\t\treturn length_read.error"),
 			rawLine("\t\t\t\toffset = length_read.offset"),
+			rawLine("\t\t\t\tif length_read.value < 0 or offset + length_read.value > data.size():"),
+			rawLine("\t\t\t\t\treturn foundry.proto.ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH"),
 			rawLine("\t\t\t\tvar bytes_read: FieldRead[PackedByteArray] = foundry.proto.Wire.decode_bytes(data, offset, length_read.value)"),
 			rawLine("\t\t\t\tif bytes_read.error != foundry.proto.ProtobufError.OK:"),
 			rawLine("\t\t\t\t\treturn bytes_read.error"),
@@ -99,6 +109,8 @@ func deserializeField(field *protoast.Field) []fsast.Node {
 	default:
 		return []fsast.Node{
 			rawLine(fmt.Sprintf("\t\t\t%d:", field.Number)),
+			rawLine("\t\t\t\tif wire_type != foundry.proto.Wire.WIRE_VARINT:"),
+			rawLine("\t\t\t\t\treturn foundry.proto.ProtobufError.WIRE_TYPE_MISMATCH"),
 			rawLine("\t\t\t\tvar value_read: FieldRead[int] = foundry.proto.Wire.decode_varint(data, offset)"),
 			rawLine("\t\t\t\tif value_read.error != foundry.proto.ProtobufError.OK:"),
 			rawLine("\t\t\t\t\treturn value_read.error"),

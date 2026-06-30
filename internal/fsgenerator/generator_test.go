@@ -114,6 +114,9 @@ func TestGenerateScalarSerialization(t *testing.T) {
 	require.Contains(t, source, "foundry.proto.Wire.encode_string(_name)")
 	require.Contains(t, source, "foundry.proto.Wire.encode_varint(16)")
 	require.Contains(t, source, "match field_number:")
+	require.Contains(t, source, "if wire_type != foundry.proto.Wire.WIRE_LENGTH_DELIMITED:")
+	require.Contains(t, source, "if wire_type != foundry.proto.Wire.WIRE_VARINT:")
+	require.Contains(t, source, "if length_read.value < 0 or offset + length_read.value > data.size():")
 	require.Contains(t, source, "_name = string_read.value")
 	require.Contains(t, source, "_level = value_read.value")
 }
@@ -136,10 +139,13 @@ func TestGenerateBoolAndBytesWireCode(t *testing.T) {
 	source := files["cafecito/game/v1/Player.pb.fs"]
 	require.Contains(t, source, "var _active: bool = false")
 	require.Contains(t, source, "result.append_array(foundry.proto.Wire.encode_varint(1 if _active else 0))")
+	require.Contains(t, source, "if wire_type != foundry.proto.Wire.WIRE_VARINT:")
 	require.Contains(t, source, "_active = value_read.value != 0")
 	require.NotContains(t, source, "_active = value_read.value\n")
 	require.Contains(t, source, "var _avatar: PackedByteArray = PackedByteArray()")
 	require.Contains(t, source, "result.append_array(foundry.proto.Wire.encode_varint(_avatar.size()))")
+	require.Contains(t, source, "if wire_type != foundry.proto.Wire.WIRE_LENGTH_DELIMITED:")
+	require.Contains(t, source, "if length_read.value < 0 or offset + length_read.value > data.size():")
 	require.Contains(t, source, "var bytes_read: FieldRead[PackedByteArray] = foundry.proto.Wire.decode_bytes(data, offset, length_read.value)")
 	require.Contains(t, source, "_avatar = bytes_read.value")
 	require.NotContains(t, source, "_avatar = value_read.value")
@@ -175,7 +181,7 @@ func TestGenerateUnknownFieldSkipsByWireType(t *testing.T) {
 }
 
 func TestGenerateUnsupportedWireScalarsReturnsError(t *testing.T) {
-	for _, scalar := range []string{"float", "double", "fixed32", "fixed64", "sfixed32", "sfixed64"} {
+	for _, scalar := range []string{"float", "double", "fixed32", "fixed64", "sfixed32", "sfixed64", "sint32", "sint64"} {
 		t.Run(scalar, func(t *testing.T) {
 			file := &protoast.ProtoFile{
 				Syntax:  "proto3",
