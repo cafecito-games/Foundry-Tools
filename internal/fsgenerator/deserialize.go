@@ -36,7 +36,7 @@ func mergeFromBytesFunction(fields []*protoast.Field) fsast.Func {
 		rawLine("\t\t\t\t\t\tif length_read.error != foundry.proto.ProtobufError.OK:"),
 		rawLine("\t\t\t\t\t\t\treturn length_read.error"),
 		rawLine("\t\t\t\t\t\toffset = length_read.offset"),
-		rawLine("\t\t\t\t\t\tif offset + length_read.value > data.size():"),
+		rawLine("\t\t\t\t\t\tif length_read.value < 0 or offset + length_read.value > data.size():"),
 		rawLine("\t\t\t\t\t\t\treturn foundry.proto.ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH"),
 		rawLine("\t\t\t\t\t\toffset += length_read.value"),
 		rawLine("\t\t\t\t\tfoundry.proto.Wire.WIRE_32BIT:"),

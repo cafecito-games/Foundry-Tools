@@ -166,6 +166,7 @@ func TestGenerateUnknownFieldSkipsByWireType(t *testing.T) {
 	require.Contains(t, source, "match wire_type:")
 	require.Contains(t, source, "foundry.proto.Wire.WIRE_VARINT:")
 	require.Contains(t, source, "foundry.proto.Wire.WIRE_LENGTH_DELIMITED:")
+	require.Contains(t, source, "if length_read.value < 0 or offset + length_read.value > data.size():")
 	require.Contains(t, source, "foundry.proto.Wire.WIRE_32BIT:")
 	require.Contains(t, source, "foundry.proto.Wire.WIRE_64BIT:")
 	require.Contains(t, source, "offset += 4")
