@@ -69,9 +69,14 @@ func (p *parser) parseOneof() (*protoast.Oneof, error) {
 
 	for !p.match(TokenRBrace) {
 		if p.match(TokenOption) {
-			if _, err := p.parseOption(); err != nil {
+			opt, err := p.parseOption()
+			if err != nil {
 				return nil, err
 			}
+			if o.Options == nil {
+				o.Options = map[string]any{}
+			}
+			o.Options[opt.Name] = opt.Value
 			continue
 		}
 		f, err := p.parseField(nameTok.Value)

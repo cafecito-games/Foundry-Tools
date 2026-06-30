@@ -49,14 +49,16 @@ type converter struct {
 func FromCodeGeneratorRequest(req *pluginpb.CodeGeneratorRequest) ([]*protoast.ProtoFile, error) {
 	c := newConverter(req.GetProtoFile())
 	out := make([]*protoast.ProtoFile, 0, len(req.GetProtoFile()))
+	sourceFiles := map[*protoast.ProtoFile]string{}
 	for _, fdp := range req.GetProtoFile() {
 		file, err := c.convertFile(fdp)
 		if err != nil {
 			return nil, err
 		}
+		sourceFiles[file] = fdp.GetName()
 		out = append(out, file)
 	}
-	resolveCrossFileEnumValues(out)
+	resolveCrossFileEnumValues(out, sourceFiles)
 	return out, nil
 }
 
@@ -69,7 +71,7 @@ func FromFileDescriptorProto(fdp *descriptorpb.FileDescriptorProto) (*protoast.P
 	if err != nil {
 		return nil, err
 	}
-	resolveCrossFileEnumValues([]*protoast.ProtoFile{file})
+	resolveCrossFileEnumValues([]*protoast.ProtoFile{file}, map[*protoast.ProtoFile]string{file: fdp.GetName()})
 	return file, nil
 }
 
@@ -419,7 +421,7 @@ func lastSegment(name string) string {
 // resolved enum's values to fields that reference an enum from another file.
 // Same-file references are skipped because the generator can locate the enum
 // AST node directly.
-func resolveCrossFileEnumValues(files []*protoast.ProtoFile) {
+func resolveCrossFileEnumValues(files []*protoast.ProtoFile, sourceFiles map[*protoast.ProtoFile]string) {
 	index := map[string]*protoast.Enum{}
 	for _, file := range files {
 		prefix := ""
@@ -435,7 +437,7 @@ func resolveCrossFileEnumValues(files []*protoast.ProtoFile) {
 	}
 	for _, file := range files {
 		for _, m := range file.Messages {
-			attachEnumValues(m, file, index)
+			attachEnumValues(m, sourceFiles[file], index)
 		}
 	}
 }
@@ -449,9 +451,12 @@ func indexNestedEnums(m *protoast.Message, scope string, index map[string]*proto
 	}
 }
 
-func attachEnumValues(m *protoast.Message, file *protoast.ProtoFile, index map[string]*protoast.Enum) {
+func attachEnumValues(m *protoast.Message, currentSourceFile string, index map[string]*protoast.Enum) {
 	resolve := func(f *protoast.Field) {
 		if !f.IsEnum || f.FullTypePath == "" {
+			return
+		}
+		if f.SourceFile == currentSourceFile {
 			return
 		}
 		if e, ok := index[f.FullTypePath]; ok {
@@ -467,7 +472,7 @@ func attachEnumValues(m *protoast.Message, file *protoast.ProtoFile, index map[s
 		}
 	}
 	for _, nested := range m.NestedMessages {
-		attachEnumValues(nested, file, index)
+		attachEnumValues(nested, currentSourceFile, index)
 	}
 }
 

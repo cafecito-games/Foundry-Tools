@@ -221,6 +221,65 @@ func TestConvertEnumField(t *testing.T) {
 	if f.FieldType != "Color" {
 		t.Errorf("FieldType = %q", f.FieldType)
 	}
+	if len(f.EnumValues) != 0 {
+		t.Fatalf("EnumValues len = %d, want 0 for same-file enum", len(f.EnumValues))
+	}
+}
+
+func TestConvertCrossFileEnumFieldPopulatesEnumValues(t *testing.T) {
+	req := &pluginpb.CodeGeneratorRequest{
+		FileToGenerate: []string{"paint.proto"},
+		ProtoFile: []*descriptorpb.FileDescriptorProto{
+			{
+				Name:    strPtr("color.proto"),
+				Package: strPtr("demo"),
+				Syntax:  strPtr("proto3"),
+				EnumType: []*descriptorpb.EnumDescriptorProto{
+					{
+						Name: strPtr("Color"),
+						Value: []*descriptorpb.EnumValueDescriptorProto{
+							{Name: strPtr("RED"), Number: i32Ptr(0)},
+							{Name: strPtr("GREEN"), Number: i32Ptr(1)},
+						},
+					},
+				},
+			},
+			{
+				Name:       strPtr("paint.proto"),
+				Package:    strPtr("demo"),
+				Syntax:     strPtr("proto3"),
+				Dependency: []string{"color.proto"},
+				MessageType: []*descriptorpb.DescriptorProto{
+					{
+						Name: strPtr("Paint"),
+						Field: []*descriptorpb.FieldDescriptorProto{
+							{
+								Name:     strPtr("color"),
+								Number:   i32Ptr(1),
+								Type:     typePtr(descriptorpb.FieldDescriptorProto_TYPE_ENUM),
+								TypeName: strPtr(".demo.Color"),
+								Label:    labelPtr(descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	files, err := FromCodeGeneratorRequest(req)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	paint := files[1].Messages[0].Fields[0]
+	if paint.SourceFile != "color.proto" {
+		t.Fatalf("SourceFile = %q, want color.proto", paint.SourceFile)
+	}
+	if len(paint.EnumValues) != 2 {
+		t.Fatalf("EnumValues len = %d, want 2", len(paint.EnumValues))
+	}
+	if paint.EnumValues[0].Name != "RED" || paint.EnumValues[1].Name != "GREEN" {
+		t.Fatalf("EnumValues = %+v", paint.EnumValues)
+	}
 }
 
 func TestConvertRepeatedField(t *testing.T) {

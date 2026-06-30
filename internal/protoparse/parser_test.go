@@ -752,6 +752,9 @@ func TestOneofWithOption(t *testing.T) {
 	if len(file.Messages[0].Oneofs) != 1 {
 		t.Fatalf("oneofs = %+v", file.Messages[0].Oneofs)
 	}
+	if file.Messages[0].Oneofs[0].Options["deprecated"] != true {
+		t.Fatalf("oneof options = %+v, want deprecated=true", file.Messages[0].Oneofs[0].Options)
+	}
 }
 
 func TestOneofRepeatedRejected(t *testing.T) {
