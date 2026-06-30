@@ -15,9 +15,24 @@ tasks:
   build:
     desc: Build all binaries into ./bin.
     cmds:
-      - mkdir -p {{.BIN_DIR}}
-      - go build -o {{.BIN_DIR}}/foundry-tools ./cmd/foundry-tools
-      - go build -o {{.BIN_DIR}}/protoc-gen-foundryscript ./cmd/protoc-gen-foundryscript
+      - |
+        set -e
+        if [ ! -d ./cmd/foundry-tools ] && [ ! -d ./cmd/protoc-gen-foundryscript ]; then
+          echo "No command packages found; skipping build."
+          exit 0
+        fi
+        mkdir -p {{.BIN_DIR}}
+        if [ -d ./cmd/foundry-tools ]; then
+          go build -o {{.BIN_DIR}}/foundry-tools ./cmd/foundry-tools
+        else
+          echo "cmd/foundry-tools not found; skipping foundry-tools build."
+        fi
+        if [ -d ./cmd/protoc-gen-foundryscript ]; then
+          go build -o {{.BIN_DIR}}/protoc-gen-foundryscript ./cmd/protoc-gen-foundryscript
+        else
+          echo "cmd/protoc-gen-foundryscript not found; skipping protoc-gen-foundryscript build."
+        fi
+    silent: true
 
   install:
     desc: Install Foundry Tools binaries into $GOPATH/bin.
@@ -28,13 +43,35 @@ tasks:
   test:
     desc: Run unit tests.
     cmds:
-      - go test -race -count=1 {{.PKG}}
+      - |
+        set -e
+        if ! packages=$(go list {{.PKG}} 2>/dev/null); then
+          go list {{.PKG}}
+          exit 1
+        fi
+        if [ -z "$packages" ]; then
+          echo "No Go packages found; skipping tests."
+          exit 0
+        fi
+        go test -race -count=1 $packages
+    silent: true
 
   test:cover:
     desc: Run tests with coverage; output coverage.out.
     cmds:
-      - go test -race -count=1 -coverprofile=coverage.out -covermode=atomic {{.PKG}}
-      - go tool cover -func=coverage.out | tail -1
+      - |
+        set -e
+        if ! packages=$(go list {{.PKG}} 2>/dev/null); then
+          go list {{.PKG}}
+          exit 1
+        fi
+        if [ -z "$packages" ]; then
+          echo "No Go packages found; skipping coverage."
+          exit 0
+        fi
+        go test -race -count=1 -coverprofile=coverage.out -covermode=atomic $packages
+        go tool cover -func=coverage.out | tail -1
+    silent: true
 
   integration:
     desc: Run protoc, plugin, and Buf integration tests.
@@ -51,7 +88,18 @@ tasks:
   lint:
     desc: Run golangci-lint.
     cmds:
-      - golangci-lint run
+      - |
+        set -e
+        if ! packages=$(go list {{.PKG}} 2>/dev/null); then
+          go list {{.PKG}}
+          exit 1
+        fi
+        if [ -z "$packages" ]; then
+          echo "No Go packages found; skipping lint."
+          exit 0
+        fi
+        golangci-lint run
+    silent: true
 
   fmt:
     desc: Format Go source.
@@ -85,7 +133,17 @@ tasks:
   tidy:check:
     desc: Verify go.mod/go.sum are tidy.
     cmds:
-      - go mod tidy
+      - |
+        set -e
+        if ! packages=$(go list {{.PKG}} 2>/dev/null); then
+          go list {{.PKG}}
+          exit 1
+        fi
+        if [ -z "$packages" ]; then
+          echo "No Go packages found; skipping tidy check to preserve seeded scaffold dependencies."
+          exit 0
+        fi
+        go mod tidy
       - |
         if ! git diff --quiet -- go.mod go.sum; then
           echo "go.mod/go.sum are not tidy. Run 'task tidy' and commit the result."
