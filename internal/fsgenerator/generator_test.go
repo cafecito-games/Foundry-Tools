@@ -117,3 +117,81 @@ func TestGenerateScalarSerialization(t *testing.T) {
 	require.Contains(t, source, "_name = string_read.value")
 	require.Contains(t, source, "_level = value_read.value")
 }
+
+func TestGenerateBoolAndBytesWireCode(t *testing.T) {
+	file := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.game.v1",
+		Messages: []*protoast.Message{{
+			Name: "Player",
+			Fields: []*protoast.Field{
+				{FieldType: "bool", Name: "active", Number: 1},
+				{FieldType: "bytes", Name: "avatar", Number: 2},
+			},
+		}},
+	}
+
+	files, err := Generate(file, "player.proto", nil)
+	require.NoError(t, err)
+	source := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, source, "var _active: bool = false")
+	require.Contains(t, source, "result.append_array(foundry.proto.Wire.encode_varint(1 if _active else 0))")
+	require.Contains(t, source, "_active = value_read.value != 0")
+	require.NotContains(t, source, "_active = value_read.value\n")
+	require.Contains(t, source, "var _avatar: PackedByteArray = PackedByteArray()")
+	require.Contains(t, source, "result.append_array(foundry.proto.Wire.encode_varint(_avatar.size()))")
+	require.Contains(t, source, "var bytes_read: FieldRead[PackedByteArray] = foundry.proto.Wire.decode_bytes(data, offset, length_read.value)")
+	require.Contains(t, source, "_avatar = bytes_read.value")
+	require.NotContains(t, source, "_avatar = value_read.value")
+}
+
+func TestGenerateUnknownFieldSkipsByWireType(t *testing.T) {
+	file := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.game.v1",
+		Messages: []*protoast.Message{{
+			Name: "Player",
+			Fields: []*protoast.Field{{
+				FieldType: "string",
+				Name:      "name",
+				Number:    1,
+			}},
+		}},
+	}
+
+	files, err := Generate(file, "player.proto", nil)
+	require.NoError(t, err)
+	source := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, source, "var wire_type: int = foundry.proto.Wire.get_wire_type(tag_read.value)")
+	require.Contains(t, source, "match wire_type:")
+	require.Contains(t, source, "foundry.proto.Wire.WIRE_VARINT:")
+	require.Contains(t, source, "foundry.proto.Wire.WIRE_LENGTH_DELIMITED:")
+	require.Contains(t, source, "foundry.proto.Wire.WIRE_32BIT:")
+	require.Contains(t, source, "foundry.proto.Wire.WIRE_64BIT:")
+	require.Contains(t, source, "offset += 4")
+	require.Contains(t, source, "offset += 8")
+	require.NotContains(t, source, "_:\n\t\t\t\treturn foundry.proto.ProtobufError.UNKNOWN_REQUIRED_FEATURE")
+}
+
+func TestGenerateUnsupportedWireScalarsReturnsError(t *testing.T) {
+	for _, scalar := range []string{"float", "double", "fixed32", "fixed64", "sfixed32", "sfixed64"} {
+		t.Run(scalar, func(t *testing.T) {
+			file := &protoast.ProtoFile{
+				Syntax:  "proto3",
+				Package: "cafecito.game.v1",
+				Messages: []*protoast.Message{{
+					Name: "Player",
+					Fields: []*protoast.Field{{
+						FieldType: scalar,
+						Name:      "score",
+						Number:    1,
+					}},
+				}},
+			}
+
+			_, err := Generate(file, "player.proto", nil)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "unsupported scalar type "+scalar+" for wire generation")
+		})
+	}
+}

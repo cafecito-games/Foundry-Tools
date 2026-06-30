@@ -48,3 +48,8 @@ static func decode_string(data: PackedByteArray, offset: int, length: int) -> Fi
 		return FieldRead[String].from("", offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
 	var slice: PackedByteArray = data.slice(offset, offset + length)
 	return FieldRead[String].from(slice.get_string_from_utf8(), offset + length, ProtobufError.OK)
+
+static func decode_bytes(data: PackedByteArray, offset: int, length: int) -> FieldRead[PackedByteArray]:
+	if offset + length > data.size():
+		return FieldRead[PackedByteArray].from(PackedByteArray(), offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
+	return FieldRead[PackedByteArray].from(data.slice(offset, offset + length), offset + length, ProtobufError.OK)

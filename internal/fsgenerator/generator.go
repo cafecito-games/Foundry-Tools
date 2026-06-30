@@ -1,6 +1,7 @@
 package fsgenerator
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -33,6 +34,9 @@ func Generate(file *protoast.ProtoFile, sourceName string, _ []FileEntry) (Gener
 		files[outputPath(namespace, typeName)] = renderEnum(namespace, typeName, enum)
 	}
 	for _, message := range file.Messages {
+		if err := validateWireFields(message); err != nil {
+			return nil, err
+		}
 		typeName := TypeName(message.Name)
 		source := renderMessage(namespace, typeName, message)
 		if err := CheckPublicAPI(source); err != nil {
@@ -42,6 +46,16 @@ func Generate(file *protoast.ProtoFile, sourceName string, _ []FileEntry) (Gener
 	}
 
 	return files, nil
+}
+
+func validateWireFields(message *protoast.Message) error {
+	for _, field := range message.Fields {
+		switch field.FieldType {
+		case "float", "double", "fixed32", "fixed64", "sfixed32", "sfixed64":
+			return fmt.Errorf("unsupported scalar type %s for wire generation", field.FieldType)
+		}
+	}
+	return nil
 }
 
 func renderEnum(namespace, typeName string, enum *protoast.Enum) string {

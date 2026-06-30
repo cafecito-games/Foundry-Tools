@@ -22,15 +22,16 @@ func toBytesFunction(fields []*protoast.Field) fsast.Func {
 }
 
 func serializeField(field *protoast.Field) []fsast.Node {
-	tag := field.Number << 3
-	wireType := 0
-	if field.FieldType == "string" {
-		wireType = 2
-	}
-	tag |= wireType
+	tag := field.Number<<3 | wireTypeForField(field.FieldType)
 
 	backing := "_" + field.Name
 	switch field.FieldType {
+	case "bool":
+		return []fsast.Node{
+			rawLine(fmt.Sprintf("\tif %s:", backing)),
+			rawLine(fmt.Sprintf("\t\tresult.append_array(foundry.proto.Wire.encode_varint(%d))", tag)),
+			rawLine(fmt.Sprintf("\t\tresult.append_array(foundry.proto.Wire.encode_varint(1 if %s else 0))", backing)),
+		}
 	case "string":
 		return []fsast.Node{
 			rawLine(fmt.Sprintf("\tif %s != \"\":", backing)),
@@ -39,12 +40,28 @@ func serializeField(field *protoast.Field) []fsast.Node {
 			rawLine(fmt.Sprintf("\t\tresult.append_array(foundry.proto.Wire.encode_varint(%s_data.size()))", field.Name)),
 			rawLine(fmt.Sprintf("\t\tresult.append_array(%s_data)", field.Name)),
 		}
+	case "bytes":
+		return []fsast.Node{
+			rawLine(fmt.Sprintf("\tif %s.size() > 0:", backing)),
+			rawLine(fmt.Sprintf("\t\tresult.append_array(foundry.proto.Wire.encode_varint(%d))", tag)),
+			rawLine(fmt.Sprintf("\t\tresult.append_array(foundry.proto.Wire.encode_varint(%s.size()))", backing)),
+			rawLine(fmt.Sprintf("\t\tresult.append_array(%s)", backing)),
+		}
 	default:
 		return []fsast.Node{
 			rawLine(fmt.Sprintf("\tif %s != 0:", backing)),
 			rawLine(fmt.Sprintf("\t\tresult.append_array(foundry.proto.Wire.encode_varint(%d))", tag)),
 			rawLine(fmt.Sprintf("\t\tresult.append_array(foundry.proto.Wire.encode_varint(%s))", backing)),
 		}
+	}
+}
+
+func wireTypeForField(fieldType string) int {
+	switch fieldType {
+	case "string", "bytes":
+		return 2
+	default:
+		return 0
 	}
 }
 
