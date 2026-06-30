@@ -1,21 +1,26 @@
 namespace cafecito.game.v1
 import foundry.proto
 
+## Generated protobuf message binding for Player.
 final class_name Player extends RefCounted
 
 var _name: String = ""
 
+## Sets the name protobuf field.
 func set_name(value: String) -> void:
 	_name = value
 
+## Returns the name protobuf field.
 func get_name() -> String:
 	return _name
 
+## Decodes protobuf wire data into a new Player message.
 static func from_bytes(data: PackedByteArray) -> DecodeResult[Player]:
 	var message: Player = Player.new()
 	var err: foundry.proto.ProtobufError = message.merge_from_bytes(data)
 	return DecodeResult[Player].from(message, err)
 
+## Serializes this message to protobuf wire data.
 func to_bytes() -> PackedByteArray:
 	var result: PackedByteArray = PackedByteArray()
 	if _name != "":
@@ -25,6 +30,7 @@ func to_bytes() -> PackedByteArray:
 		result.append_array(name_data)
 	return result
 
+## Merges protobuf wire data into this message.
 func merge_from_bytes(data: PackedByteArray) -> foundry.proto.ProtobufError:
 	var offset: int = 0
 	while offset < data.size():
