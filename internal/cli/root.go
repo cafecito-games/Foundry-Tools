@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/cafecito-games/foundry-tools/internal/foundrytoolspb"
@@ -113,12 +114,25 @@ func (l validationErrorList) Error() string {
 }
 
 func writeFiles(outDir string, files map[string]string) error {
-	for name, source := range files {
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
 		path := filepath.Join(outDir, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // Generated source directories should be project-readable.
 			return err
 		}
-		if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		if err := os.Chmod(dir, 0o755); err != nil { //nolint:gosec // Generated source directories should be project-readable.
+			return err
+		}
+		if err := os.WriteFile(path, []byte(files[name]), 0o644); err != nil { //nolint:gosec // Generated source files should be project-readable.
+			return err
+		}
+		if err := os.Chmod(path, 0o644); err != nil { //nolint:gosec // Generated source files should be project-readable.
 			return err
 		}
 	}
