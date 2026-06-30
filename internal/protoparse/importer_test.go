@@ -527,7 +527,7 @@ message M { Foo f = 1; }`
 		t.Errorf("Filename = %q, want %q", imported[0].Filename, "other.proto")
 	}
 	if got, ok := imported[0].File.Options["(foundrytools.type_prefix)"]; !ok || got != "Custom" {
-		t.Errorf("expected class_prefix option to be exposed; got %v ok=%v", got, ok)
+		t.Errorf("expected foundrytools.type_prefix option to be exposed; got %v ok=%v", got, ok)
 	}
 	// Side-effect annotation still happens.
 	f := findField(t, file, "M", "f")
