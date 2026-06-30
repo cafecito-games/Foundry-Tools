@@ -65,3 +65,26 @@ func TestGenerateMessageAndEnumSkeletons(t *testing.T) {
 	require.Contains(t, files["cafecito/game/v1/PlayerStatus.pb.fs"], "enum_name PlayerStatus")
 	require.NoError(t, CheckPublicAPI(files["cafecito/game/v1/Player.pb.fs"]))
 }
+
+func TestGenerateTypedAccessorsAndDecodeFactory(t *testing.T) {
+	file := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.game.v1",
+		Messages: []*protoast.Message{{
+			Name: "Player",
+			Fields: []*protoast.Field{
+				{FieldType: "string", Name: "name", Number: 1},
+				{FieldType: "int32", Name: "level", Number: 2},
+			},
+		}},
+	}
+
+	files, err := Generate(file, "player.proto", nil)
+	require.NoError(t, err)
+	source := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, source, "func set_name(value: String) -> void:")
+	require.Contains(t, source, "func get_name() -> String:")
+	require.Contains(t, source, "func set_level(value: int) -> void:")
+	require.Contains(t, source, "static func from_bytes(data: PackedByteArray) -> foundry.proto.DecodeResult[Player]:")
+	require.NotContains(t, source, "Variant")
+}

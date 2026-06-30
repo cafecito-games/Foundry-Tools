@@ -66,15 +66,17 @@ func renderEnum(namespace, typeName string, enum *protoast.Enum) string {
 }
 
 func renderMessage(namespace, typeName string, message *protoast.Message) string {
-	members := make([]fsast.Node, 0, len(message.Fields)+2)
+	members := make([]fsast.Node, 0, len(message.Fields)*3+3)
 	for _, field := range message.Fields {
 		members = append(members, fsast.Var{
 			Name:  "_" + field.Name,
-			Type:  ScalarType(field.FieldType),
+			Type:  fieldType(field),
 			Value: fieldDefaultValue(field.FieldType),
 		})
+		members = append(members, fieldMembers(field)...)
 	}
 	members = append(members,
+		fromBytesFactory(typeName),
 		fsast.Func{
 			Name:       "to_bytes",
 			ReturnType: fstypes.Named("PackedByteArray"),
