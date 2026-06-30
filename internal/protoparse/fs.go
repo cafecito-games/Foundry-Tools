@@ -69,6 +69,6 @@ func (f *OSFS) locate(path string) (string, bool) {
 }
 
 func statOK(path string) bool {
-	_, err := os.Stat(path)
+	_, err := os.Stat(path) //nolint:gosec // Import path is resolved from explicit CLI input and proto imports.
 	return err == nil
 }
