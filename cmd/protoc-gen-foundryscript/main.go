@@ -1,3 +1,4 @@
+// Package main provides the protoc-gen-foundryscript plugin command.
 package main
 
 import (

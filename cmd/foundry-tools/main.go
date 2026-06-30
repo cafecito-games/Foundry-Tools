@@ -1,3 +1,4 @@
+// Package main provides the foundry-tools command.
 package main
 
 import (
