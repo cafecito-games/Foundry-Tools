@@ -84,6 +84,8 @@ func renderMessage(namespace, typeName string, message *protoast.Message) string
 		Namespace: namespace,
 		Imports:   []string{"foundry.proto"},
 		Declarations: []fsast.Node{
+			// Current Foundry builds cannot resolve/apply imported runtime trait bodies
+			// such as foundry.proto.Message[T] here, so conformance is deferred.
 			fsast.Class{
 				Final:   true,
 				Name:    typeName,

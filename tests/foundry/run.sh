@@ -5,7 +5,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="$ROOT/tests/foundry/generated"
 FOUNDRY="${FOUNDRY_BIN:-$HOME/.foundry/bin/foundry.macos.editor.dev.arm64}"
 
-rm -rf "$OUT"
+cleanup() {
+  rm -rf "$OUT" "$ROOT/tests/foundry/.foundry"
+  rm -f "$ROOT"/tests/foundry/*.uid
+}
+
+trap cleanup EXIT
+
+cleanup
 mkdir -p "$OUT"
 
 "$ROOT/bin/foundry-tools" proto generate \
@@ -18,7 +25,7 @@ if rg -n '(^|[^_])func [A-Za-z0-9_]+\(.*Variant|-> Variant' "$OUT"; then
   exit 1
 fi
 
-if rg -n -- '-> foundry\.proto\.DecodeResult\[|: foundry\.proto\.FieldRead\[|uses foundry\.proto\.Message\[' "$OUT"; then
+if rg -n -- '-> foundry\.proto\.DecodeResult\[|: foundry\.proto\.FieldRead\[|uses (foundry\.proto\.)?Message\[' "$OUT"; then
   echo "dotted runtime generic type annotation found in generated Foundry Script"
   exit 1
 fi
