@@ -28,6 +28,7 @@ func TestProtoPrintOptionsCommandIsWired(t *testing.T) {
 	cmd.SetArgs([]string{"proto", "print-options-proto"})
 
 	err := cmd.Execute()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "options proto support is not wired")
+	require.NoError(t, err)
+	require.Contains(t, stdout.String(), `package foundrytools;`)
+	require.Empty(t, stderr.String())
 }

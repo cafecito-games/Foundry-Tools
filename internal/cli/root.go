@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/cafecito-games/foundry-tools/internal/foundrytoolspb"
 	"github.com/spf13/cobra"
 )
 
@@ -42,8 +43,8 @@ func newProtoCommand(stdout io.Writer) *cobra.Command {
 		Use:   "print-options-proto",
 		Short: "Print foundrytools/options.proto",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			_ = stdout
-			return fmt.Errorf("options proto support is not wired")
+			_, err := stdout.Write(foundrytoolspb.Bytes())
+			return err
 		},
 	})
 	return cmd
