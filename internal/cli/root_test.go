@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -49,10 +50,22 @@ func TestProtoGenerateRequiresInputs(t *testing.T) {
 
 func TestWriteFilesUsesSourcePermissions(t *testing.T) {
 	outDir := t.TempDir()
+	oldUmask := syscall.Umask(0o077)
+	t.Cleanup(func() {
+		syscall.Umask(oldUmask)
+	})
 
 	require.NoError(t, writeFiles(outDir, map[string]string{
 		"cafecito/game/v1/Player.pb.fs": "class_name Player\n",
 	}))
+
+	cafecitoInfo, err := os.Stat(filepath.Join(outDir, "cafecito"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o755), cafecitoInfo.Mode().Perm())
+
+	gameInfo, err := os.Stat(filepath.Join(outDir, "cafecito", "game"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o755), gameInfo.Mode().Perm())
 
 	dirInfo, err := os.Stat(filepath.Join(outDir, "cafecito", "game", "v1"))
 	require.NoError(t, err)

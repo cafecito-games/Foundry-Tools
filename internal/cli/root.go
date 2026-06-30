@@ -126,13 +126,31 @@ func writeFiles(outDir string, files map[string]string) error {
 		if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // Generated source directories should be project-readable.
 			return err
 		}
-		if err := os.Chmod(dir, 0o755); err != nil { //nolint:gosec // Generated source directories should be project-readable.
+		if err := chmodGeneratedDirs(outDir, filepath.FromSlash(name)); err != nil {
 			return err
 		}
 		if err := os.WriteFile(path, []byte(files[name]), 0o644); err != nil { //nolint:gosec // Generated source files should be project-readable.
 			return err
 		}
 		if err := os.Chmod(path, 0o644); err != nil { //nolint:gosec // Generated source files should be project-readable.
+			return err
+		}
+	}
+	return nil
+}
+
+func chmodGeneratedDirs(outDir, generatedPath string) error {
+	dir := filepath.Dir(generatedPath)
+	if dir == "." {
+		return nil
+	}
+	current := outDir
+	for _, part := range strings.Split(dir, string(os.PathSeparator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		if err := os.Chmod(current, 0o755); err != nil { //nolint:gosec // Generated source directories should be project-readable.
 			return err
 		}
 	}
