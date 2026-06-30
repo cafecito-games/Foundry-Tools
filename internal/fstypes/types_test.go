@@ -30,4 +30,5 @@ func TestTypeRendering(t *testing.T) {
 func TestNoVariantPublicTypeByDefault(t *testing.T) {
 	require.False(t, Named("String").IsVariant())
 	require.True(t, Named("Variant").IsVariant())
+	require.True(t, Nullable(Named("Variant")).IsVariant())
 }

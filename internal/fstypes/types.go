@@ -60,5 +60,5 @@ func (t Type) Render() string {
 
 // IsVariant reports whether t is the explicit public Variant type.
 func (t Type) IsVariant() bool {
-	return t.name == "Variant" && len(t.args) == 0 && !t.nullable
+	return t.name == "Variant" && len(t.args) == 0
 }
