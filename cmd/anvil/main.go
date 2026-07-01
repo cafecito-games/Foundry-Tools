@@ -4,9 +4,19 @@ package main
 import (
 	"os"
 
-	"github.com/cafecito-games/foundry-tools/internal/cli"
+	"github.com/cafecito-games/foundry-tools/internal/anvil"
+	"github.com/cafecito-games/foundry-tools/internal/packagemanager"
+	"github.com/cafecito-games/foundry-tools/internal/proto"
+	"github.com/cafecito-games/foundry-tools/internal/version"
 )
 
 func main() {
-	os.Exit(cli.Execute(os.Args[1:], os.Stdout, os.Stderr))
+	stdout := os.Stdout
+	stderr := os.Stderr
+	root := anvil.NewRootCommand(stdout, stderr)
+	root.AddCommand(version.NewCommand(stdout))
+	root.AddCommand(proto.NewCommand(stdout))
+	root.AddCommand(packagemanager.NewCommand(stdout, stderr))
+	root.SetArgs(os.Args[1:])
+	os.Exit(anvil.Execute(root, stdout, stderr))
 }

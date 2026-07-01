@@ -4,15 +4,11 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"strings"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/pluginpb"
 
-	"github.com/cafecito-games/foundry-tools/internal/fsgenerator"
-	"github.com/cafecito-games/foundry-tools/internal/protoast"
-	"github.com/cafecito-games/foundry-tools/internal/protodesc"
-	"github.com/cafecito-games/foundry-tools/internal/protovalidate"
+	foundryproto "github.com/cafecito-games/foundry-tools/internal/proto"
 	"github.com/cafecito-games/foundry-tools/internal/runtime"
 )
 
@@ -31,12 +27,12 @@ func Run(in io.Reader, out io.Writer) error {
 		return writeError(out, fmt.Sprintf("unmarshal request: %v", err))
 	}
 
-	files, err := protodesc.FromCodeGeneratorRequest(req)
+	files, err := foundryproto.FromCodeGeneratorRequest(req)
 	if err != nil {
 		return writeError(out, err.Error())
 	}
 
-	filesByName := make(map[string]*protoast.ProtoFile, len(req.GetProtoFile()))
+	filesByName := make(map[string]*foundryproto.File, len(req.GetProtoFile()))
 	for i, descriptor := range req.GetProtoFile() {
 		if i < len(files) {
 			filesByName[descriptor.GetName()] = files[i]
@@ -52,10 +48,10 @@ func Run(in io.Reader, out io.Writer) error {
 		if !ok {
 			return writeError(out, fmt.Sprintf("file to generate %q not found in request", name))
 		}
-		if validationErrors := protovalidate.Validate(file, name); len(validationErrors) != 0 {
-			return writeError(out, formatValidationErrors(validationErrors))
+		if validationErrors := foundryproto.Validate(file, name); len(validationErrors) != 0 {
+			return writeError(out, foundryproto.FormatValidationErrors(validationErrors))
 		}
-		generated, err := fsgenerator.Generate(file, name, nil)
+		generated, err := foundryproto.Generate(file, name, nil)
 		if err != nil {
 			return writeError(out, err.Error())
 		}
@@ -69,14 +65,6 @@ func Run(in io.Reader, out io.Writer) error {
 	}
 
 	return writeResponse(out, resp)
-}
-
-func formatValidationErrors(validationErrors []protovalidate.ValidationError) string {
-	messages := make([]string, 0, len(validationErrors))
-	for i := range validationErrors {
-		messages = append(messages, (&validationErrors[i]).Error())
-	}
-	return strings.Join(messages, "\n")
 }
 
 func appendFiles(resp *pluginpb.CodeGeneratorResponse, files map[string]string) {
