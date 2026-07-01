@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Anvil — monochrome mark" fill="none" color="#ECE7DC">
+  <!-- Single-color, currentColor-driven. Set CSS `color:` (or the `color` attr) to retint. -->
+  <polygon points="60,10 103,35 103,85 60,110 17,85 17,35"
+    fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+  <!-- anvil, solid -->
+  <path d="M30,50 L86,50 C92,50 96,52 99,55 C93,56.5 87,57.5 80,58
+           L70,58 L66,64 L66,74 L79,74 L79,84 L41,84 L41,74 L54,74
+           L54,64 L48,58 L30,58 Z"
+    fill="currentColor" stroke="none"/>
+  <!-- sparks -->
+  <circle cx="72" cy="34" r="3.2" fill="currentColor"/>
+  <circle cx="82" cy="27" r="2.2" fill="currentColor"/>
+  <circle cx="60" cy="29" r="1.8" fill="currentColor"/>
+</svg>
