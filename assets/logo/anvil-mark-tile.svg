@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Anvil — app icon tile">
+  <defs>
+    <linearGradient id="tile-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#222732"/>
+      <stop offset="1" stop-color="#14161B"/>
+    </linearGradient>
+    <linearGradient id="tile-steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6B7686"/>
+      <stop offset="1" stop-color="#3A4250"/>
+    </linearGradient>
+    <linearGradient id="tile-ember" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD76B"/>
+      <stop offset=".5" stop-color="#FF8A3D"/>
+      <stop offset="1" stop-color="#FF6A13"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="116" height="116" rx="26" fill="url(#tile-bg)" stroke="#3A4250" stroke-width="1.5"/>
+  <g transform="translate(60,62) scale(0.82) translate(-60,-60)">
+    <polygon points="60,10 103,35 103,85 60,110 17,85 17,35" fill="none" stroke="#3A4250" stroke-width="4" stroke-linejoin="round"/>
+    <polygon points="60,10 103,35 103,85 60,110 17,85 17,35" fill="none" stroke="#6B7686" stroke-width="1.4" stroke-linejoin="round" opacity="0.7"/>
+    <circle cx="72" cy="34" r="3.4" fill="#FF6A13"/>
+    <circle cx="82" cy="27" r="2.4" fill="#FFD76B"/>
+    <circle cx="60" cy="29" r="2" fill="#FF8A3D"/>
+    <path d="M30,50 L86,50 C92,50 96,52 99,55 C93,56.5 87,57.5 80,58 L70,58 L66,64 L66,74 L79,74 L79,84 L41,84 L41,74 L54,74 L54,64 L48,58 L30,58 Z" fill="url(#tile-steel)" stroke="#ECE7DC" stroke-width="1.6" stroke-linejoin="round"/>
+    <line x1="34" y1="54" x2="76" y2="54" stroke="url(#tile-ember)" stroke-width="2.4" stroke-linecap="round" opacity="0.9"/>
+  </g>
+</svg>

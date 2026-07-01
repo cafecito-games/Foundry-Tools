@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo/anvil-banner.svg" alt="Anvil — Foundry Tooling" width="720">
+</p>
+
 # Foundry Tools
 
 Tooling for Foundry Engine projects.
