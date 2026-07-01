@@ -25,4 +25,6 @@ func TestProtocPluginGeneratesFoundryScript(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(outDir, "cafecito/game/v1/Player.pb.fs"))
 	require.NoError(t, err)
 	require.Contains(t, string(data), "func to_bytes() -> PackedByteArray:")
+	require.Contains(t, string(data), "## Player state shared with Foundry Script.\nfinal class_name Player extends RefCounted")
+	require.Contains(t, string(data), "## Player display name.\nfunc get_name() -> String:")
 }

@@ -33,6 +33,7 @@ type Import struct {
 // Message represents a `message Name { ... }` definition.
 type Message struct {
 	Position
+	Doc            []string
 	Name           string
 	Fields         []*Field
 	NestedMessages []*Message
@@ -46,6 +47,7 @@ type Message struct {
 // Field represents a regular field in a message.
 type Field struct {
 	Position
+	Doc          []string
 	FieldType    string
 	Name         string
 	Number       int
@@ -65,6 +67,7 @@ type Field struct {
 // MapField represents a map<K,V> field.
 type MapField struct {
 	Position
+	Doc               []string
 	KeyType           string
 	ValueType         string
 	Name              string
@@ -78,6 +81,7 @@ type MapField struct {
 // Oneof represents a oneof group.
 type Oneof struct {
 	Position
+	Doc     []string
 	Name    string
 	Fields  []*Field
 	Options map[string]any
@@ -86,6 +90,7 @@ type Oneof struct {
 // Enum represents an enum definition.
 type Enum struct {
 	Position
+	Doc     []string
 	Name    string
 	Values  []*EnumValue
 	Options map[string]any
@@ -94,6 +99,7 @@ type Enum struct {
 // EnumValue is a single `NAME = N;` line inside an enum.
 type EnumValue struct {
 	Position
+	Doc     []string
 	Name    string
 	Number  int
 	Options map[string]any

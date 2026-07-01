@@ -22,9 +22,11 @@ func (p *parser) parseOption() (*protoast.Option, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := p.expect(TokenSemicolon); err != nil {
+	semicolon, err := p.expect(TokenSemicolon)
+	if err != nil {
 		return nil, err
 	}
+	p.takeTrailingDoc(semicolon)
 	return &protoast.Option{
 		Position: protoast.Position{Line: optTok.Line, Column: optTok.Column},
 		Name:     name,
@@ -49,7 +51,7 @@ func (p *parser) parseOptionName() (string, error) {
 	return p.parseDottedIdent()
 }
 
-func (p *parser) parseOneof() (*protoast.Oneof, error) {
+func (p *parser) parseOneof(doc []string) (*protoast.Oneof, error) {
 	oneofTok := p.current()
 	if _, err := p.expect(TokenOneof); err != nil {
 		return nil, err
@@ -64,10 +66,15 @@ func (p *parser) parseOneof() (*protoast.Oneof, error) {
 
 	o := &protoast.Oneof{
 		Position: protoast.Position{Line: oneofTok.Line, Column: oneofTok.Column},
+		Doc:      doc,
 		Name:     nameTok.Value,
 	}
 
-	for !p.match(TokenRBrace) {
+	for {
+		fieldDoc := p.takeLeadingDoc()
+		if p.match(TokenRBrace) {
+			break
+		}
 		if p.match(TokenOption) {
 			opt, err := p.parseOption()
 			if err != nil {
@@ -79,7 +86,7 @@ func (p *parser) parseOneof() (*protoast.Oneof, error) {
 			o.Options[opt.Name] = opt.Value
 			continue
 		}
-		f, err := p.parseField(nameTok.Value)
+		f, err := p.parseField(nameTok.Value, fieldDoc)
 		if err != nil {
 			return nil, err
 		}
@@ -89,9 +96,11 @@ func (p *parser) parseOneof() (*protoast.Oneof, error) {
 		o.Fields = append(o.Fields, f)
 	}
 
-	if _, err := p.expect(TokenRBrace); err != nil {
+	rbrace, err := p.expect(TokenRBrace)
+	if err != nil {
 		return nil, err
 	}
+	o.Doc = append(o.Doc, p.takeTrailingDoc(rbrace)...)
 	return o, nil
 }
 

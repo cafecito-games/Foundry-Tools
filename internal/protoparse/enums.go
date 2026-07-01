@@ -6,7 +6,7 @@ import (
 	"github.com/cafecito-games/foundry-tools/internal/protoast"
 )
 
-func (p *parser) parseEnum() (*protoast.Enum, error) {
+func (p *parser) parseEnum(doc []string) (*protoast.Enum, error) {
 	enumTok := p.current()
 	if _, err := p.expect(TokenEnum); err != nil {
 		return nil, err
@@ -21,10 +21,15 @@ func (p *parser) parseEnum() (*protoast.Enum, error) {
 
 	e := &protoast.Enum{
 		Position: protoast.Position{Line: enumTok.Line, Column: enumTok.Column},
+		Doc:      doc,
 		Name:     nameTok.Value,
 	}
 
-	for !p.match(TokenRBrace) {
+	for {
+		valueDoc := p.takeLeadingDoc()
+		if p.match(TokenRBrace) {
+			break
+		}
 		if p.match(TokenOption) {
 			opt, err := p.parseOption()
 			if err != nil {
@@ -36,20 +41,22 @@ func (p *parser) parseEnum() (*protoast.Enum, error) {
 			e.Options[opt.Name] = opt.Value
 			continue
 		}
-		v, err := p.parseEnumValue()
+		v, err := p.parseEnumValue(valueDoc)
 		if err != nil {
 			return nil, err
 		}
 		e.Values = append(e.Values, v)
 	}
 
-	if _, err := p.expect(TokenRBrace); err != nil {
+	rbrace, err := p.expect(TokenRBrace)
+	if err != nil {
 		return nil, err
 	}
+	e.Doc = append(e.Doc, p.takeTrailingDoc(rbrace)...)
 	return e, nil
 }
 
-func (p *parser) parseEnumValue() (*protoast.EnumValue, error) {
+func (p *parser) parseEnumValue(doc []string) (*protoast.EnumValue, error) {
 	nameTok, err := p.expect(TokenIdentifier)
 	if err != nil {
 		return nil, err
@@ -72,11 +79,14 @@ func (p *parser) parseEnumValue() (*protoast.EnumValue, error) {
 			return nil, err
 		}
 	}
-	if _, err := p.expect(TokenSemicolon); err != nil {
+	semicolon, err := p.expect(TokenSemicolon)
+	if err != nil {
 		return nil, err
 	}
+	doc = append(doc, p.takeTrailingDoc(semicolon)...)
 	return &protoast.EnumValue{
 		Position: protoast.Position{Line: nameTok.Line, Column: nameTok.Column},
+		Doc:      doc,
 		Name:     nameTok.Value,
 		Number:   int(number),
 		Options:  options,
@@ -138,8 +148,10 @@ func (p *parser) parseReserved() (*protoast.Reserved, error) {
 		}
 	}
 
-	if _, err := p.expect(TokenSemicolon); err != nil {
+	semicolon, err := p.expect(TokenSemicolon)
+	if err != nil {
 		return nil, err
 	}
+	p.takeTrailingDoc(semicolon)
 	return r, nil
 }

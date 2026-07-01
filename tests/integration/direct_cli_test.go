@@ -20,4 +20,6 @@ func TestDirectCLIGeneratesFoundryScript(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(data), "namespace cafecito.game.v1")
 	require.Contains(t, string(data), "class_name Player")
+	require.Contains(t, string(data), "## Player state shared with Foundry Script.\nfinal class_name Player extends RefCounted")
+	require.Contains(t, string(data), "## Player display name.\nfunc get_name() -> String:")
 }

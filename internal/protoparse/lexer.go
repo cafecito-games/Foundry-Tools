@@ -34,13 +34,15 @@ func (l *lexer) run() ([]Token, error) {
 		line, col := l.line, l.column
 
 		if ch == '/' && l.peek(1) == '/' {
-			l.skipLineComment()
+			l.tokens = append(l.tokens, l.readLineComment())
 			continue
 		}
 		if ch == '/' && l.peek(1) == '*' {
-			if err := l.skipBlockComment(); err != nil {
+			tok, err := l.readBlockComment()
+			if err != nil {
 				return nil, err
 			}
+			l.tokens = append(l.tokens, tok)
 			continue
 		}
 
@@ -306,21 +308,33 @@ func (l *lexer) readString() (Token, error) {
 	}
 }
 
-func (l *lexer) skipLineComment() {
-	l.advance()
-	l.advance()
-	for l.pos < len(l.source) && l.source[l.pos] != '\n' {
-		l.advance()
-	}
-}
-
-func (l *lexer) skipBlockComment() error {
+func (l *lexer) readLineComment() Token {
 	startLine, startCol := l.line, l.column
 	l.advance()
 	l.advance()
+	start := l.pos
+	for l.pos < len(l.source) && l.source[l.pos] != '\n' {
+		l.advance()
+	}
+	value := strings.TrimSpace(l.source[start:l.pos])
+	return Token{
+		Type:      TokenComment,
+		Value:     value,
+		Line:      startLine,
+		Column:    startCol,
+		EndLine:   l.line,
+		EndColumn: l.column,
+	}
+}
+
+func (l *lexer) readBlockComment() (Token, error) {
+	startLine, startCol := l.line, l.column
+	l.advance()
+	l.advance()
+	start := l.pos
 	for {
 		if l.pos >= len(l.source) {
-			return &LexerError{
+			return Token{}, &LexerError{
 				File:    l.filename,
 				Line:    startLine,
 				Column:  startCol,
@@ -328,12 +342,40 @@ func (l *lexer) skipBlockComment() error {
 			}
 		}
 		if l.source[l.pos] == '*' && l.peek(1) == '/' {
+			value := normalizeBlockComment(l.source[start:l.pos])
 			l.advance()
 			l.advance()
-			return nil
+			return Token{
+				Type:      TokenComment,
+				Value:     value,
+				Line:      startLine,
+				Column:    startCol,
+				EndLine:   l.line,
+				EndColumn: l.column,
+			}, nil
 		}
 		l.advance()
 	}
+}
+
+func normalizeBlockComment(raw string) string {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	raw = strings.ReplaceAll(raw, "\r", "\n")
+	lines := strings.Split(raw, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "*") {
+			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "*"))
+		}
+		lines[i] = trimmed
+	}
+	for len(lines) > 0 && lines[0] == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func singleCharSymbol(ch byte) (TokenType, bool) {

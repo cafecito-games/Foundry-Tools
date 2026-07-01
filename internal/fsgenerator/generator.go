@@ -58,12 +58,12 @@ func validateWireFields(message *protoast.Message) error {
 	return nil
 }
 
-func messageDoc(typeName string) []string {
-	return []string{"Generated protobuf message binding for " + typeName + "."}
+func messageDoc(typeName string, schemaDoc []string) []string {
+	return docOrFallback(schemaDoc, []string{"Generated protobuf message binding for " + typeName + "."})
 }
 
-func enumDoc(typeName string) []string {
-	return []string{"Generated protobuf enum binding for " + typeName + "."}
+func enumDoc(typeName string, schemaDoc []string) []string {
+	return docOrFallback(schemaDoc, []string{"Generated protobuf enum binding for " + typeName + "."})
 }
 
 func setterDoc(fieldName string) []string {
@@ -86,12 +86,45 @@ func mergeFromBytesDoc() []string {
 	return []string{"Merges protobuf wire data into this message."}
 }
 
+func docOrFallback(schemaDoc, fallback []string) []string {
+	if len(schemaDoc) == 0 {
+		return fallback
+	}
+	out := make([]string, 0, len(schemaDoc))
+	for _, line := range schemaDoc {
+		if strings.TrimSpace(line) == "" && len(out) == 0 {
+			continue
+		}
+		out = append(out, strings.TrimSpace(line))
+	}
+	for len(out) > 0 && out[len(out)-1] == "" {
+		out = out[:len(out)-1]
+	}
+	if len(out) == 0 {
+		return fallback
+	}
+	return out
+}
+
+func writeDoc(builder *strings.Builder, indent string, lines []string) {
+	for _, line := range lines {
+		builder.WriteString(indent)
+		builder.WriteString("##")
+		if line != "" {
+			builder.WriteByte(' ')
+			builder.WriteString(line)
+		}
+		builder.WriteByte('\n')
+	}
+}
+
 func renderEnum(namespace, typeName string, enum *protoast.Enum) string {
 	var builder strings.Builder
 	builder.WriteString("enum_name ")
 	builder.WriteString(typeName)
 	builder.WriteString(" {\n")
 	for _, value := range enum.Values {
+		writeDoc(&builder, "\t", docOrFallback(value.Doc, nil))
 		builder.WriteByte('\t')
 		builder.WriteString(value.Name)
 		builder.WriteString(" = ")
@@ -104,7 +137,7 @@ func renderEnum(namespace, typeName string, enum *protoast.Enum) string {
 		Namespace: namespace,
 		Declarations: []fsast.Node{
 			fsast.Doc{
-				Lines: enumDoc(typeName),
+				Lines: enumDoc(typeName, enum.Doc),
 				Node:  fsast.Raw{Code: builder.String()},
 			},
 		},
@@ -134,7 +167,7 @@ func renderMessage(namespace, typeName string, message *protoast.Message) string
 			// Current Foundry builds cannot resolve/apply imported runtime trait bodies
 			// such as foundry.proto.Message[T] here, so conformance is deferred.
 			fsast.Class{
-				Doc:     messageDoc(typeName),
+				Doc:     messageDoc(typeName, message.Doc),
 				Final:   true,
 				Name:    typeName,
 				Extends: "RefCounted",

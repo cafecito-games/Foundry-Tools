@@ -6,7 +6,7 @@ import (
 	"github.com/cafecito-games/foundry-tools/internal/protoast"
 )
 
-func (p *parser) parseMessage() (*protoast.Message, error) {
+func (p *parser) parseMessage(doc []string) (*protoast.Message, error) {
 	msgTok := p.current()
 	if _, err := p.expect(TokenMessage); err != nil {
 		return nil, err
@@ -21,31 +21,36 @@ func (p *parser) parseMessage() (*protoast.Message, error) {
 
 	m := &protoast.Message{
 		Position: protoast.Position{Line: msgTok.Line, Column: msgTok.Column},
+		Doc:      doc,
 		Name:     nameTok.Value,
 	}
 
-	for !p.match(TokenRBrace) {
+	for {
+		childDoc := p.takeLeadingDoc()
+		if p.match(TokenRBrace) {
+			break
+		}
 		switch {
 		case p.match(TokenMessage):
-			child, err := p.parseMessage()
+			child, err := p.parseMessage(childDoc)
 			if err != nil {
 				return nil, err
 			}
 			m.NestedMessages = append(m.NestedMessages, child)
 		case p.match(TokenEnum):
-			child, err := p.parseEnum()
+			child, err := p.parseEnum(childDoc)
 			if err != nil {
 				return nil, err
 			}
 			m.NestedEnums = append(m.NestedEnums, child)
 		case p.match(TokenOneof):
-			o, err := p.parseOneof()
+			o, err := p.parseOneof(childDoc)
 			if err != nil {
 				return nil, err
 			}
 			m.Oneofs = append(m.Oneofs, o)
 		case p.match(TokenMap):
-			mp, err := p.parseMapField()
+			mp, err := p.parseMapField(childDoc)
 			if err != nil {
 				return nil, err
 			}
@@ -66,7 +71,7 @@ func (p *parser) parseMessage() (*protoast.Message, error) {
 			}
 			m.Options[opt.Name] = opt.Value
 		default:
-			f, err := p.parseField("")
+			f, err := p.parseField("", childDoc)
 			if err != nil {
 				return nil, err
 			}
@@ -74,14 +79,16 @@ func (p *parser) parseMessage() (*protoast.Message, error) {
 		}
 	}
 
-	if _, err := p.expect(TokenRBrace); err != nil {
+	rbrace, err := p.expect(TokenRBrace)
+	if err != nil {
 		return nil, err
 	}
+	m.Doc = append(m.Doc, p.takeTrailingDoc(rbrace)...)
 	return m, nil
 }
 
 // parseField parses a field. oneofParent is "" when not in a oneof.
-func (p *parser) parseField(oneofParent string) (*protoast.Field, error) {
+func (p *parser) parseField(oneofParent string, doc []string) (*protoast.Field, error) {
 	startTok := p.current()
 
 	repeated := false
@@ -123,12 +130,15 @@ func (p *parser) parseField(oneofParent string) (*protoast.Field, error) {
 		}
 	}
 
-	if _, err := p.expect(TokenSemicolon); err != nil {
+	semicolon, err := p.expect(TokenSemicolon)
+	if err != nil {
 		return nil, err
 	}
+	doc = append(doc, p.takeTrailingDoc(semicolon)...)
 
 	return &protoast.Field{
 		Position:    protoast.Position{Line: startTok.Line, Column: startTok.Column},
+		Doc:         doc,
 		FieldType:   fieldType,
 		Name:        nameTok.Value,
 		Number:      int(num),
@@ -139,7 +149,7 @@ func (p *parser) parseField(oneofParent string) (*protoast.Field, error) {
 	}, nil
 }
 
-func (p *parser) parseMapField() (*protoast.MapField, error) {
+func (p *parser) parseMapField(doc []string) (*protoast.MapField, error) {
 	mapTok := p.current()
 	if _, err := p.expect(TokenMap); err != nil {
 		return nil, err
@@ -185,12 +195,15 @@ func (p *parser) parseMapField() (*protoast.MapField, error) {
 		}
 	}
 
-	if _, err := p.expect(TokenSemicolon); err != nil {
+	semicolon, err := p.expect(TokenSemicolon)
+	if err != nil {
 		return nil, err
 	}
+	doc = append(doc, p.takeTrailingDoc(semicolon)...)
 
 	return &protoast.MapField{
 		Position:  protoast.Position{Line: mapTok.Line, Column: mapTok.Column},
+		Doc:       doc,
 		KeyType:   keyType,
 		ValueType: valueType,
 		Name:      nameTok.Value,
