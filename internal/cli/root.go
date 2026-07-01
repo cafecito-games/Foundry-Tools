@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/cafecito-games/foundry-tools/internal/foundrytoolspb"
 	"github.com/cafecito-games/foundry-tools/internal/fsgenerator"
+	"github.com/cafecito-games/foundry-tools/internal/packagemanager"
 	"github.com/cafecito-games/foundry-tools/internal/protoparse"
 	"github.com/cafecito-games/foundry-tools/internal/protovalidate"
 	"github.com/cafecito-games/foundry-tools/internal/runtime"
@@ -18,6 +20,10 @@ import (
 
 // NewRootCommand returns the root anvil command.
 func NewRootCommand(stdout, stderr io.Writer) *cobra.Command {
+	return newRootCommand(stdout, stderr, &packageCLIOptions{})
+}
+
+func newRootCommand(stdout, stderr io.Writer, pkgOpts *packageCLIOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "anvil",
 		Short:         "Tooling for Foundry Engine projects",
@@ -28,7 +34,32 @@ func NewRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	cmd.SetErr(stderr)
 	cmd.AddCommand(newVersionCommand(stdout))
 	cmd.AddCommand(newProtoCommand(stdout))
+	cmd.AddCommand(newPkgCommand(stdout, pkgOpts))
 	return cmd
+}
+
+// Execute runs anvil with explicit streams and returns the mapped process exit
+// code. It is used by main and tests so package-manager error rendering stays
+// consistent.
+func Execute(args []string, stdout, stderr io.Writer) int {
+	pkgOpts := &packageCLIOptions{}
+	cmd := newRootCommand(stdout, stderr, pkgOpts)
+	cmd.SetArgs(args)
+	if err := cmd.Execute(); err != nil {
+		code := int(packagemanager.CodeFor(err))
+		if pkgOpts.JSON {
+			encoder := json.NewEncoder(stdout)
+			encoder.SetIndent("", "  ")
+			_ = encoder.Encode(map[string]any{
+				"error": err.Error(),
+				"code":  code,
+			})
+		} else {
+			_, _ = fmt.Fprintf(stderr, "anvil: %v\n", err)
+		}
+		return code
+	}
+	return int(packagemanager.ExitOK)
 }
 
 func newVersionCommand(stdout io.Writer) *cobra.Command {
