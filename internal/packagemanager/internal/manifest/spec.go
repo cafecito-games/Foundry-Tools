@@ -12,9 +12,12 @@ import (
 type SourceType string
 
 const (
-	SourceGit           SourceType = "git"
+	// SourceGit fetches a Git repository ref.
+	SourceGit SourceType = "git"
+	// SourceGitHubRelease fetches one GitHub release asset.
 	SourceGitHubRelease SourceType = "github-release"
-	SourceArchive       SourceType = "archive"
+	// SourceArchive fetches a direct HTTP(S) archive.
+	SourceArchive SourceType = "archive"
 )
 
 // PackageSpec is one package entry declared in packages.toml.

@@ -1,3 +1,5 @@
+// Package installer copies fetched package sources into a Foundry project's
+// addons directory.
 package installer
 
 import (
@@ -23,7 +25,7 @@ func Install(fetched source.FetchResult, spec manifest.PackageSpec, addonsDir st
 		return err
 	}
 
-	if err := os.MkdirAll(addonsDir, 0o755); err != nil {
+	if err := os.MkdirAll(addonsDir, 0o755); err != nil { //nolint:gosec // Foundry addon directories should be project-readable.
 		return &output.InstallError{Err: err}
 	}
 
@@ -184,7 +186,7 @@ func copyTree(src, dst string, excludeDirs []string) error {
 		}
 		target := filepath.Join(dst, relative)
 		if entry.IsDir() {
-			return os.MkdirAll(target, 0o755)
+			return os.MkdirAll(target, 0o755) //nolint:gosec // Installed package directories should be project-readable.
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -199,12 +201,12 @@ func cleanExcludeDir(excludeDir string) string {
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {
-	in, err := os.Open(src)
+	in, err := os.Open(src) //nolint:gosec // Source paths are constrained to the fetched package tree.
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode|0o200)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode|0o200) //nolint:gosec // Destination paths are constrained to the staging tree.
 	if err != nil {
 		return err
 	}

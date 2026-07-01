@@ -128,7 +128,7 @@ func TestAddPackageRollsBackManifestOnInstallFailure(t *testing.T) {
 	require.NoError(t, (&Manifest{Packages: map[string]PackageSpec{}}).Save(filepath.Join(root, "packages.toml")))
 
 	fetchErr := &output.FetchError{Err: errors.New("boom")}
-	_, err := AddWithRunner(context.Background(), AddOptions{
+	_, err := addWithRunner(context.Background(), AddOptions{
 		Options: Options{Dir: root},
 		Spec:    PackageSpec{Name: "pkg", Source: SourceArchive, URL: "https://example.com/pkg.zip"},
 	}, func(addonsDir, lockPath string, limits source.Limits) *Runner {

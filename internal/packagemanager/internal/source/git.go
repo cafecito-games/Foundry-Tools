@@ -80,7 +80,7 @@ func (f *GitFetcher) Fetch(ctx context.Context, spec manifest.PackageSpec) (Fetc
 // prompting so a fetch cannot block waiting on terminal input.
 func gitCommand(ctx context.Context, directory string, args ...string) *exec.Cmd {
 	full := append([]string{"-c", "protocol.ext.allow=never"}, args...)
-	cmd := exec.CommandContext(ctx, "git", full...)
+	cmd := exec.CommandContext(ctx, "git", full...) //nolint:gosec // Git args come from validated refs/URLs or fixed subcommands.
 	cmd.Dir = directory
 	cmd.Env = append(cleanGitLocalEnv(os.Environ()), "GIT_TERMINAL_PROMPT=0")
 	return cmd
@@ -128,7 +128,7 @@ func runGit(ctx context.Context, directory string, args ...string) error {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return &output.FetchError{Err: fmt.Errorf("git %s: %v: %s",
+		return &output.FetchError{Err: fmt.Errorf("git %s: %w: %s",
 			strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))}
 	}
 	return nil

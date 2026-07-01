@@ -1,3 +1,4 @@
+// Package lockfile reads and writes reproducible package pins.
 package lockfile
 
 import (
@@ -27,7 +28,7 @@ type Lockfile struct {
 
 // Load reads packages.lock at path. A missing file yields an empty Lockfile.
 func Load(path string) (*Lockfile, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // Lockfile path is discovered from the Foundry project root.
 	if errors.Is(err, fs.ErrNotExist) {
 		return &Lockfile{Packages: map[string]Entry{}}, nil
 	}

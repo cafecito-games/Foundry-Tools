@@ -28,24 +28,26 @@ func parseBytesize(raw string) (int64, error) {
 	}
 	lower := strings.ToLower(trimmed)
 	for _, entry := range bytesizeSuffixes {
-		if entry.suffix == "" || strings.HasSuffix(lower, entry.suffix) {
-			numberPart := strings.TrimSpace(lower[:len(lower)-len(entry.suffix)])
-			if numberPart == "" {
-				continue
-			}
-			value, err := strconv.ParseFloat(numberPart, 64)
-			if err != nil {
-				return 0, fmt.Errorf("invalid size %q: %w", raw, err)
-			}
-			if value < 0 {
-				return 0, fmt.Errorf("size %q must be non-negative", raw)
-			}
-			return int64(value * float64(entry.multiplier)), nil
+		if entry.suffix != "" && !strings.HasSuffix(lower, entry.suffix) {
+			continue
 		}
+		numberPart := strings.TrimSpace(lower[:len(lower)-len(entry.suffix)])
+		if numberPart == "" {
+			continue
+		}
+		value, err := strconv.ParseFloat(numberPart, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid size %q: %w", raw, err)
+		}
+		if value < 0 {
+			return 0, fmt.Errorf("size %q must be non-negative", raw)
+		}
+		return int64(value * float64(entry.multiplier)), nil
 	}
 	return 0, fmt.Errorf("invalid size %q", raw)
 }
 
+// Set parses and stores a byte-size flag value.
 func (b *bytesizeValue) Set(raw string) error {
 	value, err := parseBytesize(raw)
 	if err != nil {
@@ -55,6 +57,7 @@ func (b *bytesizeValue) Set(raw string) error {
 	return nil
 }
 
+// Type returns the pflag value type name.
 func (b *bytesizeValue) Type() string { return "bytesize" }
 
 func (b *bytesizeValue) String() string {

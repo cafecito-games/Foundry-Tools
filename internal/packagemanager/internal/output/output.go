@@ -1,3 +1,4 @@
+// Package output defines package-manager error classes and exit codes.
 package output
 
 import "errors"
@@ -6,12 +7,18 @@ import "errors"
 type ExitCode int
 
 const (
-	ExitOK       ExitCode = 0
-	ExitGeneric  ExitCode = 1
-	ExitUsage    ExitCode = 2
+	// ExitOK indicates success.
+	ExitOK ExitCode = 0
+	// ExitGeneric indicates an unclassified failure.
+	ExitGeneric ExitCode = 1
+	// ExitUsage indicates bad flags or arguments.
+	ExitUsage ExitCode = 2
+	// ExitManifest indicates a project, manifest, or lockfile failure.
 	ExitManifest ExitCode = 3
-	ExitFetch    ExitCode = 4
-	ExitInstall  ExitCode = 5
+	// ExitFetch indicates a network, auth, or source-resolution failure.
+	ExitFetch ExitCode = 4
+	// ExitInstall indicates an extraction or filesystem install failure.
+	ExitInstall ExitCode = 5
 )
 
 // ManifestError wraps a manifest, project discovery, or lockfile failure.

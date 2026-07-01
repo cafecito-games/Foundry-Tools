@@ -1,3 +1,4 @@
+// Package project discovers Foundry project roots and package-manager paths.
 package project
 
 import (

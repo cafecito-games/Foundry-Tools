@@ -1,3 +1,5 @@
+// Package packagemanager exposes Foundry package-manager operations used by
+// the anvil CLI.
 package packagemanager
 
 import (
@@ -15,21 +17,35 @@ import (
 	"github.com/cafecito-games/foundry-tools/internal/packagemanager/internal/source"
 )
 
+// SourceType identifies how a package is obtained.
 type SourceType = manifest.SourceType
 
+// Source type constants supported by packages.toml.
 const (
 	SourceGit           = manifest.SourceGit
 	SourceGitHubRelease = manifest.SourceGitHubRelease
 	SourceArchive       = manifest.SourceArchive
 )
 
+// PackageSpec is one package entry declared in packages.toml.
 type PackageSpec = manifest.PackageSpec
+
+// Manifest is the parsed contents of packages.toml.
 type Manifest = manifest.Manifest
+
+// Lockfile is the parsed contents of packages.lock.
 type Lockfile = lockfile.Lockfile
+
+// LockEntry pins one resolved package for reproducible installs.
 type LockEntry = lockfile.Entry
+
+// Project describes a located Foundry project and package-manager paths.
 type Project = project.Project
+
+// ExitCode is a process exit status with a defined meaning.
 type ExitCode = output.ExitCode
 
+// Exit code constants returned by package-manager operations.
 const (
 	ExitOK       = output.ExitOK
 	ExitGeneric  = output.ExitGeneric
@@ -52,44 +68,53 @@ type Options struct {
 	MaxExtractedBytes int64
 }
 
+// InitOptions configures packages.toml initialization.
 type InitOptions struct {
 	Dir string
 }
 
+// InitResult describes the initialized manifest path.
 type InitResult struct {
 	ManifestPath string `json:"manifest_path"`
 }
 
+// AddOptions configures adding and installing one package.
 type AddOptions struct {
 	Options
 	Spec PackageSpec
 }
 
+// InstallOptions configures installing all or selected packages.
 type InstallOptions struct {
 	Options
 	Names []string
 }
 
+// UpdateOptions configures re-resolving all or selected packages.
 type UpdateOptions struct {
 	Options
 	Names []string
 }
 
+// RemoveOptions configures removing one package.
 type RemoveOptions struct {
 	Options
 	Name string
 }
 
+// ListOptions configures listing package status.
 type ListOptions struct {
 	Options
 }
 
+// PackageResult reports the outcome of installing one package.
 type PackageResult struct {
 	Name            string `json:"name"`
 	ResolvedVersion string `json:"resolved_version"`
 	InstallPath     string `json:"install_path"`
 }
 
+// PackageListing reports configured package status.
 type PackageListing struct {
 	Name      string `json:"name"`
 	Source    string `json:"source"`
@@ -127,7 +152,7 @@ func Init(opts InitOptions) (*InitResult, error) {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, &output.ManifestError{Err: err}
 	}
-	if err := os.WriteFile(path, []byte(starterManifest), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(starterManifest), 0o644); err != nil { //nolint:gosec // Manifest files should be readable by project tools.
 		return nil, &output.ManifestError{Err: err}
 	}
 	return &InitResult{ManifestPath: path}, nil
@@ -157,10 +182,10 @@ func LoadLock(path string) (*Lockfile, error) {
 
 // Add saves one package in packages.toml and installs it immediately.
 func Add(ctx context.Context, opts AddOptions) ([]PackageResult, error) {
-	return AddWithRunner(ctx, opts, NewRunner)
+	return addWithRunner(ctx, opts, NewRunner)
 }
 
-func AddWithRunner(ctx context.Context, opts AddOptions, newRunner runnerFactory) ([]PackageResult, error) {
+func addWithRunner(ctx context.Context, opts AddOptions, newRunner runnerFactory) ([]PackageResult, error) {
 	discovered, pkgManifest, err := loadProject(opts.Dir)
 	if err != nil {
 		return nil, err
@@ -269,12 +294,12 @@ func limitsFor(opts Options) source.Limits {
 	}
 }
 
-func loadProject(dir string) (*Project, *Manifest, error) {
-	discovered, err := Discover(dir)
+func loadProject(dir string) (discovered *Project, pkgManifest *Manifest, err error) {
+	discovered, err = Discover(dir)
 	if err != nil {
 		return nil, nil, err
 	}
-	pkgManifest, err := manifest.Load(discovered.ManifestPath)
+	pkgManifest, err = manifest.Load(discovered.ManifestPath)
 	if err != nil {
 		return nil, nil, &output.ManifestError{Err: err}
 	}

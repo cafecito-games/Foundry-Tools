@@ -1,3 +1,4 @@
+// Package manifest reads, writes, and validates packages.toml.
 package manifest
 
 import (
@@ -11,7 +12,7 @@ import (
 // Load reads and parses packages.toml at path. Each PackageSpec.Name is set
 // from its TOML table key.
 func Load(path string) (*Manifest, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // Manifest path is discovered from the Foundry project root.
 	if err != nil {
 		return nil, fmt.Errorf("reading manifest %s: %w", path, err)
 	}
@@ -22,7 +23,8 @@ func Load(path string) (*Manifest, error) {
 	if m.Packages == nil {
 		m.Packages = map[string]PackageSpec{}
 	}
-	for name, pkg := range m.Packages {
+	for name := range m.Packages {
+		pkg := m.Packages[name]
 		pkg.Name = name
 		m.Packages[name] = pkg
 	}

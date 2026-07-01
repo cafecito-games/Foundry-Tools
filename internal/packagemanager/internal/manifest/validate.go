@@ -14,7 +14,8 @@ import (
 
 // Validate checks every package entry for required and consistent fields.
 func (m *Manifest) Validate() error {
-	for name, pkg := range m.Packages {
+	for name := range m.Packages {
+		pkg := m.Packages[name]
 		if err := validateSpec(name, pkg); err != nil {
 			return &output.ManifestError{Err: err}
 		}

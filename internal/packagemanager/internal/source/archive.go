@@ -1,3 +1,5 @@
+// Package source fetches package sources from Git, GitHub releases, and
+// archives.
 package source
 
 import (
@@ -82,7 +84,7 @@ func httpGet(ctx context.Context, client *http.Client, rawURL string, header htt
 	if client == nil {
 		client = defaultHTTPClient
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
 	if err != nil {
 		return nil, &output.FetchError{Err: err}
 	}
@@ -129,7 +131,7 @@ func download(ctx context.Context, client *http.Client, rawURL string, header ht
 // its SHA-256 along the way. It returns the file path and the hex-encoded
 // checksum; the caller is responsible for removing the file. maxBytes <= 0 uses
 // the default cap.
-func downloadToFile(ctx context.Context, client *http.Client, rawURL string, header http.Header, maxBytes int64) (string, string, error) {
+func downloadToFile(ctx context.Context, client *http.Client, rawURL string, header http.Header, maxBytes int64) (path, checksum string, err error) {
 	if maxBytes <= 0 {
 		maxBytes = defaultMaxDownloadBytes
 	}
@@ -235,7 +237,7 @@ func extractZip(archivePath, dir string, maxExtracted int64) error {
 				"archive contains an unsupported symlink entry: %s", zipFile.Name)}
 		}
 		if zipFile.FileInfo().IsDir() {
-			if err := os.MkdirAll(dest, 0o755); err != nil {
+			if err := os.MkdirAll(dest, 0o755); err != nil { //nolint:gosec // Extracted package directories should be project-readable.
 				return &output.InstallError{Err: err}
 			}
 			continue
@@ -243,7 +245,7 @@ func extractZip(archivePath, dir string, maxExtracted int64) error {
 		if err := guard.addFile(); err != nil {
 			return err
 		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil { //nolint:gosec // Extracted package directories should be project-readable.
 			return &output.InstallError{Err: err}
 		}
 		readCloser, err := zipFile.Open()
@@ -260,7 +262,7 @@ func extractZip(archivePath, dir string, maxExtracted int64) error {
 }
 
 func extractTarGz(archivePath, dir string, maxExtracted int64) error {
-	file, err := os.Open(archivePath)
+	file, err := os.Open(archivePath) //nolint:gosec // Archive path is a temporary file created by the fetcher.
 	if err != nil {
 		return &output.InstallError{Err: err}
 	}
@@ -287,17 +289,17 @@ func extractTarGz(archivePath, dir string, maxExtracted int64) error {
 		}
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(dest, 0o755); err != nil {
+			if err := os.MkdirAll(dest, 0o755); err != nil { //nolint:gosec // Extracted package directories should be project-readable.
 				return &output.InstallError{Err: err}
 			}
 		case tar.TypeReg:
 			if err := guard.addFile(); err != nil {
 				return err
 			}
-			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil { //nolint:gosec // Extracted package directories should be project-readable.
 				return &output.InstallError{Err: err}
 			}
-			if err := writeFile(dest, tarReader, os.FileMode(header.Mode), guard); err != nil {
+			if err := writeFile(dest, tarReader, os.FileMode(header.Mode), guard); err != nil { //nolint:gosec // Archive modes are applied as filesystem permissions by design.
 				return err
 			}
 		case tar.TypeSymlink, tar.TypeLink:
@@ -320,7 +322,7 @@ func safeJoin(base, name string) (string, error) {
 // writeFile writes reader into dest, enforcing the guard's total-size cap so a
 // single entry cannot expand the archive past the guard's maximum.
 func writeFile(dest string, reader io.Reader, mode os.FileMode, guard *extractGuard) error {
-	out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode|0o200)
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode|0o200) //nolint:gosec // Destination is guarded by safeJoin before extraction.
 	if err != nil {
 		return &output.InstallError{Err: err}
 	}

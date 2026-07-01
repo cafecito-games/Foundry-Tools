@@ -19,7 +19,9 @@ import (
 type InstallMode int
 
 const (
+	// ModeInstall honors existing lockfile pins when they match packages.toml.
 	ModeInstall InstallMode = iota
+	// ModeUpdate re-resolves selected packages and rewrites lockfile pins.
 	ModeUpdate
 )
 
@@ -53,7 +55,8 @@ func (r *Runner) InstallPackages(ctx context.Context, pkgManifest *Manifest, nam
 	}
 	targets := selectPackages(pkgManifest, names)
 	results := make([]PackageResult, 0, len(targets))
-	for _, spec := range targets {
+	for i := range targets {
+		spec := targets[i]
 		useLock := mode == ModeInstall && !lockfile.NeedsResolve(spec, lock)
 
 		effectiveSpec := spec
