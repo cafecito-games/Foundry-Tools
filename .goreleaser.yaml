@@ -1,0 +1,73 @@
+version: 2
+
+project_name: foundry-tools
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: foundry-tools
+    main: ./cmd/foundry-tools
+    binary: foundry-tools
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/cafecito-games/foundry-tools/internal/cli.Version={{ .Version }}
+
+  - id: protoc-gen-foundryscript
+    main: ./cmd/protoc-gen-foundryscript
+    binary: protoc-gen-foundryscript
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: foundry-tools
+    ids:
+      - foundry-tools
+      - protoc-gen-foundryscript
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+homebrew_casks:
+  - name: foundry-tools
+    binaries:
+      - foundry-tools
+      - protoc-gen-foundryscript
+    repository:
+      owner: cafecito-games
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://github.com/cafecito-games/foundry-tools"
+    description: "Foundry Engine development tools"
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/foundry-tools"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/protoc-gen-foundryscript"]
+          end

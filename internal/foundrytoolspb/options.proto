@@ -1,0 +1,13 @@
+syntax = "proto2";
+
+package foundrytools;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/cafecito-games/foundry-tools/internal/foundrytoolspb";
+
+extend google.protobuf.FileOptions {
+  optional string namespace = 52000;
+  optional string type_prefix = 52001;
+  optional bool emit_runtime = 52002;
+}

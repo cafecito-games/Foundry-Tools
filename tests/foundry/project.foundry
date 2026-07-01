@@ -1,0 +1,8 @@
+; Engine configuration file.
+
+config_version=5
+
+[application]
+
+config/name="Foundry Tools Generated Protobuf Fixture"
+run/main_scene=""
