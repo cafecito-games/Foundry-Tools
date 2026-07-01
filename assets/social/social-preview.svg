@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="Foundry Tools — package management and protobuf codegen for Foundry Engine">
+  <defs>
+    <linearGradient id="sp-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1B1E25"/>
+      <stop offset="1" stop-color="#101216"/>
+    </linearGradient>
+    <linearGradient id="sp-ember" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD76B"/>
+      <stop offset=".5" stop-color="#FF8A3D"/>
+      <stop offset="1" stop-color="#FF6A13"/>
+    </linearGradient>
+    <linearGradient id="sp-steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6B7686"/>
+      <stop offset="1" stop-color="#3A4250"/>
+    </linearGradient>
+    <linearGradient id="sp-word" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F3EFE6"/>
+      <stop offset="1" stop-color="#8A93A0"/>
+    </linearGradient>
+    <radialGradient id="sp-forge" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FF6A13" stop-opacity="0.30"/>
+      <stop offset="0.55" stop-color="#FF6A13" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#FF6A13" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- backdrop -->
+  <rect width="1280" height="640" fill="url(#sp-bg)"/>
+
+  <!-- faint hex lattice -->
+  <g stroke="#2A303B" stroke-width="1.5" fill="none" opacity="0.55">
+    <polygon points="120,-40 190,0 190,80 120,120 50,80 50,0"/>
+    <polygon points="120,120 190,160 190,240 120,280 50,240 50,160"/>
+    <polygon points="1160,400 1230,440 1230,520 1160,560 1090,520 1090,440"/>
+    <polygon points="1160,560 1230,600 1230,680 1160,720 1090,680 1090,600"/>
+    <polygon points="1250,240 1320,280 1320,360 1250,400 1180,360 1180,280"/>
+  </g>
+
+  <!-- forge glow behind the mark -->
+  <ellipse cx="300" cy="320" rx="340" ry="340" fill="url(#sp-forge)"/>
+
+  <!-- ============ anvil hex mark (scaled from anvil-mark.svg) ============ -->
+  <g transform="translate(130,152) scale(2.7)">
+    <polygon points="60,10 103,35 103,85 60,110 17,85 17,35"
+      fill="none" stroke="#3A4250" stroke-width="4" stroke-linejoin="round"/>
+    <polygon points="60,10 103,35 103,85 60,110 17,85 17,35"
+      fill="none" stroke="#6B7686" stroke-width="1.4" stroke-linejoin="round" opacity="0.7"/>
+    <circle cx="72" cy="34" r="3.4" fill="#FF6A13"/>
+    <circle cx="82" cy="27" r="2.4" fill="#FFD76B"/>
+    <circle cx="60" cy="29" r="2" fill="#FF8A3D"/>
+    <path d="M30,50 L86,50 C92,50 96,52 99,55 C93,56.5 87,57.5 80,58
+             L70,58 L66,64 L66,74 L79,74 L79,84 L41,84 L41,74 L54,74
+             L54,64 L48,58 L30,58 Z"
+      fill="url(#sp-steel)" stroke="#ECE7DC" stroke-width="1.6" stroke-linejoin="round"/>
+    <line x1="34" y1="54" x2="76" y2="54" stroke="url(#sp-ember)" stroke-width="2.4" stroke-linecap="round" opacity="0.9"/>
+  </g>
+
+  <!-- stray sparks drifting off the anvil -->
+  <circle cx="470" cy="150" r="4" fill="#FFD76B" opacity="0.9"/>
+  <circle cx="505" cy="200" r="2.6" fill="#FF8A3D" opacity="0.8"/>
+  <circle cx="492" cy="120" r="2.2" fill="#FF6A13" opacity="0.75"/>
+  <circle cx="545" cy="170" r="1.8" fill="#FFD76B" opacity="0.6"/>
+
+  <!-- divider rule -->
+  <line x1="505" y1="210" x2="505" y2="418" stroke="#2E3541" stroke-width="2"/>
+
+  <!-- ============ text block ============ -->
+  <g font-family="'Helvetica Neue', Helvetica, Arial, sans-serif">
+    <!-- eyebrow -->
+    <text x="550" y="252" fill="#FF8A3D" font-size="24" font-weight="700"
+          letter-spacing="5">FOUNDRY ENGINE TOOLING</text>
+
+    <!-- title -->
+    <text x="546" y="348" fill="url(#sp-word)" font-size="78" font-weight="700"
+          font-family="Cinzel" letter-spacing="1">Foundry Tools</text>
+
+    <!-- tagline -->
+    <text x="550" y="404" fill="#A7B0BD" font-size="25" font-weight="400">
+      Package management &amp; protobuf codegen for Foundry Script
+    </text>
+  </g>
+
+  <!-- bottom ember baseline -->
+  <rect x="0" y="632" width="1280" height="8" fill="url(#sp-ember)"/>
+</svg>
