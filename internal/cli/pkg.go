@@ -26,7 +26,7 @@ type packageCLIOptions struct {
 	MaxExtractedBytes int64
 }
 
-func newPkgCommand(stdout io.Writer, opts *packageCLIOptions) *cobra.Command {
+func newPkgCommand(opts *packageCLIOptions) *cobra.Command {
 	if opts == nil {
 		opts = &packageCLIOptions{}
 	}
@@ -48,7 +48,6 @@ func newPkgCommand(stdout io.Writer, opts *packageCLIOptions) *cobra.Command {
 	cmd.AddCommand(newPkgUpdateCommand(opts))
 	cmd.AddCommand(newPkgRemoveCommand(opts))
 	cmd.AddCommand(newPkgListCommand(opts))
-	_ = stdout
 	return cmd
 }
 

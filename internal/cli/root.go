@@ -34,7 +34,7 @@ func newRootCommand(stdout, stderr io.Writer, pkgOpts *packageCLIOptions) *cobra
 	cmd.SetErr(stderr)
 	cmd.AddCommand(newVersionCommand(stdout))
 	cmd.AddCommand(newProtoCommand(stdout))
-	cmd.AddCommand(newPkgCommand(stdout, pkgOpts))
+	cmd.AddCommand(newPkgCommand(pkgOpts))
 	return cmd
 }
 
