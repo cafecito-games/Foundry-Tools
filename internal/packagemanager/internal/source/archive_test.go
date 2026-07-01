@@ -1,0 +1,241 @@
+package source
+
+import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/cafecito-games/foundry-tools/internal/packagemanager/internal/manifest"
+	"github.com/cafecito-games/foundry-tools/internal/packagemanager/internal/output"
+	"github.com/stretchr/testify/require"
+)
+
+func zipBytes(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, body := range files {
+		w, err := zw.Create(name)
+		require.NoError(t, err)
+		_, err = w.Write([]byte(body))
+		require.NoError(t, err)
+	}
+	require.NoError(t, zw.Close())
+	return buf.Bytes()
+}
+
+func TestArchiveFetchExtractsZip(t *testing.T) {
+	payload := zipBytes(t, map[string]string{"addons/x/plugin.cfg": "[plugin]"})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(payload)
+	}))
+	defer srv.Close()
+
+	f := &ArchiveFetcher{}
+	res, err := f.Fetch(context.Background(), manifest.PackageSpec{
+		Source: manifest.SourceArchive, URL: srv.URL + "/x.zip",
+	})
+	require.NoError(t, err)
+	defer os.RemoveAll(res.Dir)
+	require.NotEmpty(t, res.Checksum)
+	got, err := os.ReadFile(filepath.Join(res.Dir, "addons", "x", "plugin.cfg"))
+	require.NoError(t, err)
+	require.Equal(t, "[plugin]", string(got))
+}
+
+func tarGzBytes(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buf)
+	tarWriter := tar.NewWriter(gzipWriter)
+	for name, body := range files {
+		header := &tar.Header{Name: name, Mode: 0o644, Size: int64(len(body))}
+		require.NoError(t, tarWriter.WriteHeader(header))
+		_, err := tarWriter.Write([]byte(body))
+		require.NoError(t, err)
+	}
+	require.NoError(t, tarWriter.Close())
+	require.NoError(t, gzipWriter.Close())
+	return buf.Bytes()
+}
+
+func TestArchiveFetchExtractsTarGz(t *testing.T) {
+	payload := tarGzBytes(t, map[string]string{"addons/y/plugin.cfg": "[plugin]"})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(payload)
+	}))
+	defer srv.Close()
+
+	f := &ArchiveFetcher{}
+	res, err := f.Fetch(context.Background(), manifest.PackageSpec{
+		Source: manifest.SourceArchive, URL: srv.URL + "/x.tar.gz",
+	})
+	require.NoError(t, err)
+	defer os.RemoveAll(res.Dir)
+	require.NotEmpty(t, res.Checksum)
+	got, err := os.ReadFile(filepath.Join(res.Dir, "addons", "y", "plugin.cfg"))
+	require.NoError(t, err)
+	require.Equal(t, "[plugin]", string(got))
+}
+
+func TestArchiveFetchHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	defer srv.Close()
+	f := &ArchiveFetcher{}
+	_, err := f.Fetch(context.Background(), manifest.PackageSpec{
+		Source: manifest.SourceArchive, URL: srv.URL + "/missing.zip",
+	})
+	require.Error(t, err)
+	var fetchErr *output.FetchError
+	require.ErrorAs(t, err, &fetchErr)
+}
+
+func TestArchiveFetchDetectsArchiveTypeFromURLPathWithQuery(t *testing.T) {
+	payload := zipBytes(t, map[string]string{"plugin.cfg": "[plugin]"})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(payload)
+	}))
+	defer srv.Close()
+
+	f := &ArchiveFetcher{}
+	res, err := f.Fetch(context.Background(), manifest.PackageSpec{
+		Source: manifest.SourceArchive, URL: srv.URL + "/ADDON.ZIP?token=secret",
+	})
+	require.NoError(t, err)
+	defer os.RemoveAll(res.Dir)
+	got, err := os.ReadFile(filepath.Join(res.Dir, "plugin.cfg"))
+	require.NoError(t, err)
+	require.Equal(t, "[plugin]", string(got))
+}
+
+func TestDownloadRejectsOversizedResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("12345"))
+	}))
+	defer srv.Close()
+
+	_, err := download(context.Background(), nil, srv.URL, nil, 4)
+	require.Error(t, err)
+	var fetchErr *output.FetchError
+	require.ErrorAs(t, err, &fetchErr)
+	require.Contains(t, err.Error(), "exceeds maximum download size")
+}
+
+func TestDownloadToFileRejectsOversizedResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("12345"))
+	}))
+	defer srv.Close()
+
+	_, _, err := downloadToFile(context.Background(), nil, srv.URL, nil, 4)
+	require.Error(t, err)
+	var fetchErr *output.FetchError
+	require.ErrorAs(t, err, &fetchErr)
+	require.Contains(t, err.Error(), "exceeds maximum download size")
+}
+
+func TestArchiveFetchRejectsDecompressionBomb(t *testing.T) {
+	// Lower the cap so the test stays fast; the production value is far larger.
+	originalCap := maxExtractedBytes
+	maxExtractedBytes = 1 << 20
+	defer func() { maxExtractedBytes = originalCap }()
+
+	// A zip whose single entry decompresses to more than maxExtractedBytes.
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("bomb.bin")
+	require.NoError(t, err)
+	chunk := make([]byte, 64<<10) // highly compressible zeros
+	for written := int64(0); written <= maxExtractedBytes; written += int64(len(chunk)) {
+		_, err = w.Write(chunk)
+		require.NoError(t, err)
+	}
+	require.NoError(t, zw.Close())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+
+	f := &ArchiveFetcher{}
+	_, err = f.Fetch(context.Background(), manifest.PackageSpec{
+		Source: manifest.SourceArchive, URL: srv.URL + "/bomb.zip",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "maximum extracted size")
+}
+
+func TestArchiveFetchHonorsPerFetcherMaxBytes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(bytes.Repeat([]byte("x"), 1024))
+	}))
+	defer srv.Close()
+
+	f := &ArchiveFetcher{maxBytes: 16}
+	_, err := f.Fetch(context.Background(), manifest.PackageSpec{
+		Source: manifest.SourceArchive, URL: srv.URL + "/big.zip",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds maximum download size")
+}
+
+func TestArchiveFetchHonorsPerFetcherMaxExtracted(t *testing.T) {
+	payload := zipBytes(t, map[string]string{"big.bin": string(bytes.Repeat([]byte("a"), 2048))})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(payload)
+	}))
+	defer srv.Close()
+
+	f := &ArchiveFetcher{maxExtracted: 128}
+	_, err := f.Fetch(context.Background(), manifest.PackageSpec{
+		Source: manifest.SourceArchive, URL: srv.URL + "/big.zip",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "maximum extracted size")
+}
+
+func TestArchiveExtractRejectsSymlinkEntry(t *testing.T) {
+	var buf bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buf)
+	tarWriter := tar.NewWriter(gzipWriter)
+	require.NoError(t, tarWriter.WriteHeader(&tar.Header{
+		Name:     "evil-link",
+		Typeflag: tar.TypeSymlink,
+		Linkname: "/etc/passwd",
+		Mode:     0o777,
+	}))
+	require.NoError(t, tarWriter.Close())
+	require.NoError(t, gzipWriter.Close())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+
+	f := &ArchiveFetcher{}
+	_, err := f.Fetch(context.Background(), manifest.PackageSpec{
+		Source: manifest.SourceArchive, URL: srv.URL + "/x.tar.gz",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "symlink")
+}
+
+func TestSafeJoinRejectsTraversal(t *testing.T) {
+	base := t.TempDir()
+
+	_, err := safeJoin(base, "../escape")
+	require.Error(t, err)
+
+	dest, err := safeJoin(base, "ok/file.txt")
+	require.NoError(t, err)
+	require.True(t, len(dest) > len(base), "result should be inside base")
+}
