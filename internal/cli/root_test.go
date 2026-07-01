@@ -19,7 +19,7 @@ func TestVersionCommandPrintsVersion(t *testing.T) {
 
 	err := cmd.Execute()
 	require.NoError(t, err)
-	require.Contains(t, stdout.String(), "foundry-tools dev")
+	require.Contains(t, stdout.String(), "anvil dev")
 	require.Empty(t, stderr.String())
 }
 

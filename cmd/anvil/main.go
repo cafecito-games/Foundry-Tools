@@ -1,4 +1,4 @@
-// Package main provides the foundry-tools command.
+// Package main provides the anvil command.
 package main
 
 import (

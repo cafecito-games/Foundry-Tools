@@ -16,10 +16,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewRootCommand returns the root foundry-tools command.
+// NewRootCommand returns the root anvil command.
 func NewRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "foundry-tools",
+		Use:           "anvil",
 		Short:         "Tooling for Foundry Engine projects",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -36,7 +36,7 @@ func newVersionCommand(stdout io.Writer) *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintf(stdout, "foundry-tools %s\n", Version)
+			_, err := fmt.Fprintf(stdout, "anvil %s\n", Version)
 			return err
 		},
 	}

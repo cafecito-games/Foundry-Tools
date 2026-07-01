@@ -14,7 +14,7 @@ func TestDirectCLIGeneratesFoundryScript(t *testing.T) {
 	root := repoRoot(t)
 	outDir := t.TempDir()
 
-	run(t, root, "go", "run", "./cmd/foundry-tools", "proto", "generate", "-I", "tests/integration/fixtures/basic", "-o", outDir, "tests/integration/fixtures/basic/player.proto")
+	run(t, root, "go", "run", "./cmd/anvil", "proto", "generate", "-I", "tests/integration/fixtures/basic", "-o", outDir, "tests/integration/fixtures/basic/player.proto")
 
 	data, err := os.ReadFile(filepath.Join(outDir, "cafecito/game/v1/Player.pb.fs"))
 	require.NoError(t, err)

@@ -4,7 +4,7 @@ Tooling for Foundry Engine projects.
 
 This repository currently ships protobuf code generation for Foundry Script:
 
-- `foundry-tools`: direct CLI and umbrella command for future tools.
+- `anvil`: direct CLI and umbrella command for future tools.
 - `protoc-gen-foundryscript`: protoc and Buf plugin.
 
 Generated `.pb.fs` files use Foundry Script namespaces, traits, generics,
@@ -22,14 +22,14 @@ brew install --cask cafecito-games/tap/foundry-tools
 Go:
 
 ```bash
-go install github.com/cafecito-games/foundry-tools/cmd/foundry-tools@latest
+go install github.com/cafecito-games/foundry-tools/cmd/anvil@latest
 go install github.com/cafecito-games/foundry-tools/cmd/protoc-gen-foundryscript@latest
 ```
 
 ## Direct CLI
 
 ```bash
-foundry-tools proto generate -I proto -o foundry/generated proto/player.proto
+anvil proto generate -I proto -o foundry/generated proto/player.proto
 ```
 
 ## protoc
@@ -62,7 +62,7 @@ buf generate
 Print the custom options schema:
 
 ```bash
-foundry-tools proto print-options-proto > proto/foundrytools/options.proto
+anvil proto print-options-proto > proto/foundrytools/options.proto
 protoc-gen-foundryscript --print-options-proto > proto/foundrytools/options.proto
 ```
 
