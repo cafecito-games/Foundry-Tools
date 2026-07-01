@@ -38,6 +38,7 @@ func (p *parser) advance() Token {
 }
 
 func (p *parser) match(types ...TokenType) bool {
+	p.skipComments()
 	cur := p.current().Type
 	for _, t := range types {
 		if cur == t {
@@ -48,11 +49,78 @@ func (p *parser) match(types ...TokenType) bool {
 }
 
 func (p *parser) expect(t TokenType) (Token, error) {
+	p.skipComments()
 	tok := p.current()
 	if tok.Type != t {
 		return Token{}, p.errorf(tok, "Expected %s, got %s", t, tok.Type)
 	}
 	return p.advance(), nil
+}
+
+func (p *parser) skipComments() {
+	for p.current().Type == TokenComment {
+		p.advance()
+	}
+}
+
+func (p *parser) takeLeadingDoc() []string {
+	var docs []string
+	lastCommentEndLine := 0
+	for p.current().Type == TokenComment {
+		tok := p.advance()
+		lines := normalizeDocLines(tok.Value)
+		if len(lines) != 0 {
+			if len(docs) != 0 && tok.Line > lastCommentEndLine+1 {
+				docs = docs[:0]
+			}
+			docs = append(docs, lines...)
+		}
+		lastCommentEndLine = tokenEndLine(tok)
+	}
+	if len(docs) == 0 {
+		return nil
+	}
+	next := p.current()
+	if next.Type == TokenEOF || next.Line > lastCommentEndLine+1 {
+		return nil
+	}
+	return docs
+}
+
+func (p *parser) takeTrailingDoc(after Token) []string {
+	var docs []string
+	line := tokenEndLine(after)
+	for p.current().Type == TokenComment && p.current().Line == line {
+		tok := p.advance()
+		docs = append(docs, normalizeDocLines(tok.Value)...)
+	}
+	if len(docs) == 0 {
+		return nil
+	}
+	return docs
+}
+
+func normalizeDocLines(raw string) []string {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	raw = strings.ReplaceAll(raw, "\r", "\n")
+	lines := strings.Split(raw, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimSpace(line)
+	}
+	for len(lines) > 0 && lines[0] == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+func tokenEndLine(tok Token) int {
+	if tok.EndLine != 0 {
+		return tok.EndLine
+	}
+	return tok.Line
 }
 
 func (p *parser) errorf(tok Token, format string, args ...any) *ParserError {
@@ -76,7 +144,11 @@ func (p *parser) parseFile() (*protoast.ProtoFile, error) {
 		Syntax:   syntax,
 	}
 
-	for !p.match(TokenEOF) {
+	for {
+		doc := p.takeLeadingDoc()
+		if p.match(TokenEOF) {
+			break
+		}
 		switch {
 		case p.match(TokenImport):
 			imp, err := p.parseImport()
@@ -104,13 +176,13 @@ func (p *parser) parseFile() (*protoast.ProtoFile, error) {
 			file.Options[opt.Name] = opt.Value
 			file.OptionPositions[opt.Name] = opt.Position
 		case p.match(TokenMessage):
-			m, err := p.parseMessage()
+			m, err := p.parseMessage(doc)
 			if err != nil {
 				return nil, err
 			}
 			file.Messages = append(file.Messages, m)
 		case p.match(TokenEnum):
-			e, err := p.parseEnum()
+			e, err := p.parseEnum(doc)
 			if err != nil {
 				return nil, err
 			}
@@ -138,9 +210,11 @@ func (p *parser) parseImport() (*protoast.Import, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := p.expect(TokenSemicolon); err != nil {
+	semicolon, err := p.expect(TokenSemicolon)
+	if err != nil {
 		return nil, err
 	}
+	p.takeTrailingDoc(semicolon)
 	return &protoast.Import{
 		Position: protoast.Position{Line: impTok.Line, Column: impTok.Column},
 		Path:     pathTok.Value,
@@ -156,9 +230,11 @@ func (p *parser) parsePackage() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := p.expect(TokenSemicolon); err != nil {
+	semicolon, err := p.expect(TokenSemicolon)
+	if err != nil {
 		return "", err
 	}
+	p.takeTrailingDoc(semicolon)
 	return name, nil
 }
 
@@ -192,8 +268,10 @@ func (p *parser) parseSyntax() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := p.expect(TokenSemicolon); err != nil {
+	semicolon, err := p.expect(TokenSemicolon)
+	if err != nil {
 		return "", err
 	}
+	p.takeTrailingDoc(semicolon)
 	return tok.Value, nil
 }

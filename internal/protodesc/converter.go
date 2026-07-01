@@ -1,6 +1,7 @@
 package protodesc
 
 import (
+	"strconv"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
@@ -132,6 +133,7 @@ func (c *converter) convertFile(fd *descriptorpb.FileDescriptorProto) (*protoast
 	if syntax == "" {
 		syntax = "proto3"
 	}
+	docs := sourceDocs(fd)
 	file := &protoast.ProtoFile{
 		Syntax:  syntax,
 		Package: fd.GetPackage(),
@@ -156,17 +158,86 @@ func (c *converter) convertFile(fd *descriptorpb.FileDescriptorProto) (*protoast
 		file.Imports = append(file.Imports, &protoast.Import{Path: dep, Public: public})
 	}
 
-	for _, e := range fd.GetEnumType() {
-		file.Enums = append(file.Enums, c.convertEnum(e))
+	for i, e := range fd.GetEnumType() {
+		file.Enums = append(file.Enums, c.convertEnum(e, docs, []int32{5, int32(i)}))
 	}
-	for _, m := range fd.GetMessageType() {
-		msg, err := c.convertMessage(m, fd.GetName(), m.GetName())
+	for i, m := range fd.GetMessageType() {
+		msg, err := c.convertMessage(m, fd.GetName(), m.GetName(), docs, []int32{4, int32(i)})
 		if err != nil {
 			return nil, err
 		}
 		file.Messages = append(file.Messages, msg)
 	}
 	return file, nil
+}
+
+type docIndex map[string][]string
+
+func sourceDocs(fd *descriptorpb.FileDescriptorProto) docIndex {
+	out := docIndex{}
+	if fd.GetSourceCodeInfo() == nil {
+		return out
+	}
+	for _, location := range fd.GetSourceCodeInfo().GetLocation() {
+		doc := normalizeDocLines(location.GetLeadingComments(), location.GetTrailingComments())
+		if len(doc) == 0 {
+			continue
+		}
+		out[pathKey(location.GetPath())] = doc
+	}
+	return out
+}
+
+func (d docIndex) get(path []int32) []string {
+	if len(d) == 0 {
+		return nil
+	}
+	doc := d[pathKey(path)]
+	if len(doc) == 0 {
+		return nil
+	}
+	return append([]string(nil), doc...)
+}
+
+func normalizeDocLines(parts ...string) []string {
+	var out []string
+	for _, part := range parts {
+		part = strings.ReplaceAll(part, "\r\n", "\n")
+		part = strings.ReplaceAll(part, "\r", "\n")
+		lines := strings.Split(part, "\n")
+		for i, line := range lines {
+			lines[i] = strings.TrimSpace(line)
+		}
+		for len(lines) > 0 && lines[0] == "" {
+			lines = lines[1:]
+		}
+		for len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+		out = append(out, lines...)
+	}
+	for len(out) > 0 && out[len(out)-1] == "" {
+		out = out[:len(out)-1]
+	}
+	return out
+}
+
+func pathKey(path []int32) string {
+	var builder strings.Builder
+	for i, part := range path {
+		if i > 0 {
+			builder.WriteByte('.')
+		}
+		builder.WriteString(strconv.FormatInt(int64(part), 10))
+	}
+	return builder.String()
+}
+
+func pathAppend(path []int32, parts ...int32) []int32 {
+	out := make([]int32, 0, len(path)+len(parts))
+	out = append(out, path...)
+	out = append(out, parts...)
+	return out
 }
 
 func copyFileOption(options map[string]any, fdOpts *descriptorpb.FileOptions, ext protoreflect.ExtensionType, key string) {
@@ -176,9 +247,16 @@ func copyFileOption(options map[string]any, fdOpts *descriptorpb.FileOptions, ex
 	options[key] = proto.GetExtension(fdOpts, ext)
 }
 
-func (c *converter) convertMessage(d *descriptorpb.DescriptorProto, sourceFile, relativeScope string) (*protoast.Message, error) {
+func (c *converter) convertMessage(
+	d *descriptorpb.DescriptorProto,
+	sourceFile string,
+	relativeScope string,
+	docs docIndex,
+	path []int32,
+) (*protoast.Message, error) {
 	msg := &protoast.Message{
 		Name:    d.GetName(),
+		Doc:     docs.get(path),
 		Options: map[string]any{},
 	}
 
@@ -198,12 +276,13 @@ func (c *converter) convertMessage(d *descriptorpb.DescriptorProto, sourceFile, 
 	var regularFields []*protoast.Field
 	var mapFields []*protoast.MapField
 
-	for _, f := range d.GetField() {
+	for i, f := range d.GetField() {
+		fieldDoc := docs.get(pathAppend(path, 2, int32(i)))
 		if f.GetLabel() == descriptorpb.FieldDescriptorProto_LABEL_REPEATED &&
 			f.GetType() == descriptorpb.FieldDescriptorProto_TYPE_MESSAGE {
 			short := lastSegment(f.GetTypeName())
 			if entry, ok := mapEntries[short]; ok {
-				mf, err := c.convertMapField(f, entry, sourceFile, relativeScope)
+				mf, err := c.convertMapField(f, entry, sourceFile, relativeScope, fieldDoc)
 				if err != nil {
 					return nil, err
 				}
@@ -212,7 +291,7 @@ func (c *converter) convertMessage(d *descriptorpb.DescriptorProto, sourceFile, 
 			}
 		}
 
-		field := c.convertField(f, sourceFile, relativeScope)
+		field := c.convertField(f, sourceFile, relativeScope, fieldDoc)
 		if f.OneofIndex != nil {
 			idx := int(f.GetOneofIndex())
 			if idx >= 0 && idx < len(oneofNames) {
@@ -226,7 +305,7 @@ func (c *converter) convertMessage(d *descriptorpb.DescriptorProto, sourceFile, 
 	// Python suppresses them and keeps the field as a regular optional field.
 	var oneofs []*protoast.Oneof
 	oneofFieldSet := map[*protoast.Field]struct{}{}
-	for _, o := range d.GetOneofDecl() {
+	for i, o := range d.GetOneofDecl() {
 		var fields []*protoast.Field
 		for _, f := range regularFields {
 			if f.OneofParent == o.GetName() {
@@ -243,6 +322,7 @@ func (c *converter) convertMessage(d *descriptorpb.DescriptorProto, sourceFile, 
 		}
 		oneofs = append(oneofs, &protoast.Oneof{
 			Name:    o.GetName(),
+			Doc:     docs.get(pathAppend(path, 8, int32(i))),
 			Fields:  fields,
 			Options: map[string]any{},
 		})
@@ -263,19 +343,19 @@ func (c *converter) convertMessage(d *descriptorpb.DescriptorProto, sourceFile, 
 	msg.Maps = mapFields
 	msg.Oneofs = oneofs
 
-	for _, nested := range d.GetNestedType() {
+	for i, nested := range d.GetNestedType() {
 		if nested.GetOptions().GetMapEntry() {
 			continue
 		}
 		nestedScope := relativeScope + "." + nested.GetName()
-		nm, err := c.convertMessage(nested, sourceFile, nestedScope)
+		nm, err := c.convertMessage(nested, sourceFile, nestedScope, docs, pathAppend(path, 3, int32(i)))
 		if err != nil {
 			return nil, err
 		}
 		msg.NestedMessages = append(msg.NestedMessages, nm)
 	}
-	for _, e := range d.GetEnumType() {
-		msg.NestedEnums = append(msg.NestedEnums, c.convertEnum(e))
+	for i, e := range d.GetEnumType() {
+		msg.NestedEnums = append(msg.NestedEnums, c.convertEnum(e, docs, pathAppend(path, 4, int32(i))))
 	}
 
 	// Reserved ranges: descriptor end is exclusive; AST uses inclusive.
@@ -295,9 +375,15 @@ func (c *converter) convertMessage(d *descriptorpb.DescriptorProto, sourceFile, 
 	return msg, nil
 }
 
-func (c *converter) convertField(f *descriptorpb.FieldDescriptorProto, sourceFile, relativeScope string) *protoast.Field {
+func (c *converter) convertField(
+	f *descriptorpb.FieldDescriptorProto,
+	sourceFile string,
+	relativeScope string,
+	doc []string,
+) *protoast.Field {
 	field := &protoast.Field{
 		Name:     f.GetName(),
+		Doc:      doc,
 		Number:   int(f.GetNumber()),
 		Repeated: f.GetLabel() == descriptorpb.FieldDescriptorProto_LABEL_REPEATED,
 		Optional: f.GetProto3Optional(),
@@ -330,14 +416,16 @@ func (c *converter) convertField(f *descriptorpb.FieldDescriptorProto, sourceFil
 	return field
 }
 
-func (c *converter) convertEnum(e *descriptorpb.EnumDescriptorProto) *protoast.Enum {
+func (c *converter) convertEnum(e *descriptorpb.EnumDescriptorProto, docs docIndex, path []int32) *protoast.Enum {
 	out := &protoast.Enum{
 		Name:    e.GetName(),
+		Doc:     docs.get(path),
 		Options: map[string]any{},
 	}
-	for _, v := range e.GetValue() {
+	for i, v := range e.GetValue() {
 		out.Values = append(out.Values, &protoast.EnumValue{
 			Name:    v.GetName(),
+			Doc:     docs.get(pathAppend(path, 2, int32(i))),
 			Number:  int(v.GetNumber()),
 			Options: map[string]any{},
 		})
@@ -348,7 +436,13 @@ func (c *converter) convertEnum(e *descriptorpb.EnumDescriptorProto) *protoast.E
 	return out
 }
 
-func (c *converter) convertMapField(f *descriptorpb.FieldDescriptorProto, entry *descriptorpb.DescriptorProto, sourceFile, relativeScope string) (*protoast.MapField, error) {
+func (c *converter) convertMapField(
+	f *descriptorpb.FieldDescriptorProto,
+	entry *descriptorpb.DescriptorProto,
+	sourceFile string,
+	relativeScope string,
+	doc []string,
+) (*protoast.MapField, error) {
 	if len(entry.GetField()) != 2 {
 		return nil, &mapEntryError{name: f.GetName()}
 	}
@@ -369,6 +463,7 @@ func (c *converter) convertMapField(f *descriptorpb.FieldDescriptorProto, entry 
 
 	mf := &protoast.MapField{
 		Name:    f.GetName(),
+		Doc:     doc,
 		Number:  int(f.GetNumber()),
 		Options: map[string]any{},
 	}

@@ -90,6 +90,47 @@ func TestGenerateMessageAndEnumSkeletons(t *testing.T) {
 	require.NoError(t, CheckPublicAPI(messageSource))
 }
 
+func TestGeneratePrefersSchemaDocs(t *testing.T) {
+	file := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.game.v1",
+		Messages: []*protoast.Message{{
+			Doc:  []string{"Schema-authored player docs.", "Shown in generated API docs."},
+			Name: "Player",
+			Fields: []*protoast.Field{{
+				Doc:       []string{"Display name.", "Stored player name."},
+				FieldType: "string",
+				Name:      "name",
+				Number:    1,
+			}},
+		}},
+		Enums: []*protoast.Enum{{
+			Doc:  []string{"Schema-authored status docs."},
+			Name: "PlayerStatus",
+			Values: []*protoast.EnumValue{{
+				Doc:    []string{"Unknown status."},
+				Name:   "PLAYER_STATUS_UNSPECIFIED",
+				Number: 0,
+			}},
+		}},
+	}
+
+	files, err := Generate(file, "player.proto", nil)
+	require.NoError(t, err)
+
+	messageSource := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, messageSource, "## Schema-authored player docs.\n## Shown in generated API docs.\nfinal class_name Player extends RefCounted")
+	require.Contains(t, messageSource, "## Display name.\n## Stored player name.\nfunc set_name(value: String) -> void:")
+	require.Contains(t, messageSource, "## Display name.\n## Stored player name.\nfunc get_name() -> String:")
+	require.NotContains(t, messageSource, "Generated protobuf message binding for Player.")
+	require.NotContains(t, messageSource, "Sets the name protobuf field.")
+
+	enumSource := files["cafecito/game/v1/PlayerStatus.pb.fs"]
+	require.Contains(t, enumSource, "## Schema-authored status docs.\nenum_name PlayerStatus")
+	require.Contains(t, enumSource, "\t## Unknown status.\n\tPLAYER_STATUS_UNSPECIFIED = 0,")
+	require.NotContains(t, enumSource, "Generated protobuf enum binding for PlayerStatus.")
+}
+
 func TestGenerateTypedAccessorsAndDecodeFactory(t *testing.T) {
 	file := &protoast.ProtoFile{
 		Syntax:  "proto3",

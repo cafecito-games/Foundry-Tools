@@ -12,14 +12,14 @@ func fieldMembers(field *protoast.Field) []fsast.Node {
 	backing := "_" + name
 	return []fsast.Node{
 		fsast.Func{
-			Doc:        setterDoc(name),
+			Doc:        docOrFallback(field.Doc, setterDoc(name)),
 			Name:       "set_" + name,
 			Parameters: []fsast.Parameter{{Name: "value", Type: typ}},
 			ReturnVoid: true,
 			Body:       []fsast.Node{fsast.Assign{Target: backing, Value: "value"}},
 		},
 		fsast.Func{
-			Doc:        getterDoc(name),
+			Doc:        docOrFallback(field.Doc, getterDoc(name)),
 			Name:       "get_" + name,
 			ReturnType: typ,
 			Body:       []fsast.Node{fsast.Return{Value: backing}},

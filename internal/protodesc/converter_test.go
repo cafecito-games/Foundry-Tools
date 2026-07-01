@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 
 	"github.com/cafecito-games/foundry-tools/internal/foundrytoolspb"
+	"github.com/stretchr/testify/require"
 )
 
 func strPtr(s string) *string { return &s }
@@ -19,6 +20,16 @@ func labelPtr(l descriptorpb.FieldDescriptorProto_Label) *descriptorpb.FieldDesc
 }
 func typePtr(t descriptorpb.FieldDescriptorProto_Type) *descriptorpb.FieldDescriptorProto_Type {
 	return &t
+}
+func commentLocation(path []int32, leading, trailing string) *descriptorpb.SourceCodeInfo_Location {
+	location := &descriptorpb.SourceCodeInfo_Location{Path: path}
+	if leading != "" {
+		location.LeadingComments = strPtr(leading)
+	}
+	if trailing != "" {
+		location.TrailingComments = strPtr(trailing)
+	}
+	return location
 }
 
 func TestConvertEmptyFile(t *testing.T) {
@@ -592,6 +603,99 @@ func TestConvertMapFieldWithMessageValue(t *testing.T) {
 	if mf.ValueIsEnum {
 		t.Errorf("ValueIsEnum should be false")
 	}
+}
+
+func TestConvertPreservesSourceCodeInfoDocs(t *testing.T) {
+	fdp := &descriptorpb.FileDescriptorProto{
+		Name:    strPtr("docs.proto"),
+		Package: strPtr("demo"),
+		Syntax:  strPtr("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{{
+			Name: strPtr("Player"),
+			Field: []*descriptorpb.FieldDescriptorProto{
+				{
+					Name:   strPtr("name"),
+					Number: i32Ptr(1),
+					Type:   typePtr(descriptorpb.FieldDescriptorProto_TYPE_STRING),
+					Label:  labelPtr(descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL),
+				},
+				{
+					Name:     strPtr("inventory"),
+					Number:   i32Ptr(2),
+					Type:     typePtr(descriptorpb.FieldDescriptorProto_TYPE_MESSAGE),
+					TypeName: strPtr(".demo.Player.InventoryEntry"),
+					Label:    labelPtr(descriptorpb.FieldDescriptorProto_LABEL_REPEATED),
+				},
+				{
+					Name:       strPtr("raw"),
+					Number:     i32Ptr(3),
+					Type:       typePtr(descriptorpb.FieldDescriptorProto_TYPE_BYTES),
+					Label:      labelPtr(descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL),
+					OneofIndex: i32Ptr(0),
+				},
+			},
+			NestedType: []*descriptorpb.DescriptorProto{{
+				Name:    strPtr("InventoryEntry"),
+				Options: &descriptorpb.MessageOptions{MapEntry: boolPtr(true)},
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:   strPtr("key"),
+						Number: i32Ptr(1),
+						Type:   typePtr(descriptorpb.FieldDescriptorProto_TYPE_STRING),
+						Label:  labelPtr(descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL),
+					},
+					{
+						Name:   strPtr("value"),
+						Number: i32Ptr(2),
+						Type:   typePtr(descriptorpb.FieldDescriptorProto_TYPE_INT32),
+						Label:  labelPtr(descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL),
+					},
+				},
+			}},
+			OneofDecl: []*descriptorpb.OneofDescriptorProto{{
+				Name: strPtr("payload"),
+			}},
+			EnumType: []*descriptorpb.EnumDescriptorProto{{
+				Name: strPtr("Status"),
+				Value: []*descriptorpb.EnumValueDescriptorProto{{
+					Name:   strPtr("STATUS_UNKNOWN"),
+					Number: i32Ptr(0),
+				}},
+			}},
+		}},
+		EnumType: []*descriptorpb.EnumDescriptorProto{{
+			Name: strPtr("Mood"),
+			Value: []*descriptorpb.EnumValueDescriptorProto{{
+				Name:   strPtr("HAPPY"),
+				Number: i32Ptr(0),
+			}},
+		}},
+		SourceCodeInfo: &descriptorpb.SourceCodeInfo{Location: []*descriptorpb.SourceCodeInfo_Location{
+			commentLocation([]int32{4, 0}, "Player record.\nCarries runtime state.\n", ""),
+			commentLocation([]int32{4, 0, 2, 0}, "Display name.\n", "Stored player name.\n"),
+			commentLocation([]int32{4, 0, 2, 1}, "Inventory counts by item id.\n", ""),
+			commentLocation([]int32{4, 0, 2, 2}, "Raw payload bytes.\n", ""),
+			commentLocation([]int32{4, 0, 4, 0}, "Status docs.\nUsed by UI.\n", ""),
+			commentLocation([]int32{4, 0, 4, 0, 2, 0}, "Unknown status.\n", "Default value.\n"),
+			commentLocation([]int32{4, 0, 8, 0}, "Payload choice.\n", ""),
+			commentLocation([]int32{5, 0}, "Player mood docs.\n", ""),
+			commentLocation([]int32{5, 0, 2, 0}, "Happy mood.\n", ""),
+		}},
+	}
+
+	got, err := FromFileDescriptorProto(fdp)
+	require.NoError(t, err)
+
+	player := got.Messages[0]
+	require.Equal(t, []string{"Player record.", "Carries runtime state."}, player.Doc)
+	require.Equal(t, []string{"Display name.", "Stored player name."}, player.Fields[0].Doc)
+	require.Equal(t, []string{"Inventory counts by item id."}, player.Maps[0].Doc)
+	require.Equal(t, []string{"Payload choice."}, player.Oneofs[0].Doc)
+	require.Equal(t, []string{"Raw payload bytes."}, player.Oneofs[0].Fields[0].Doc)
+	require.Equal(t, []string{"Status docs.", "Used by UI."}, player.NestedEnums[0].Doc)
+	require.Equal(t, []string{"Unknown status.", "Default value."}, player.NestedEnums[0].Values[0].Doc)
+	require.Equal(t, []string{"Player mood docs."}, got.Enums[0].Doc)
+	require.Equal(t, []string{"Happy mood."}, got.Enums[0].Values[0].Doc)
 }
 
 func TestConvertReserved(t *testing.T) {

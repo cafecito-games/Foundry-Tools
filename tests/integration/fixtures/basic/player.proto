@@ -2,7 +2,11 @@ syntax = "proto3";
 
 package cafecito.game.v1;
 
+// Player state shared with Foundry Script.
 message Player {
+  // Player display name.
   string name = 1;
+
+  // Current progression level.
   int32 level = 2;
 }

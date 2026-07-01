@@ -351,8 +351,11 @@ func TestLineComment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if len(tokens) != 2 || tokens[0].Type != protoparse.TokenMessage {
+	if len(tokens) != 3 || tokens[0].Type != protoparse.TokenComment || tokens[1].Type != protoparse.TokenMessage {
 		t.Errorf("got %+v", tokens)
+	}
+	if tokens[0].Value != "this is a comment" {
+		t.Errorf("comment value = %q", tokens[0].Value)
 	}
 }
 
@@ -361,8 +364,11 @@ func TestLineCommentAtEOF(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if len(tokens) != 2 || tokens[0].Type != protoparse.TokenMessage {
+	if len(tokens) != 3 || tokens[0].Type != protoparse.TokenMessage || tokens[1].Type != protoparse.TokenComment {
 		t.Errorf("got %+v", tokens)
+	}
+	if tokens[1].Value != "comment" {
+		t.Errorf("comment value = %q", tokens[1].Value)
 	}
 }
 
@@ -371,8 +377,11 @@ func TestBlockComment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if len(tokens) != 2 || tokens[0].Type != protoparse.TokenMessage {
+	if len(tokens) != 3 || tokens[0].Type != protoparse.TokenComment || tokens[1].Type != protoparse.TokenMessage {
 		t.Errorf("got %+v", tokens)
+	}
+	if tokens[0].Value != "comment" {
+		t.Errorf("comment value = %q", tokens[0].Value)
 	}
 }
 
@@ -381,11 +390,14 @@ func TestMultilineBlockComment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if len(tokens) != 2 || tokens[0].Type != protoparse.TokenMessage {
+	if len(tokens) != 3 || tokens[0].Type != protoparse.TokenComment || tokens[1].Type != protoparse.TokenMessage {
 		t.Errorf("got %+v", tokens)
 	}
-	if tokens[0].Line != 3 {
-		t.Errorf("message at line %d, want 3", tokens[0].Line)
+	if tokens[0].Value != "line 1\nline 2\nline 3" {
+		t.Errorf("comment value = %q", tokens[0].Value)
+	}
+	if tokens[1].Line != 3 {
+		t.Errorf("message at line %d, want 3", tokens[1].Line)
 	}
 }
 

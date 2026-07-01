@@ -7,6 +7,7 @@ import (
 
 	"github.com/cafecito-games/foundry-tools/internal/protoast"
 	"github.com/cafecito-games/foundry-tools/internal/protoparse"
+	"github.com/stretchr/testify/require"
 )
 
 // parseSource is a helper that lexes and parses a proto source.
@@ -175,6 +176,75 @@ enum ColorEnum {
 			t.Errorf("value[%d] = %+v", i, e.Values[i])
 		}
 	}
+}
+
+func TestParserPreservesSchemaDocs(t *testing.T) {
+	src := `syntax = "proto3";
+package demo;
+
+// Player record.
+// Carries runtime state.
+message Player {
+    // Display name.
+    string name = 1; // Stored player name.
+
+    // Inventory counts by item id.
+    map<string, int32> inventory = 2;
+
+    // Payload choice.
+    oneof payload {
+        // Raw payload bytes.
+        bytes raw = 3;
+    }
+
+    /* Status docs.
+     * Used by UI.
+     */
+    enum Status {
+        // Unknown status.
+        STATUS_UNKNOWN = 0; // Default value.
+    }
+}
+
+// Player mood docs.
+enum Mood {
+    // Happy mood.
+    HAPPY = 0;
+}`
+	file, err := parseSource(t, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	player := file.Messages[0]
+	require.Equal(t, []string{"Player record.", "Carries runtime state."}, player.Doc)
+	require.Equal(t, []string{"Display name.", "Stored player name."}, player.Fields[0].Doc)
+	require.Equal(t, []string{"Inventory counts by item id."}, player.Maps[0].Doc)
+	require.Equal(t, []string{"Payload choice."}, player.Oneofs[0].Doc)
+	require.Equal(t, []string{"Raw payload bytes."}, player.Oneofs[0].Fields[0].Doc)
+	require.Equal(t, []string{"Status docs.", "Used by UI."}, player.NestedEnums[0].Doc)
+	require.Equal(t, []string{"Unknown status.", "Default value."}, player.NestedEnums[0].Values[0].Doc)
+	require.Equal(t, []string{"Player mood docs."}, file.Enums[0].Doc)
+	require.Equal(t, []string{"Happy mood."}, file.Enums[0].Values[0].Doc)
+}
+
+func TestParserDoesNotAttachNonDeclarationTrailingComments(t *testing.T) {
+	src := `syntax = "proto3"; // syntax marker
+package demo; // package marker
+option java_package = "demo"; // file option marker
+
+message Player {
+    option deprecated = true; // message option marker
+    reserved 9; // reserved marker
+    string name = 1;
+}`
+	file, err := parseSource(t, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	require.Empty(t, file.Messages[0].Doc)
+	require.Empty(t, file.Messages[0].Fields[0].Doc)
 }
 
 func TestEnumNegative(t *testing.T) {

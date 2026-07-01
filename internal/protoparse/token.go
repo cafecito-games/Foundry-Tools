@@ -9,7 +9,7 @@ type TokenType int
 const (
 	// TokenEOF marks the end of input.
 	TokenEOF TokenType = iota
-	// TokenComment is a // or /* */ comment (currently skipped by the lexer).
+	// TokenComment is a // or /* */ comment.
 	TokenComment
 
 	// TokenSyntax is the "syntax" keyword.
@@ -184,10 +184,12 @@ func (t TokenType) String() string {
 
 // Token represents a single lexed token.
 type Token struct {
-	Type   TokenType
-	Value  string
-	Line   int
-	Column int
+	Type      TokenType
+	Value     string
+	Line      int
+	Column    int
+	EndLine   int
+	EndColumn int
 }
 
 // keywords maps proto keyword text to its token type. Used by the lexer to
