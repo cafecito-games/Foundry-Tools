@@ -2,9 +2,10 @@
 
 Tooling for Foundry Engine projects.
 
-This repository currently ships protobuf code generation for Foundry Script:
+This repository ships package management and protobuf code generation for
+Foundry Script:
 
-- `anvil`: direct CLI and umbrella command for future tools.
+- `anvil`: direct CLI for Foundry project tooling.
 - `protoc-gen-foundryscript`: protoc and Buf plugin.
 
 Generated `.pb.fs` files use Foundry Script namespaces, traits, generics,
@@ -31,6 +32,71 @@ go install github.com/cafecito-games/foundry-tools/cmd/protoc-gen-foundryscript@
 ```bash
 anvil proto generate -I proto -o foundry/generated proto/player.proto
 ```
+
+## Package Manager
+
+`anvil pkg` installs Foundry packages declared in `packages.toml` into a
+project's `addons/` directory and writes `packages.lock` for reproducible
+installs.
+
+Project layout:
+
+```text
+game/
+  project.foundry
+  packages.toml
+  packages.lock
+  addons/
+    my_package/
+```
+
+Create a starter manifest next to `project.foundry`:
+
+```bash
+anvil pkg init
+```
+
+Add and install a package:
+
+```bash
+anvil pkg add --name my_package \
+  --source git \
+  --url https://github.com/org/my_package.git \
+  --version v1.0.0 \
+  --source-path addons/my_package
+```
+
+Install, update, remove, and list packages:
+
+```bash
+anvil pkg install
+anvil pkg update
+anvil pkg update my_package
+anvil pkg remove my_package
+anvil pkg list
+```
+
+Supported sources:
+
+- `git`: clone a Git repository at a tag, branch, or commit SHA.
+- `github-release`: download one asset from a GitHub release.
+- `archive`: download a direct HTTP(S) zip, `.tar.gz`, or `.tgz` archive.
+
+Example `packages.toml`:
+
+```toml
+[packages.my_package]
+source = "git"
+url = "https://github.com/org/my_package.git"
+version = "v1.0.0"
+source_path = "addons/my_package"
+install_as = "my_package"
+exclude = ["editor_only"]
+```
+
+Commit both `packages.toml` and `packages.lock`. `anvil pkg install` honors
+existing lock pins when the manifest entry has not changed; `anvil pkg update`
+intentionally re-resolves pins.
 
 ## protoc
 
