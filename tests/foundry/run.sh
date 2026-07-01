@@ -15,7 +15,7 @@ trap cleanup EXIT
 cleanup
 mkdir -p "$OUT"
 
-"$ROOT/bin/foundry-tools" proto generate \
+"$ROOT/bin/anvil" proto generate \
   -I "$ROOT/tests/integration/fixtures/basic" \
   -o "$OUT" \
   "$ROOT/tests/integration/fixtures/basic/player.proto"

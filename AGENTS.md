@@ -2,14 +2,14 @@
 
 ## Project Structure & Module Organization
 
-This is a Go module for Foundry Engine tooling. CLI entry points live in `cmd/foundry-tools` and `cmd/protoc-gen-foundryscript`. Core packages are under `internal/`, including protobuf parsing/validation, Foundry Script AST and generation, plugin support, and embedded runtime files in `internal/runtime/data/`. Public protobuf schemas live in `proto/foundrytools/`. Integration fixtures are in `tests/integration/fixtures/`, Foundry project checks are in `tests/foundry/`, and generated examples/goldens are in `examples/golden/`. CI helper scripts live in `scripts/ci/`.
+This is a Go module for Foundry Engine tooling. CLI entry points live in `cmd/anvil` and `cmd/protoc-gen-foundryscript`. Core packages are under `internal/`, including protobuf parsing/validation, Foundry Script AST and generation, plugin support, and embedded runtime files in `internal/runtime/data/`. Public protobuf schemas live in `proto/foundrytools/`. Integration fixtures are in `tests/integration/fixtures/`, Foundry project checks are in `tests/foundry/`, and generated examples/goldens are in `examples/golden/`. CI helper scripts live in `scripts/ci/`.
 
 ## Build, Test, and Development Commands
 
 Use Task for normal workflows:
 
 - `task` or `task ci`: run local CI without Foundry (`fmt:check`, `tidy:check`, lint, unit tests, build).
-- `task build`: build `foundry-tools` and `protoc-gen-foundryscript` into `./bin`.
+- `task build`: build `anvil` and `protoc-gen-foundryscript` into `./bin`.
 - `task test`: run all Go unit tests with `-race`.
 - `task integration`: run protoc, plugin, and Buf integration tests.
 - `task test:cover`: write `coverage.out` and print total coverage.

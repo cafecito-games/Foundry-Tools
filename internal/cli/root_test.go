@@ -19,7 +19,7 @@ func TestVersionCommandPrintsVersion(t *testing.T) {
 
 	err := cmd.Execute()
 	require.NoError(t, err)
-	require.Contains(t, stdout.String(), "foundry-tools dev")
+	require.Contains(t, stdout.String(), "anvil dev")
 	require.Empty(t, stderr.String())
 }
 
@@ -46,6 +46,28 @@ func TestProtoGenerateRequiresInputs(t *testing.T) {
 	err := cmd.Execute()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "at least one .proto file is required")
+}
+
+func TestExecuteRendersPackageErrors(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Execute([]string{"pkg", "list", "--dir", t.TempDir()}, &stdout, &stderr)
+
+	require.Equal(t, 3, code)
+	require.Empty(t, stdout.String())
+	require.Contains(t, stderr.String(), "anvil:")
+	require.Contains(t, stderr.String(), "no project.foundry found")
+}
+
+func TestExecuteRendersPackageErrorsAsJSON(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Execute([]string{"pkg", "--json", "list", "--dir", t.TempDir()}, &stdout, &stderr)
+
+	require.Equal(t, 3, code)
+	require.Empty(t, stderr.String())
+	require.Contains(t, stdout.String(), `"code": 3`)
+	require.Contains(t, stdout.String(), `"error": "no project.foundry found`)
 }
 
 func TestWriteFilesUsesSourcePermissions(t *testing.T) {

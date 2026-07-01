@@ -17,15 +17,15 @@ tasks:
     cmds:
       - |
         set -e
-        if [ ! -d ./cmd/foundry-tools ] && [ ! -d ./cmd/protoc-gen-foundryscript ]; then
+        if [ ! -d ./cmd/anvil ] && [ ! -d ./cmd/protoc-gen-foundryscript ]; then
           echo "No command packages found; skipping build."
           exit 0
         fi
         mkdir -p {{.BIN_DIR}}
-        if [ -d ./cmd/foundry-tools ]; then
-          go build -o {{.BIN_DIR}}/foundry-tools ./cmd/foundry-tools
+        if [ -d ./cmd/anvil ]; then
+          go build -o {{.BIN_DIR}}/anvil ./cmd/anvil
         else
-          echo "cmd/foundry-tools not found; skipping foundry-tools build."
+          echo "cmd/anvil not found; skipping anvil build."
         fi
         if [ -d ./cmd/protoc-gen-foundryscript ]; then
           go build -o {{.BIN_DIR}}/protoc-gen-foundryscript ./cmd/protoc-gen-foundryscript
@@ -37,7 +37,7 @@ tasks:
   install:
     desc: Install Foundry Tools binaries into $GOPATH/bin.
     cmds:
-      - go install ./cmd/foundry-tools
+      - go install ./cmd/anvil
       - go install ./cmd/protoc-gen-foundryscript
 
   test:
