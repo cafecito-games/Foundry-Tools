@@ -7,9 +7,9 @@ before:
     - go mod tidy
 
 builds:
-  - id: foundry-tools
-    main: ./cmd/foundry-tools
-    binary: foundry-tools
+  - id: anvil
+    main: ./cmd/anvil
+    binary: anvil
     env:
       - CGO_ENABLED=0
     goos:
@@ -36,7 +36,7 @@ builds:
 archives:
   - id: foundry-tools
     ids:
-      - foundry-tools
+      - anvil
       - protoc-gen-foundryscript
     formats: [tar.gz]
     name_template: >-
@@ -56,7 +56,7 @@ changelog:
 homebrew_casks:
   - name: foundry-tools
     binaries:
-      - foundry-tools
+      - anvil
       - protoc-gen-foundryscript
     repository:
       owner: cafecito-games
@@ -64,10 +64,12 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/cafecito-games/foundry-tools"
     description: "Foundry Engine development tools"
+    # The release binaries are not code-signed, so strip the quarantine
+    # attribute on install to avoid Gatekeeper blocking the executables.
     hooks:
       post:
         install: |
           if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/foundry-tools"]
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/anvil"]
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/protoc-gen-foundryscript"]
           end
