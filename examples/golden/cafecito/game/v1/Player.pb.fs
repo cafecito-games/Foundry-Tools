@@ -473,7 +473,7 @@ func merge_from_bytes(data: PackedByteArray) -> ProtobufError:
 					return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH
 				var loadout_end: int = offset + loadout_length.value
 				var loadout_key: String = ""
-				var loadout_value: Slot? = null
+				var loadout_value: Slot = Slot.new()
 				while offset < loadout_end:
 					var loadout_entry_tag: VarintRead = Wire.decode_varint(data, offset)
 					if loadout_entry_tag.error != ProtobufError.OK:

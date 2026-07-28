@@ -81,6 +81,20 @@ func _init() -> void:
 		check(not (bare_decoded.nickname is String), "absent optional stays null")
 		check(not (bare_decoded.payload is PlayerPayloadCase), "unset oneof stays null")
 
+	## A map entry may legally omit its value; the default applies rather than null.
+	var entry: PackedByteArray = PackedByteArray()
+	var entry_key: PackedByteArray = Wire.encode_string("bare")
+	entry.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))
+	entry.append_array(Wire.encode_varint(entry_key.size()))
+	entry.append_array(entry_key)
+	var valueless: PackedByteArray = PackedByteArray()
+	valueless.append_array(Wire.encode_varint(Wire.make_tag(16, Wire.WIRE_LENGTH_DELIMITED)))
+	valueless.append_array(Wire.encode_varint(entry.size()))
+	valueless.append_array(entry)
+	var sparse: Player = Player.new()
+	check(sparse.merge_from_bytes(valueless) == ProtobufError.OK, "valueless map entry decodes")
+	check(sparse.loadout.has("bare") and sparse.loadout["bare"] is Slot, "valueless map entry defaults")
+
 	## Unknown fields must be skipped, not rejected.
 	var unknown: PackedByteArray = PackedByteArray()
 	unknown.append_array(Wire.encode_varint(Wire.make_tag(900, Wire.WIRE_VARINT)))

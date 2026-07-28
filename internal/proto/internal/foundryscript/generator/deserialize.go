@@ -180,7 +180,7 @@ func deserializeMap(plan *fieldPlan) []fsast.Node {
 	nodes = append(nodes,
 		line(3, fmt.Sprintf("var %s: int = offset + %s.value", end, length)),
 		line(3, fmt.Sprintf("var %s: %s = %s", key, plan.Key.Type.Render(), plan.Key.ZeroValue)),
-		line(3, fmt.Sprintf("var %s: %s = %s", value, mapValueType(plan.Value).Render(), mapValueZero(plan.Value))),
+		line(3, fmt.Sprintf("var %s: %s = %s", value, plan.Value.Type.Render(), mapValueZero(plan.Value))),
 		line(3, fmt.Sprintf("while offset < %s:", end)),
 		line(4, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(data, offset)", entryTag)),
 		line(4, fmt.Sprintf("if %s.error != ProtobufError.OK:", entryTag)),
@@ -213,20 +213,15 @@ func deserializeMap(plan *fieldPlan) []fsast.Node {
 	)
 }
 
-// mapValueZero is the placeholder a map entry starts from. A message-valued
-// entry has no zero instance, so it starts null and is replaced by the read.
+// mapValueZero is the value a map entry starts from. An entry may legally omit
+// its value field, in which case protobuf says the field default applies, so a
+// message-valued entry starts as an empty message rather than null: the
+// dictionary value type is not nullable and must never receive null.
 func mapValueZero(value valuePlan) string {
 	if value.Kind == kindMessage {
-		return "null"
+		return value.Type.Render() + ".new()"
 	}
 	return value.ZeroValue
-}
-
-func mapValueType(value valuePlan) fstypes.Type {
-	if value.Kind == kindMessage {
-		return fstypes.Nullable(value.Type)
-	}
-	return value.Type
 }
 
 // varintResultExpression converts a decoded varint back into the field type.
