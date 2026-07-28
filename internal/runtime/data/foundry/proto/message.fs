@@ -1,7 +1,7 @@
 namespace foundry.proto
 
-trait_name Message[T]
+trait_name Message
 
-func to_bytes() -> PackedByteArray
+abstract func to_bytes() -> PackedByteArray
 
-func merge_from_bytes(data: PackedByteArray) -> ProtobufError
+abstract func merge_from_bytes(data: PackedByteArray) -> ProtobufError

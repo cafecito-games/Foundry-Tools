@@ -17,10 +17,11 @@ Use Task for normal workflows:
 - `task fmt`: run `go fmt` and `goimports`.
 - `task gen-options`: regenerate Go stubs and embedded copies for `proto/foundrytools/options.proto`.
 
-Foundry checks require `FOUNDRY_BIN`, for example:
+Foundry checks use the `foundry` binary on your `PATH`. Set `FOUNDRY_BIN` to override it:
 
 ```bash
-FOUNDRY_BIN="$HOME/.foundry/bin/foundry.macos.editor.dev.arm64" task foundry:test
+task foundry:test                          # uses `which foundry`
+FOUNDRY_BIN=/path/to/foundry task foundry:test
 ```
 
 ## Coding Style & Naming Conventions

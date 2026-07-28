@@ -23,6 +23,18 @@ type Raw struct {
 	Code string
 }
 
+// Line is one statement rendered at the enclosing indent plus Depth, so nested
+// suites are expressed as relative depth rather than embedded tabs.
+type Line struct {
+	Depth int
+	Code  string
+}
+
+// RenderAt renders l at indent offset by its depth.
+func (l Line) RenderAt(indent int) string {
+	return indentation(indent+l.Depth) + l.Code + "\n"
+}
+
 // RenderAt renders r at indent.
 func (r Return) RenderAt(indent int) string {
 	var builder strings.Builder

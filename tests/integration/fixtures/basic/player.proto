@@ -2,6 +2,18 @@ syntax = "proto3";
 
 package cafecito.game.v1;
 
+// Lifecycle state of a player session.
+enum PlayerStatus {
+  PLAYER_STATUS_UNSPECIFIED = 0;
+  PLAYER_STATUS_ONLINE = 1;
+}
+
+// An equippable inventory slot.
+message Slot {
+  string label = 1;
+  int32 quantity = 2;
+}
+
 // Player state shared with Foundry Script.
 message Player {
   // Player display name.
@@ -9,4 +21,37 @@ message Player {
 
   // Current progression level.
   int32 level = 2;
+
+  bool active = 3;
+  bytes avatar = 4;
+
+  // Explicit presence: an empty nickname differs from an absent one.
+  optional string nickname = 5;
+
+  repeated string tags = 6;
+  repeated int32 scores = 7;
+
+  PlayerStatus status = 8;
+  Slot primary = 9;
+  repeated Slot slots = 10;
+
+  map<string, int32> counts = 11;
+  map<string, Slot> loadout = 16;
+
+  oneof payload {
+    string text = 12;
+    int32 amount = 13;
+  }
+
+  message Badge {
+    string code = 1;
+  }
+
+  enum Tier {
+    TIER_UNSPECIFIED = 0;
+    TIER_GOLD = 1;
+  }
+
+  Badge badge = 14;
+  Tier tier = 15;
 }

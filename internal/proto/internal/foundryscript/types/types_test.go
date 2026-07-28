@@ -17,7 +17,9 @@ func TestTypeRendering(t *testing.T) {
 		{name: "nullable", typ: Nullable(Named("Player")), want: "Player?"},
 		{name: "array", typ: Array(Named("String")), want: "Array[String]"},
 		{name: "dictionary", typ: Dictionary(Named("String"), Named("int")), want: "Dictionary[String, int]"},
-		{name: "generic", typ: Generic("foundry.proto.DecodeResult", Named("Player")), want: "foundry.proto.DecodeResult[Player]"},
+		{name: "generic", typ: Generic("Array", Named("Player")), want: "Array[Player]"},
+		{name: "dictionary", typ: Dictionary(Named("String"), Named("int")), want: "Dictionary[String, int]"},
+		{name: "tuple", typ: Tuple(Nullable(Named("Player")), Named("ProtobufError")), want: "(Player?, ProtobufError)"},
 	}
 
 	for _, tt := range tests {

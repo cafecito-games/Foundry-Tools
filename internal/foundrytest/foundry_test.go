@@ -1,14 +1,19 @@
 package foundrytest
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefaultBinaryCandidates(t *testing.T) {
+func TestDefaultBinaryCandidatesFallBackToCache(t *testing.T) {
 	candidates := BinaryCandidates("")
-	require.Contains(t, candidates[0], ".foundry/bin/foundry.macos.editor.dev.arm64")
+	require.NotEmpty(t, candidates)
+	require.Equal(t, filepath.Join(".cache", "foundry", "foundry"), candidates[len(candidates)-1])
+	for _, candidate := range candidates {
+		require.NotContains(t, candidate, filepath.Join(".foundry", "bin"))
+	}
 }
 
 func TestEnvBinaryCandidateWins(t *testing.T) {
