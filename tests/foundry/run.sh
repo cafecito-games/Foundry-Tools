@@ -31,8 +31,10 @@ if grep -R -n -E -e '(^|[^_])func [A-Za-z0-9_]+\(.*Variant|-> Variant' "$OUT"; t
   exit 1
 fi
 
-if grep -R -n -E -e '-> foundry\.proto\.DecodeResult\[|: foundry\.proto\.FieldRead\[|uses (foundry\.proto\.)?Message\[' "$OUT"; then
-  echo "dotted runtime generic type annotation found in generated Foundry Script"
+# An active `import foundry.proto` makes every runtime reference short; a
+# dotted one means the emitter re-qualified something it did not need to.
+if grep -R -n -E -e '\bfoundry\.proto\.[A-Z]' "$OUT"; then
+  echo "redundant foundry.proto. qualification found in generated Foundry Script"
   exit 1
 fi
 
@@ -41,5 +43,12 @@ fi
 
 if ! "$FOUNDRY" script lint --no-header --format=json --fail-on=error --project "$PROJECT" "res://"; then
   echo "Foundry Script lint reported errors in the generated project"
+  exit 1
+fi
+
+# Lint proves the bindings typecheck; only running them proves the bytes are
+# right, which is what main.fs asserts across every supported construct.
+if ! "$FOUNDRY" --headless project run --project "$PROJECT" --script "$PROJECT/main.fs"; then
+  echo "generated Foundry Script failed its round-trip checks"
   exit 1
 fi

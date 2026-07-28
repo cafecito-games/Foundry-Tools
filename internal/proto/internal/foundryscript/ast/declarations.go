@@ -7,9 +7,12 @@ import (
 	fstypes "github.com/cafecito-games/foundry-tools/internal/proto/internal/foundryscript/types"
 )
 
-// Class represents a Foundry Script class declaration.
+// Class represents a Foundry Script class declaration. A file-level class uses
+// the `class_name` form with unindented members; Inner uses the `class` form
+// with an indented body, which is how nested types are declared.
 type Class struct {
 	Doc     []string
+	Inner   bool
 	Final   bool
 	Name    string
 	Extends string
@@ -17,18 +20,24 @@ type Class struct {
 	Members []Node
 }
 
-// Enum represents a Foundry Script enum declaration.
+// Enum represents a Foundry Script enum declaration. A file-level enum uses the
+// `enum_name` form; Inner uses the `enum` form for declaration inside a class.
 type Enum struct {
-	Doc    []string
-	Name   string
-	Values []EnumValue
+	Doc     []string
+	Inner   bool
+	Name    string
+	Values  []EnumValue
+	Members []Node
 }
 
-// EnumValue represents a single entry in an enum body.
+// EnumValue represents a single entry in an enum body. A value carrying Payload
+// is a tagged-union case: cases are ordinal by declaration order and take no
+// `= Number`, so the two forms cannot be mixed in one enum.
 type EnumValue struct {
-	Doc    []string
-	Name   string
-	Number int
+	Doc     []string
+	Name    string
+	Number  int
+	Payload []Parameter
 }
 
 // Var represents a typed variable declaration.
@@ -81,7 +90,11 @@ func (c Class) RenderAt(indent int) string {
 	if c.Final {
 		builder.WriteString("final ")
 	}
-	builder.WriteString("class_name ")
+	if c.Inner {
+		builder.WriteString("class ")
+	} else {
+		builder.WriteString("class_name ")
+	}
 	builder.WriteString(c.Name)
 	if c.Extends != "" {
 		builder.WriteString(" extends ")
@@ -91,10 +104,26 @@ func (c Class) RenderAt(indent int) string {
 		builder.WriteString(" uses ")
 		builder.WriteString(strings.Join(c.Uses, ", "))
 	}
-	builder.WriteByte('\n')
-	for _, member := range c.Members {
+	if !c.Inner {
 		builder.WriteByte('\n')
-		builder.WriteString(member.RenderAt(indent))
+		for _, member := range c.Members {
+			builder.WriteByte('\n')
+			builder.WriteString(member.RenderAt(indent))
+		}
+		return builder.String()
+	}
+
+	builder.WriteString(":\n")
+	if len(c.Members) == 0 {
+		builder.WriteString(indentation(indent + 1))
+		builder.WriteString("pass\n")
+		return builder.String()
+	}
+	for i, member := range c.Members {
+		if i > 0 {
+			builder.WriteByte('\n')
+		}
+		builder.WriteString(member.RenderAt(indent + 1))
 	}
 	return builder.String()
 }
@@ -104,11 +133,15 @@ func (e Enum) RenderAt(indent int) string {
 	var builder strings.Builder
 	renderDoc(&builder, indent, e.Doc)
 	builder.WriteString(indentation(indent))
-	builder.WriteString("enum_name ")
+	if e.Inner {
+		builder.WriteString("enum ")
+	} else {
+		builder.WriteString("enum_name ")
+	}
 	builder.WriteString(e.Name)
 	builder.WriteString(":\n")
 	// An enum body is an indented block, and an empty block is a parse error.
-	if len(e.Values) == 0 {
+	if len(e.Values) == 0 && len(e.Members) == 0 {
 		builder.WriteString(indentation(indent + 1))
 		builder.WriteString("pass\n")
 		return builder.String()
@@ -117,9 +150,24 @@ func (e Enum) RenderAt(indent int) string {
 		renderDoc(&builder, indent+1, value.Doc)
 		builder.WriteString(indentation(indent + 1))
 		builder.WriteString(value.Name)
-		builder.WriteString(" = ")
-		builder.WriteString(strconv.Itoa(value.Number))
+		if len(value.Payload) > 0 {
+			builder.WriteByte('(')
+			for i, parameter := range value.Payload {
+				if i > 0 {
+					builder.WriteString(", ")
+				}
+				builder.WriteString(parameter.Render())
+			}
+			builder.WriteByte(')')
+		} else {
+			builder.WriteString(" = ")
+			builder.WriteString(strconv.Itoa(value.Number))
+		}
 		builder.WriteByte('\n')
+	}
+	for _, member := range e.Members {
+		builder.WriteByte('\n')
+		builder.WriteString(member.RenderAt(indent + 1))
 	}
 	return builder.String()
 }

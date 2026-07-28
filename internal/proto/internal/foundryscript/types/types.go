@@ -6,6 +6,7 @@ import "strings"
 type Type struct {
 	name     string
 	args     []Type
+	tuple    []Type
 	nullable bool
 }
 
@@ -38,9 +39,29 @@ func Dictionary(key, value Type) Type {
 	return Generic("Dictionary", key, value)
 }
 
+// Tuple returns a structural tuple annotation, used where a named tuple cannot
+// go because the position is generic.
+func Tuple(elements ...Type) Type {
+	return Type{tuple: append([]Type(nil), elements...)}
+}
+
 // Render returns the Foundry Script source representation of t.
 func (t Type) Render() string {
 	var builder strings.Builder
+	if len(t.tuple) > 0 {
+		builder.WriteByte('(')
+		for i, element := range t.tuple {
+			if i > 0 {
+				builder.WriteString(", ")
+			}
+			builder.WriteString(element.Render())
+		}
+		builder.WriteByte(')')
+		if t.nullable {
+			builder.WriteByte('?')
+		}
+		return builder.String()
+	}
 	builder.WriteString(t.name)
 	if len(t.args) > 0 {
 		builder.WriteByte('[')

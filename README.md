@@ -16,6 +16,24 @@ Generated `.pb.fs` files use Foundry Script namespaces, traits, generics,
 nullable types, and typed collections. Public generated APIs avoid `Variant`
 unless a Foundry Engine API requires it.
 
+Supported protobuf constructs and how they map:
+
+| Protobuf | Foundry Script |
+|---|---|
+| `message` | `final class_name X extends RefCounted uses Message` |
+| `enum` | `enum_name X` hosting `to_wire()` / `from_wire()` |
+| singular scalar | plain field, proto3 zero-value presence |
+| `optional` scalar | `String?` and friends, explicit presence |
+| message field | `X?`, length-delimited submessage |
+| `repeated` | `Array[T]`, packed for varint scalars |
+| `map<K, V>` | `Dictionary[K, V]` |
+| `oneof` | file-level tagged union, `X? = null` member |
+| nested `message` / `enum` | inner `class` / `enum`, referenced as `Outer.Inner` |
+
+`float`, `double`, `fixed*`, `sfixed*`, and `sint*` need zig-zag or
+fixed-width framing that is not implemented yet; generation fails on them
+rather than emitting varints that would be silently wrong.
+
 ## Install
 
 Homebrew:

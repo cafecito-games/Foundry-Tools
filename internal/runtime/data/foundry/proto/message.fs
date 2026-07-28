@@ -1,6 +1,6 @@
 namespace foundry.proto
 
-trait_name Message[T]
+trait_name Message
 
 abstract func to_bytes() -> PackedByteArray
 
