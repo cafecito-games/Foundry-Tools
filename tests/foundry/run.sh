@@ -2,12 +2,18 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-OUT="$ROOT/tests/foundry/generated"
-FOUNDRY="${FOUNDRY_BIN:-$HOME/.foundry/bin/foundry.macos.editor.dev.arm64}"
+PROJECT="$ROOT/tests/foundry"
+OUT="$PROJECT/generated"
+FOUNDRY="${FOUNDRY_BIN:-$(command -v foundry || true)}"
+
+if [ -z "$FOUNDRY" ] || [ ! -x "$FOUNDRY" ]; then
+  echo "Foundry binary not found on PATH. Install foundry or set FOUNDRY_BIN." >&2
+  exit 1
+fi
 
 cleanup() {
-  rm -rf "$OUT" "$ROOT/tests/foundry/.foundry"
-  rm -f "$ROOT"/tests/foundry/*.uid
+  rm -rf "$OUT" "$PROJECT/.foundry"
+  rm -f "$PROJECT"/*.uid
 }
 
 trap cleanup EXIT
@@ -30,26 +36,10 @@ if grep -R -n -E -e '-> foundry\.proto\.DecodeResult\[|: foundry\.proto\.FieldRe
   exit 1
 fi
 
-run_foundry_checked() {
-  local foundry_output
-  local foundry_status
+# Build the script index first; without it every file reports unresolved namespaces.
+"$FOUNDRY" --headless project import --project "$PROJECT"
 
-  set +e
-  foundry_output="$("$FOUNDRY" "$@" 2>&1)"
-  foundry_status=$?
-  set -e
-
-  printf '%s\n' "$foundry_output"
-
-  if [ "$foundry_status" -ne 0 ]; then
-    exit "$foundry_status"
-  fi
-
-  if grep -E 'SCRIPT ERROR|Parse Error|Failed to load script' <<<"$foundry_output"; then
-    echo "Foundry reported script parse/load diagnostics"
-    exit 1
-  fi
-}
-
-run_foundry_checked --headless --import --path "$ROOT/tests/foundry"
-run_foundry_checked --headless --check-only --script "$ROOT/tests/foundry/main.fs" --path "$ROOT/tests/foundry"
+if ! "$FOUNDRY" script lint --no-header --format=json --fail-on=error --project "$PROJECT" "res://"; then
+  echo "Foundry Script lint reported errors in the generated project"
+  exit 1
+fi

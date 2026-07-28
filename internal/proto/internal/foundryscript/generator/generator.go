@@ -2,7 +2,6 @@ package fsgenerator
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
@@ -106,39 +105,23 @@ func docOrFallback(schemaDoc, fallback []string) []string {
 	return out
 }
 
-func writeDoc(builder *strings.Builder, indent string, lines []string) {
-	for _, line := range lines {
-		builder.WriteString(indent)
-		builder.WriteString("##")
-		if line != "" {
-			builder.WriteByte(' ')
-			builder.WriteString(line)
-		}
-		builder.WriteByte('\n')
-	}
-}
-
 func renderEnum(namespace, typeName string, enum *protoast.Enum) string {
-	var builder strings.Builder
-	builder.WriteString("enum_name ")
-	builder.WriteString(typeName)
-	builder.WriteString(" {\n")
+	values := make([]fsast.EnumValue, 0, len(enum.Values))
 	for _, value := range enum.Values {
-		writeDoc(&builder, "\t", docOrFallback(value.Doc, nil))
-		builder.WriteByte('\t')
-		builder.WriteString(value.Name)
-		builder.WriteString(" = ")
-		builder.WriteString(strconv.Itoa(value.Number))
-		builder.WriteString(",\n")
+		values = append(values, fsast.EnumValue{
+			Doc:    docOrFallback(value.Doc, nil),
+			Name:   value.Name,
+			Number: value.Number,
+		})
 	}
-	builder.WriteString("}\n")
 
 	return fsast.File{
 		Namespace: namespace,
 		Declarations: []fsast.Node{
-			fsast.Doc{
-				Lines: enumDoc(typeName, enum.Doc),
-				Node:  fsast.Raw{Code: builder.String()},
+			fsast.Enum{
+				Doc:    enumDoc(typeName, enum.Doc),
+				Name:   typeName,
+				Values: values,
 			},
 		},
 	}.Render()
@@ -164,8 +147,6 @@ func renderMessage(namespace, typeName string, message *protoast.Message) string
 		Namespace: namespace,
 		Imports:   []string{"foundry.proto"},
 		Declarations: []fsast.Node{
-			// Current Foundry builds cannot resolve/apply imported runtime trait bodies
-			// such as foundry.proto.Message[T] here, so conformance is deferred.
 			fsast.Class{
 				Doc:     messageDoc(typeName, message.Doc),
 				Final:   true,

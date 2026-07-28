@@ -35,6 +35,23 @@ func TestFileRendering(t *testing.T) {
 	require.Equal(t, "namespace cafecito.game.v1\nimport foundry.proto\n\n## Generated protobuf message binding for Player.\nfinal class_name Player extends RefCounted uses foundry.proto.Message[Player]\n\nvar _name: String = \"\"\n\n## Returns the name protobuf field.\nfunc get_name() -> String:\n\treturn _name\n\n## Generated protobuf enum binding for PlayerStatus.\nenum_name PlayerStatus {}\n", file.Render())
 }
 
+func TestEnumRendering(t *testing.T) {
+	enum := Enum{
+		Doc:  []string{"Generated protobuf enum binding for PlayerStatus."},
+		Name: "PlayerStatus",
+		Values: []EnumValue{
+			{Doc: []string{"Unknown status."}, Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0},
+			{Name: "PLAYER_STATUS_ONLINE", Number: 1},
+		},
+	}
+
+	require.Equal(t, "## Generated protobuf enum binding for PlayerStatus.\nenum_name PlayerStatus:\n\t## Unknown status.\n\tPLAYER_STATUS_UNSPECIFIED = 0\n\tPLAYER_STATUS_ONLINE = 1\n", enum.RenderAt(0))
+}
+
+func TestEnumWithoutValuesRendersPass(t *testing.T) {
+	require.Equal(t, "enum_name Empty:\n\tpass\n", Enum{Name: "Empty"}.RenderAt(0))
+}
+
 func TestExprRendering(t *testing.T) {
 	require.Equal(t, "\t\tdo_work()\n", Expr{Code: "do_work()"}.RenderAt(2))
 }

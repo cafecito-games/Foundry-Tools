@@ -81,7 +81,12 @@ func TestGenerateMessageAndEnumSkeletons(t *testing.T) {
 	messageSource := files["cafecito/game/v1/Player.pb.fs"]
 	enumSource := files["cafecito/game/v1/PlayerStatus.pb.fs"]
 	require.Contains(t, messageSource, "## Generated protobuf message binding for Player.\nfinal class_name Player extends RefCounted")
-	require.Contains(t, enumSource, "## Generated protobuf enum binding for PlayerStatus.\nenum_name PlayerStatus")
+	require.Contains(t, enumSource,
+		"## Generated protobuf enum binding for PlayerStatus.\n"+
+			"enum_name PlayerStatus:\n"+
+			"\tPLAYER_STATUS_UNSPECIFIED = 0\n"+
+			"\tPLAYER_STATUS_ONLINE = 1\n")
+	require.NotContains(t, enumSource, "{")
 	require.NotContains(t, messageSource, "## var _name")
 	require.Contains(t, messageSource, "final class_name Player extends RefCounted")
 	require.NotContains(t, messageSource, " uses ")
@@ -127,7 +132,7 @@ func TestGeneratePrefersSchemaDocs(t *testing.T) {
 
 	enumSource := files["cafecito/game/v1/PlayerStatus.pb.fs"]
 	require.Contains(t, enumSource, "## Schema-authored status docs.\nenum_name PlayerStatus")
-	require.Contains(t, enumSource, "\t## Unknown status.\n\tPLAYER_STATUS_UNSPECIFIED = 0,")
+	require.Contains(t, enumSource, "\t## Unknown status.\n\tPLAYER_STATUS_UNSPECIFIED = 0\n")
 	require.NotContains(t, enumSource, "Generated protobuf enum binding for PlayerStatus.")
 }
 

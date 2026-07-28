@@ -154,8 +154,9 @@ task integration  # protoc and Buf integration tests
 task lint         # golangci-lint
 ```
 
-Foundry checks require a recent Foundry editor build:
+Foundry checks require a recent Foundry editor build on your `PATH`:
 
 ```bash
-FOUNDRY_BIN="$HOME/.foundry/bin/foundry.macos.editor.dev.arm64" task foundry:test
+task foundry:test                          # uses `which foundry`
+FOUNDRY_BIN=/path/to/foundry task foundry:test
 ```

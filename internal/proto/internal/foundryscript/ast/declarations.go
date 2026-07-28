@@ -1,6 +1,7 @@
 package fsast
 
 import (
+	"strconv"
 	"strings"
 
 	fstypes "github.com/cafecito-games/foundry-tools/internal/proto/internal/foundryscript/types"
@@ -14,6 +15,20 @@ type Class struct {
 	Extends string
 	Uses    []string
 	Members []Node
+}
+
+// Enum represents a Foundry Script enum declaration.
+type Enum struct {
+	Doc    []string
+	Name   string
+	Values []EnumValue
+}
+
+// EnumValue represents a single entry in an enum body.
+type EnumValue struct {
+	Doc    []string
+	Name   string
+	Number int
 }
 
 // Var represents a typed variable declaration.
@@ -80,6 +95,31 @@ func (c Class) RenderAt(indent int) string {
 	for _, member := range c.Members {
 		builder.WriteByte('\n')
 		builder.WriteString(member.RenderAt(indent))
+	}
+	return builder.String()
+}
+
+// RenderAt renders e at indent.
+func (e Enum) RenderAt(indent int) string {
+	var builder strings.Builder
+	renderDoc(&builder, indent, e.Doc)
+	builder.WriteString(indentation(indent))
+	builder.WriteString("enum_name ")
+	builder.WriteString(e.Name)
+	builder.WriteString(":\n")
+	// An enum body is an indented block, and an empty block is a parse error.
+	if len(e.Values) == 0 {
+		builder.WriteString(indentation(indent + 1))
+		builder.WriteString("pass\n")
+		return builder.String()
+	}
+	for _, value := range e.Values {
+		renderDoc(&builder, indent+1, value.Doc)
+		builder.WriteString(indentation(indent + 1))
+		builder.WriteString(value.Name)
+		builder.WriteString(" = ")
+		builder.WriteString(strconv.Itoa(value.Number))
+		builder.WriteByte('\n')
 	}
 	return builder.String()
 }
