@@ -40,6 +40,13 @@ type EnumValue struct {
 	Payload []Parameter
 }
 
+// SetterParameter is the name a set accessor binds its incoming value to. It is
+// underscore-prefixed for the same reason every other generated name is: a
+// member and the setter parameter share a scope, so a field named `value` and a
+// parameter named `value` would both resolve to the parameter and the member
+// would never be written -- silently, with no diagnostic.
+const SetterParameter = "_value"
+
 // Var represents a typed variable declaration. Setter, when non-empty, makes it
 // a property: the body runs on assignment, and assigning to the member inside
 // that body writes the backing storage rather than recursing. The initializer
@@ -206,7 +213,7 @@ func (v Var) RenderAt(indent int) string {
 	}
 	builder.WriteString(":\n")
 	builder.WriteString(indentation(indent + 1))
-	builder.WriteString("set(value):\n")
+	builder.WriteString("set(" + SetterParameter + "):\n")
 	for _, statement := range v.Setter {
 		builder.WriteString(statement.RenderAt(indent + 2))
 	}

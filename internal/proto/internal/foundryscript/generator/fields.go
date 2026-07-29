@@ -53,7 +53,7 @@ func discardRetained(buffers []string, member string) []fsast.Node {
 	for _, buffer := range buffers {
 		body = append(body, line(0, buffer+" = PackedByteArray()"))
 	}
-	return append(body, line(0, member+" = value"))
+	return append(body, line(0, member+" = "+fsast.SetterParameter))
 }
 
 // unknownEnumMember is the companion holding one field's retained enum bytes.

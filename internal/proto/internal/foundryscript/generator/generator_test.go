@@ -732,27 +732,16 @@ func TestGenerateRejectsOneofCollidingWithAField(t *testing.T) {
 	require.Contains(t, err.Error(), "both map to the member payload")
 }
 
-// Retained bytes are what was on the wire before the binding touched the
-// message, so a later assignment has to be written after them: an unrecognized
-// enum value is retained under a field number this schema does know, and
-// protobuf takes the last record for a singular field.
-func TestSerializeWritesRetainedBytesBeforeLiveFields(t *testing.T) {
-	files := generate(t, namespacedFile(
-		[]*protoast.Message{{
-			Name:   "Player",
-			Fields: []*protoast.Field{{FieldType: "PlayerStatus", Name: "status", Number: 1}},
-		}},
-		[]*protoast.Enum{{
-			Name:   "PlayerStatus",
-			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
-		}},
-	))
-	source := files["cafecito/game/v1/Player.pb.fs"]
+// Every record in the shared buffer carries a field number this schema has no
+// member for, so it competes with nothing and trails the live fields. A value
+// that does share a field number with a member is kept by that member instead.
+func TestSerializeWritesTheSharedBufferLast(t *testing.T) {
+	source := playerSource(t, []*protoast.Field{{FieldType: "string", Name: "name", Number: 1}})
 
-	retainedAt := strings.Index(source, "_result.append_array(_unknown_fields)")
-	statusAt := strings.Index(source, "if status != PlayerStatus.PLAYER_STATUS_UNSPECIFIED:")
-	require.Positive(t, retainedAt)
-	require.Greater(t, statusAt, retainedAt)
+	nameAt := strings.Index(source, "if name != \"\":")
+	bufferAt := strings.Index(source, "_result.append_array(_unknown_fields)")
+	require.Positive(t, nameAt)
+	require.Greater(t, bufferAt, nameAt)
 }
 
 // proto3 enums are open, so a number this schema has no case for has to survive
@@ -776,9 +765,9 @@ func TestUnknownEnumValueIsRetainedPerFieldAndSuperseded(t *testing.T) {
 	source := files["cafecito/game/v1/Player.pb.fs"]
 
 	require.Contains(t, source, "var status: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED:\n"+
-		"\tset(value):\n"+
+		"\tset(_value):\n"+
 		"\t\t_status_unknown = PackedByteArray()\n"+
-		"\t\tstatus = value\n")
+		"\t\tstatus = _value\n")
 	// The retained value takes the field's own position, and the two are
 	// mutually exclusive rather than both written.
 	require.Contains(t, source, "\tif _status_unknown.size() > 0:\n"+
@@ -791,9 +780,11 @@ func TestUnknownEnumValueIsRetainedPerFieldAndSuperseded(t *testing.T) {
 		"\t\t\t\t\t_status_unknown = _data.slice(_offset, _status_read.offset)")
 }
 
-// A repeated or map-valued enum has no single member to attach raw bytes to, so
-// it keeps using the shared buffer.
-func TestRepeatedEnumUsesTheSharedUnknownBuffer(t *testing.T) {
+// A repeated enum has no single member to attach raw bytes to, and the shared
+// buffer is emitted as one run, so moving an element into it would reorder the
+// sequence. The value is folded onto the default instead, which loses it
+// visibly rather than silently permuting data.
+func TestRepeatedEnumFoldsUnrecognizedValues(t *testing.T) {
 	files := generate(t, namespacedFile(
 		[]*protoast.Message{{
 			Name:   "Player",
@@ -806,14 +797,15 @@ func TestRepeatedEnumUsesTheSharedUnknownBuffer(t *testing.T) {
 	))
 	source := files["cafecito/game/v1/Player.pb.fs"]
 
-	require.Contains(t, source, "_unknown_fields.append_array(_data.slice(")
+	require.Contains(t, source, "history.append(PlayerStatus.PLAYER_STATUS_UNSPECIFIED)")
 	require.NotContains(t, source, "_history_unknown")
+	require.NotContains(t, source, "_unknown_fields.append_array(_data.slice(")
 }
 
-// A map entry may carry its value more than once and the last one wins, so a
-// recognized value arriving after an unrecognized one makes the entry
-// representable again and must clear the flag that would drop it.
-func TestMapEntryUnknownFlagIsClearedByALaterRecognizedValue(t *testing.T) {
+// A map-valued enum cannot be retained either: an entry moved into the shared
+// buffer changes which of two records for the same key protobuf takes as the
+// last one, so duplicate-key precedence would flip.
+func TestMapValuedEnumFoldsUnrecognizedValues(t *testing.T) {
 	files := generate(t, namespacedFile(
 		[]*protoast.Message{{
 			Name: "Player",
@@ -832,7 +824,48 @@ func TestMapEntryUnknownFlagIsClearedByALaterRecognizedValue(t *testing.T) {
 	))
 	source := files["cafecito/game/v1/Player.pb.fs"]
 
-	require.Contains(t, source, "_seen_value = _seen_value_case\n")
-	require.Contains(t, source, "_seen_unknown = false\n")
-	require.Contains(t, source, "_seen_unknown = true\n")
+	require.Contains(t, source, "_seen_value = PlayerStatus.PLAYER_STATUS_UNSPECIFIED")
+	require.Contains(t, source, "seen[_seen_key] = _seen_value")
+	require.NotContains(t, source, "_seen_unknown")
+}
+
+// A member and its setter parameter share a scope, so a field named `value`
+// with a parameter named `value` would leave the member unwritten -- silently,
+// with no diagnostic from the analyzer.
+func TestSetterParameterCannotCollideWithTheField(t *testing.T) {
+	files := generate(t, namespacedFile(
+		[]*protoast.Message{{
+			Name:   "Player",
+			Fields: []*protoast.Field{{FieldType: "PlayerStatus", Name: "value", Number: 1}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "\tset(_value):\n\t\t_value_unknown = PackedByteArray()\n\t\tvalue = _value\n")
+	require.NotContains(t, source, "value = value")
+}
+
+// A retained-value companion is a member too, and its name is built by joining
+// names with underscores, so two different declarations can reach it.
+func TestGenerateRejectsCollidingRetentionMembers(t *testing.T) {
+	_, err := Generate(namespacedFile(
+		[]*protoast.Message{{
+			Name:   "Player",
+			Fields: []*protoast.Field{{FieldType: "PlayerStatus", Name: "pick_kind", Number: 1}},
+			Oneofs: []*protoast.Oneof{{
+				Name:   "pick",
+				Fields: []*protoast.Field{{FieldType: "PlayerStatus", Name: "kind", Number: 2}},
+			}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	), "player.proto", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "both map to the member _pick_kind_unknown")
 }

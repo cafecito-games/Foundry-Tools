@@ -33,9 +33,14 @@ Supported protobuf constructs and how they map:
 | unknown field | kept verbatim in `_unknown_fields` and re-emitted |
 
 proto3 enums are open, so `from_wire` returns `null` for a number the schema
-has no case for, and the decoder keeps the original bytes rather than folding
-them onto the zero case. Together with unknown-field retention this makes a
-decode/re-encode round trip lossless for a peer on a newer schema.
+has no case for. A singular or `optional` enum field keeps that number's bytes
+and writes them back in the field's own position, so a decode/re-encode round
+trip is lossless for a peer on a newer schema; assigning the field supersedes
+the retained value. A `repeated` or map-valued enum cannot do this — the raw
+number has nowhere to live in an `Array[T]` or `Dictionary[K, T]`, and parking
+it in the unknown-field buffer would reorder the sequence or flip which record
+wins for a duplicate map key — so an unrecognized value there takes the enum's
+default instead.
 
 A `oneof` cannot carry a type nested inside the message that declares it: the
 union is emitted at file level, so that would close a resolution cycle Foundry

@@ -649,6 +649,14 @@ func validateMemberNames(messageName string, plans []fieldPlan, oneofs []oneofPl
 		return nil
 	}
 	for i := range plans {
+		// A retained-value companion is a member too, and its name is derived
+		// by joining names with underscores, so a field `a_b` and a oneof `a`
+		// with a member `b` reach the same spelling from different directions.
+		if plans[i].RetainsUnknownEnum() {
+			if err := claim(plans[i].UnknownMember(), "the retained value of "+plans[i].RawName); err != nil {
+				return err
+			}
+		}
 		if plans[i].OneofCase != "" {
 			continue
 		}

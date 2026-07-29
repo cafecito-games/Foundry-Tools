@@ -50,10 +50,6 @@ type readContext struct {
 	// retainUnknownEnum emits the statements that preserve an unrecognized enum
 	// value spanning data[from:to].
 	retainUnknownEnum func(depth int, from, to string) []fsast.Node
-	// onRecognized emits statements that run alongside the assignment when an
-	// enum value does name a case, undoing whatever retainUnknownEnum recorded
-	// for an earlier occurrence of the same field.
-	onRecognized func(depth int) []fsast.Node
 }
 
 func mergeFromBytesFunction(plans []fieldPlan) fsast.Func {
@@ -107,21 +103,7 @@ func deserializeField(plan *fieldPlan) []fsast.Node {
 // thing that differs between a singular field, a repeated element, and a oneof
 // case.
 func fieldContext(plan *fieldPlan) readContext {
-	context := readContext{
-		local:             plan.Local(),
-		retainUnknownEnum: retainUnknownEnumAt(plan.Number),
-	}
-	if plan.RetainsUnknownEnum() {
-		// The raw bytes go in the field's own companion, and the member is
-		// cleared first so the union or field reads as unset: assigning it
-		// runs the setter, which is what discards a previously retained value.
-		context.retainUnknownEnum = func(depth int, from, to string) []fsast.Node {
-			return []fsast.Node{
-				line(depth, plan.clearedMember()),
-				line(depth, fmt.Sprintf("%s = %s.slice(%s, %s)", plan.UnknownMember(), dataParameter, from, to)),
-			}
-		}
-	}
+	context := readContext{local: plan.Local()}
 	switch {
 	case plan.OneofCase != "":
 		context.assign = func(expression string) string {
@@ -140,20 +122,35 @@ func fieldContext(plan *fieldPlan) readContext {
 			context.target = plan.Name
 		}
 	}
+	if plan.RetainsUnknownEnum() {
+		// The raw bytes go in the field's own companion, and the member is
+		// cleared first so the field or union reads as unset: that assignment
+		// runs the setter, which is what discards a value retained earlier.
+		context.retainUnknownEnum = func(depth int, from, to string) []fsast.Node {
+			return []fsast.Node{
+				line(depth, plan.clearedMember()),
+				line(depth, fmt.Sprintf("%s = %s.slice(%s, %s)", plan.UnknownMember(), dataParameter, from, to)),
+			}
+		}
+	} else {
+		context.retainUnknownEnum = foldUnrecognizedEnum(plan.Value, context.assign)
+	}
 	return context
 }
 
-// retainUnknownEnumAt copies the original bytes of an unrecognized enum value
-// into the unknown-field buffer, re-tagged as its own varint record. Writing it
-// unpacked is legal for a packed field too, so one form covers every
-// cardinality an enum can have.
-func retainUnknownEnumAt(number int) func(int, string, string) []fsast.Node {
-	return func(depth int, from, to string) []fsast.Node {
-		return []fsast.Node{
-			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))",
-				unknownFieldsMember, tagExpression(number, wireVarint))),
-			line(depth, fmt.Sprintf("%s.append_array(%s.slice(%s, %s))", unknownFieldsMember, dataParameter, from, to)),
-		}
+// foldUnrecognizedEnum is what a repeated or map-valued enum does with a number
+// this schema has no case for: it takes the proto default.
+//
+// The value cannot be kept. An Array[T] or Dictionary[K, T] of an enum holds
+// only declared cases, so the raw number has nowhere to live, and the shared
+// unknown-field buffer is not a substitute: it is emitted as one run, and both
+// of these carry meaning in their position. Moving a repeated element into it
+// reorders the sequence, and moving a map entry into it flips which of two
+// records for the same key protobuf takes as the last one. Losing the value is
+// visible and bounded; silently reordering a sequence is neither.
+func foldUnrecognizedEnum(value valuePlan, assign func(string) string) func(int, string, string) []fsast.Node {
+	return func(depth int, _, _ string) []fsast.Node {
+		return []fsast.Node{line(depth, assign(value.ZeroValue))}
 	}
 }
 
@@ -238,11 +235,8 @@ func readEnumValue(depth int, value valuePlan, context readContext, read string)
 		line(depth, fmt.Sprintf("var %s: %s? = %s.from_wire(%s.value)", decoded, typeName, typeName, read)),
 		line(depth, fmt.Sprintf("if %s is %s:", decoded, typeName)),
 		line(depth+1, context.assign(decoded)),
+		line(depth, "else:"),
 	}
-	if context.onRecognized != nil {
-		nodes = append(nodes, context.onRecognized(depth+1)...)
-	}
-	nodes = append(nodes, line(depth, "else:"))
 	nodes = append(nodes, context.retainUnknownEnum(depth+1, cursorLocal, read+".offset")...)
 	return append(nodes, line(depth, fmt.Sprintf("%s = %s.offset", cursorLocal, read)))
 }
@@ -298,35 +292,22 @@ func readPackedElement(depth int, plan *fieldPlan, context readContext, packed s
 
 func deserializeMap(plan *fieldPlan) []fsast.Node {
 	length := plan.Local("length")
-	start := plan.Local("start")
 	end := plan.Local("end")
 	key := plan.Local("key")
 	value := plan.Local("value")
 	entryTag := plan.Local("entry", "tag")
 	entryWireType := plan.Local("entry", "wire", "type")
-	unknown := plan.Local("unknown")
-	// A map value is the only place an unrecognized enum cannot be re-tagged on
-	// its own, so the whole entry is kept instead and the pair is not inserted.
-	retainsEntry := plan.Value.Kind == kindEnum
 
 	nodes := []fsast.Node{
 		line(3, fmt.Sprintf("if %s != Wire.WIRE_LENGTH_DELIMITED:", wireTypeLocal)),
 		line(4, "return ProtobufError.WIRE_TYPE_MISMATCH"),
 	}
 	nodes = append(nodes, readLength(3, length)...)
-	if retainsEntry {
-		nodes = append(nodes, line(3, fmt.Sprintf("var %s: int = %s.offset", start, length)))
-	}
 	nodes = append(nodes,
 		line(3, fmt.Sprintf("var %s: int = %s.offset + %s.value", end, length, length)),
 		line(3, fmt.Sprintf("%s = %s.offset", cursorLocal, length)),
 		line(3, fmt.Sprintf("var %s: %s = %s", key, plan.Key.Type.Render(), plan.Key.ZeroValue)),
 		line(3, fmt.Sprintf("var %s: %s = %s", value, plan.Value.Type.Render(), mapValueZero(plan.Value))),
-	)
-	if retainsEntry {
-		nodes = append(nodes, line(3, fmt.Sprintf("var %s: bool = false", unknown)))
-	}
-	nodes = append(nodes,
 		line(3, fmt.Sprintf("while %s < %s:", cursorLocal, end)),
 		line(4, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(%s, %s)", entryTag, dataParameter, cursorLocal)),
 		line(4, fmt.Sprintf("if %s.error != ProtobufError.OK:", entryTag)),
@@ -354,19 +335,8 @@ func deserializeMap(plan *fieldPlan) []fsast.Node {
 		// merges into it rather than replacing it.
 		mode:   mergeInto,
 		target: value,
-		retainUnknownEnum: func(depth int, _, _ string) []fsast.Node {
-			return []fsast.Node{line(depth, unknown+" = true")}
-		},
 	}
-	if retainsEntry {
-		// An entry may carry its value more than once, and the last one wins.
-		// A recognized value arriving after an unrecognized one makes the entry
-		// representable again, so the flag has to be cleared, not just set:
-		// otherwise the entry is dropped despite its final value being known.
-		valueContext.onRecognized = func(depth int) []fsast.Node {
-			return []fsast.Node{line(depth, unknown+" = false")}
-		}
-	}
+	valueContext.retainUnknownEnum = foldUnrecognizedEnum(plan.Value, valueContext.assign)
 	nodes = append(nodes, readValue(6, plan.Value, valueContext)...)
 	nodes = append(nodes,
 		line(5, "_:"),
@@ -375,17 +345,7 @@ func deserializeMap(plan *fieldPlan) []fsast.Node {
 		line(7, fmt.Sprintf("return %s.error", plan.Local("skip"))),
 		line(6, fmt.Sprintf("%s = %s.offset", cursorLocal, plan.Local("skip"))),
 	)
-	if !retainsEntry {
-		return append(nodes, line(3, fmt.Sprintf("%s[%s] = %s", plan.Name, key, value)))
-	}
-	return append(nodes,
-		line(3, "if "+unknown+":"),
-		line(4, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", unknownFieldsMember, plan.TagExpression())),
-		line(4, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s - %s))", unknownFieldsMember, end, start)),
-		line(4, fmt.Sprintf("%s.append_array(%s.slice(%s, %s))", unknownFieldsMember, dataParameter, start, end)),
-		line(3, "else:"),
-		line(4, fmt.Sprintf("%s[%s] = %s", plan.Name, key, value)),
-	)
+	return append(nodes, line(3, fmt.Sprintf("%s[%s] = %s", plan.Name, key, value)))
 }
 
 // readLength reads and bounds-checks a length prefix. The runtime owns the

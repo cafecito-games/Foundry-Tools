@@ -25,7 +25,6 @@ static func from_bytes(_data: PackedByteArray) -> (Slot?, ProtobufError):
 ## Serializes this message to protobuf wire data.
 func to_bytes() -> PackedByteArray:
 	var _result: PackedByteArray = PackedByteArray()
-	_result.append_array(_unknown_fields)
 	if label != "":
 		_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))
 		var _label_data: PackedByteArray = Wire.encode_string(label)
@@ -34,6 +33,7 @@ func to_bytes() -> PackedByteArray:
 	if quantity != 0:
 		_result.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_VARINT)))
 		_result.append_array(Wire.encode_varint(quantity))
+	_result.append_array(_unknown_fields)
 	return _result
 
 ## Merges protobuf wire data into this message.
