@@ -148,7 +148,7 @@ func TestGenerateEmitsPublicFieldsNotAccessorPairs(t *testing.T) {
 
 func TestGenerateDecodeFactoryReturnsTuple(t *testing.T) {
 	source := playerSource(t, []*protoast.Field{{FieldType: "string", Name: "name", Number: 1}})
-	require.Contains(t, source, "static func from_bytes(data: PackedByteArray) -> (Player?, ProtobufError):")
+	require.Contains(t, source, "static func from_bytes(_data: PackedByteArray) -> (Player?, ProtobufError):")
 	require.NotContains(t, source, "DecodeResult[")
 	require.NotContains(t, source, "FieldRead[")
 	require.NotContains(t, source, "Variant")
@@ -265,8 +265,10 @@ func TestGenerateEnumFieldsUseHostedWireConversion(t *testing.T) {
 	require.Contains(t, messageSource, "var status: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED")
 	require.Contains(t, messageSource, "Wire.encode_varint(status.to_wire())")
 	require.Contains(t, messageSource, "var _status_case: PlayerStatus? = PlayerStatus.from_wire(_status_read.value)")
-	// An unrecognized value is kept verbatim rather than destroyed.
-	require.Contains(t, messageSource, "_unknown_fields.append_array(_data.slice(_offset, _status_read.offset))")
+	// An unrecognized value is kept verbatim rather than destroyed, in a
+	// companion of its own so it can stand in for the field on re-encode.
+	require.Contains(t, messageSource, "_status_unknown = _data.slice(_offset, _status_read.offset)")
+	require.Contains(t, messageSource, "var _status_unknown: PackedByteArray = PackedByteArray()")
 }
 
 func TestGenerateMapFields(t *testing.T) {
@@ -751,4 +753,86 @@ func TestSerializeWritesRetainedBytesBeforeLiveFields(t *testing.T) {
 	statusAt := strings.Index(source, "if status != PlayerStatus.PLAYER_STATUS_UNSPECIFIED:")
 	require.Positive(t, retainedAt)
 	require.Greater(t, statusAt, retainedAt)
+}
+
+// proto3 enums are open, so a number this schema has no case for has to survive
+// a re-encode. It cannot go in the shared unknown-field buffer: it carries a
+// field number the schema does know, and protobuf takes the last record for a
+// singular field, so a copy on either side of the member would decide the value
+// rather than stand in for it. It is kept per field and written in the field's
+// own position instead, and the member's setter drops it the moment anything
+// assigns a value the schema can represent.
+func TestUnknownEnumValueIsRetainedPerFieldAndSuperseded(t *testing.T) {
+	files := generate(t, namespacedFile(
+		[]*protoast.Message{{
+			Name:   "Player",
+			Fields: []*protoast.Field{{FieldType: "PlayerStatus", Name: "status", Number: 1}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "var status: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED:\n"+
+		"\tset(value):\n"+
+		"\t\t_status_unknown = PackedByteArray()\n"+
+		"\t\tstatus = value\n")
+	// The retained value takes the field's own position, and the two are
+	// mutually exclusive rather than both written.
+	require.Contains(t, source, "\tif _status_unknown.size() > 0:\n"+
+		"\t\t_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_VARINT)))\n"+
+		"\t\t_result.append_array(_status_unknown)\n"+
+		"\telif status != PlayerStatus.PLAYER_STATUS_UNSPECIFIED:\n")
+	// Retaining clears the member, which runs the setter and so discards any
+	// value retained for an earlier record of the same field.
+	require.Contains(t, source, "\t\t\t\t\tstatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED\n"+
+		"\t\t\t\t\t_status_unknown = _data.slice(_offset, _status_read.offset)")
+}
+
+// A repeated or map-valued enum has no single member to attach raw bytes to, so
+// it keeps using the shared buffer.
+func TestRepeatedEnumUsesTheSharedUnknownBuffer(t *testing.T) {
+	files := generate(t, namespacedFile(
+		[]*protoast.Message{{
+			Name:   "Player",
+			Fields: []*protoast.Field{{FieldType: "PlayerStatus", Name: "history", Number: 1, Repeated: true}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "_unknown_fields.append_array(_data.slice(")
+	require.NotContains(t, source, "_history_unknown")
+}
+
+// A map entry may carry its value more than once and the last one wins, so a
+// recognized value arriving after an unrecognized one makes the entry
+// representable again and must clear the flag that would drop it.
+func TestMapEntryUnknownFlagIsClearedByALaterRecognizedValue(t *testing.T) {
+	files := generate(t, namespacedFile(
+		[]*protoast.Message{{
+			Name: "Player",
+			Maps: []*protoast.MapField{{
+				KeyType:     "string",
+				ValueType:   "PlayerStatus",
+				ValueIsEnum: true,
+				Name:        "seen",
+				Number:      1,
+			}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "_seen_value = _seen_value_case\n")
+	require.Contains(t, source, "_seen_unknown = false\n")
+	require.Contains(t, source, "_seen_unknown = true\n")
 }

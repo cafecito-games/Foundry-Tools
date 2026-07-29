@@ -147,6 +147,42 @@ func (p fieldPlan) Local(parts ...string) string {
 	return localName(append([]string{p.RawName}, parts...)...)
 }
 
+// RetainsUnknownEnum reports whether this field keeps the raw bytes of an
+// unrecognized enum value in a companion member of its own.
+//
+// proto3 enums are open, so a number this schema has no case for still has to
+// survive a decode and re-encode. It cannot be appended to the shared
+// unknown-field buffer the way a wholly unknown field can: it carries a field
+// number this schema *does* know, and protobuf takes the last record for a
+// singular field, so a trailing copy would override the member and a leading
+// one would be overridden by it. Keeping it per field lets the value be written
+// in the field's own position, and lets the member's setter drop it the moment
+// anything assigns a value the schema can represent.
+//
+// Only a single-valued field can do this. A repeated or map-valued enum has no
+// one member to attach the raw bytes to.
+func (p fieldPlan) RetainsUnknownEnum() bool {
+	if p.Value.Kind != kindEnum {
+		return false
+	}
+	return p.Cardinality == cardinalitySingular || p.Cardinality == cardinalityOptional
+}
+
+// UnknownMember is the companion holding those raw bytes.
+func (p fieldPlan) UnknownMember() string {
+	return p.Local("unknown")
+}
+
+// clearedMember resets the member this field is read into, so it reads as unset
+// while its retained raw value stands in for it. Going through the assignment
+// is deliberate: it runs the setter, which drops any value retained earlier.
+func (p fieldPlan) clearedMember() string {
+	if p.OneofCase != "" {
+		return p.OneofField + " = null"
+	}
+	return p.Name + " = " + p.DeclaredDefault()
+}
+
 // typeInfo is what the emitter needs to know about a named type it references:
 // where the declaration lives and, for an enum, what its proto default is.
 type typeInfo struct {
@@ -232,14 +268,13 @@ func newResolver(file *protoast.ProtoFile, imports []FileEntry) *resolver {
 }
 
 // shadowedLocally reports whether reference would bind to a local declaration
-// rather than the imported one it names. Only the outermost segment matters: a
-// local `Slot` captures `Slot.Detail` just as surely as it captures `Slot`.
-func (r *resolver) shadowedLocally(reference string) bool {
-	topLevel := reference
-	if head, _, nested := strings.Cut(reference, "."); nested {
-		topLevel = head
-	}
-	_, taken := r.local[topLevel]
+// rather than the imported one it names. Only the outermost segment matters --
+// a local `Slot` captures `Slot.Detail` just as surely as it captures `Slot` --
+// and it is resolved the way Foundry resolves it, from scope outward, so a type
+// nested in an enclosing message captures the name just as a top-level one does.
+func (r *resolver) shadowedLocally(scope, reference string) bool {
+	head, _, _ := strings.Cut(reference, ".")
+	_, taken := r.local.resolve(scope, head)
 	return taken
 }
 
@@ -403,7 +438,7 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 	lexical, qualified := reference, info.Reference
 	if info.Namespace != "" {
 		lexical = info.Reference
-		if r.shadowedLocally(info.Reference) {
+		if r.shadowedLocally(scope, info.Reference) {
 			lexical = info.Namespace + "." + info.Reference
 		}
 		qualified = lexical
@@ -448,6 +483,17 @@ type oneofPlan struct {
 	Field   string
 	Type    string
 	Members []fieldPlan
+}
+
+// RetainingMembers are the oneof's members that keep raw enum bytes.
+func (o *oneofPlan) RetainingMembers() []fieldPlan {
+	retaining := make([]fieldPlan, 0, len(o.Members))
+	for i := range o.Members {
+		if o.Members[i].RetainsUnknownEnum() {
+			retaining = append(retaining, o.Members[i])
+		}
+	}
+	return retaining
 }
 
 // Namespaces are the imported namespaces the hoisted union file has to declare.

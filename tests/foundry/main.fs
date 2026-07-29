@@ -135,16 +135,36 @@ func _init() -> void:
 	check(forward.status == PlayerStatus.PLAYER_STATUS_UNSPECIFIED, "unknown enum leaves the field default")
 	check(forward.to_bytes() == future, "unknown enum value survives a re-encode")
 
-	## A retained record is what was on the wire before this binding touched it,
-	## so a later assignment to the same field has to be written after it: for a
-	## singular field protobuf takes the last record, and a receiver that does
-	## know the retained value would otherwise ignore the assignment entirely.
+	## A retained value stands in for the field, in the field's own position, so
+	## what a reader takes as the last record for that number is what the sender
+	## wrote. Assigning the field supersedes the retained value outright rather
+	## than being written alongside it, which for a singular field would leave
+	## whichever record happened to come last deciding the value.
+	var known: PackedByteArray = PackedByteArray()
+	known.append_array(Wire.encode_varint(Wire.make_tag(8, Wire.WIRE_VARINT)))
+	known.append_array(Wire.encode_varint(1))
+
 	forward.status = PlayerStatus.PLAYER_STATUS_ONLINE
-	var superseded: PackedByteArray = PackedByteArray()
-	superseded.append_array(future)
-	superseded.append_array(Wire.encode_varint(Wire.make_tag(8, Wire.WIRE_VARINT)))
-	superseded.append_array(Wire.encode_varint(1))
-	check(forward.to_bytes() == superseded, "a later assignment supersedes a retained unknown value")
+	check(forward.to_bytes() == known, "assigning the field supersedes a retained unknown value")
+
+	## Recognized then unrecognized: the unrecognized value came last on the
+	## wire, so it is what survives.
+	var known_then_unknown: Player = Player.new()
+	var pair: PackedByteArray = PackedByteArray()
+	pair.append_array(known)
+	pair.append_array(future)
+	check(known_then_unknown.merge_from_bytes(pair) == ProtobufError.OK, "known then unknown decodes")
+	check(known_then_unknown.to_bytes() == future, "the last record wins when it is unrecognized")
+
+	## Unrecognized then recognized: the recognized value came last, so the
+	## retained copy has to be dropped rather than re-emitted after it.
+	var unknown_then_known: Player = Player.new()
+	var reversed: PackedByteArray = PackedByteArray()
+	reversed.append_array(future)
+	reversed.append_array(known)
+	check(unknown_then_known.merge_from_bytes(reversed) == ProtobufError.OK, "unknown then known decodes")
+	check(unknown_then_known.status == PlayerStatus.PLAYER_STATUS_ONLINE, "the last record wins when it is recognized")
+	check(unknown_then_known.to_bytes() == known, "a recognized value drops the retained copy")
 
 	## A singular message field split across two records must merge, not replace.
 	var first: PackedByteArray = PackedByteArray()

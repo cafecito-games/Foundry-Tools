@@ -14,9 +14,9 @@ var quantity: int = 0
 var _unknown_fields: PackedByteArray = PackedByteArray()
 
 ## Decodes protobuf wire data into a new Slot message.
-static func from_bytes(data: PackedByteArray) -> (Slot?, ProtobufError):
+static func from_bytes(_data: PackedByteArray) -> (Slot?, ProtobufError):
 	var _message: Slot = Slot.new()
-	var _error: ProtobufError = _message.merge_from_bytes(data)
+	var _error: ProtobufError = _message.merge_from_bytes(_data)
 	if _error != ProtobufError.OK:
 		var _failed: Slot? = null
 		return (_failed, _error)

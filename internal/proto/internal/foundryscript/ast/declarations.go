@@ -40,11 +40,15 @@ type EnumValue struct {
 	Payload []Parameter
 }
 
-// Var represents a typed variable declaration.
+// Var represents a typed variable declaration. Setter, when non-empty, makes it
+// a property: the body runs on assignment, and assigning to the member inside
+// that body writes the backing storage rather than recursing. The initializer
+// does not run the setter.
 type Var struct {
-	Name  string
-	Type  fstypes.Type
-	Value string
+	Name   string
+	Type   fstypes.Type
+	Value  string
+	Setter []Node
 }
 
 // Func represents a typed function declaration.
@@ -196,7 +200,16 @@ func (v Var) RenderAt(indent int) string {
 		builder.WriteString(" = ")
 		builder.WriteString(v.Value)
 	}
-	builder.WriteByte('\n')
+	if len(v.Setter) == 0 {
+		builder.WriteByte('\n')
+		return builder.String()
+	}
+	builder.WriteString(":\n")
+	builder.WriteString(indentation(indent + 1))
+	builder.WriteString("set(value):\n")
+	for _, statement := range v.Setter {
+		builder.WriteString(statement.RenderAt(indent + 2))
+	}
 	return builder.String()
 }
 

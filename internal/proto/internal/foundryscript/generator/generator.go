@@ -318,6 +318,13 @@ func messageClass(plan *messagePlan, inner bool) fsast.Class {
 	for i := range plan.Oneofs {
 		members = append(members, oneofMember(&plan.Oneofs[i]))
 	}
+	// The retained-value companions follow the public members they belong to;
+	// an initializer does not run a setter, so nothing depends on the order.
+	for i := range plan.Fields {
+		if plan.Fields[i].RetainsUnknownEnum() {
+			members = append(members, unknownEnumMember(&plan.Fields[i]))
+		}
+	}
 	members = append(members,
 		unknownFieldsMemberDeclaration(),
 		fromBytesFactory(plan.Name),

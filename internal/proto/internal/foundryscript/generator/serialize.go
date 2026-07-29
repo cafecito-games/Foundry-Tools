@@ -92,8 +92,27 @@ func presenceCondition(plan *fieldPlan) string {
 }
 
 func serializeSingular(plan *fieldPlan) []fsast.Node {
-	nodes := []fsast.Node{line(0, "if "+presenceCondition(plan)+":")}
+	var nodes []fsast.Node
+	if plan.RetainsUnknownEnum() {
+		// A retained value stands in for the field, in the field's own
+		// position, so what a reader takes as the last record for this number
+		// is the same value the sender wrote. The member's setter guarantees
+		// the two are never both live.
+		nodes = append(nodes, retainedRecord(0, "if", plan)...)
+		nodes = append(nodes, line(0, "elif "+presenceCondition(plan)+":"))
+	} else {
+		nodes = append(nodes, line(0, "if "+presenceCondition(plan)+":"))
+	}
 	return append(nodes, appendValue(1, plan.Value, plan.Name, plan.Local(), plan.TagExpression(), resultBuffer)...)
+}
+
+// retainedRecord writes one field's retained enum bytes back with its tag.
+func retainedRecord(depth int, keyword string, plan *fieldPlan) []fsast.Node {
+	return []fsast.Node{
+		line(depth, fmt.Sprintf("%s %s.size() > 0:", keyword, plan.UnknownMember())),
+		line(depth+1, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", resultBuffer, plan.TagExpression())),
+		line(depth+1, fmt.Sprintf("%s.append_array(%s)", resultBuffer, plan.UnknownMember())),
+	}
 }
 
 func serializeUnpackedRepeated(plan *fieldPlan) []fsast.Node {
@@ -136,15 +155,35 @@ func serializeMap(plan *fieldPlan) []fsast.Node {
 }
 
 func serializeOneof(oneof *oneofPlan) []fsast.Node {
-	nodes := []fsast.Node{line(0, "match "+oneof.Field+":")}
+	// A retained case stands in for the whole union. The union's setter clears
+	// every retained buffer, and retaining one clears the union, so at most one
+	// branch of this chain is ever live.
+	retaining := oneof.RetainingMembers()
+	if len(retaining) == 0 {
+		return oneofMatch(0, oneof)
+	}
+	var nodes []fsast.Node
+	for i := range retaining {
+		keyword := "if"
+		if i > 0 {
+			keyword = "elif"
+		}
+		nodes = append(nodes, retainedRecord(0, keyword, &retaining[i])...)
+	}
+	nodes = append(nodes, line(0, "else:"))
+	return append(nodes, oneofMatch(1, oneof)...)
+}
+
+func oneofMatch(depth int, oneof *oneofPlan) []fsast.Node {
+	nodes := []fsast.Node{line(depth, "match "+oneof.Field+":")}
 	for i := range oneof.Members {
 		member := &oneof.Members[i]
 		bound := member.Local()
-		nodes = append(nodes, line(1, fmt.Sprintf("%s(var %s):", member.OneofCase, bound)))
-		nodes = append(nodes, appendValue(2, member.Value, bound, member.Local(), member.TagExpression(), resultBuffer)...)
+		nodes = append(nodes, line(depth+1, fmt.Sprintf("%s(var %s):", member.OneofCase, bound)))
+		nodes = append(nodes, appendValue(depth+2, member.Value, bound, member.Local(), member.TagExpression(), resultBuffer)...)
 	}
 	// An unset union writes nothing; proto3 has no tag for an empty oneof.
-	return append(nodes, line(1, "_:"), line(2, "pass"))
+	return append(nodes, line(depth+1, "_:"), line(depth+2, "pass"))
 }
 
 // appendValue appends one tagged value to the named buffer. local is the stem

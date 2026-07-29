@@ -32,9 +32,9 @@ final class Badge extends RefCounted uses Message:
 	var _unknown_fields: PackedByteArray = PackedByteArray()
 
 	## Decodes protobuf wire data into a new Badge message.
-	static func from_bytes(data: PackedByteArray) -> (Badge?, ProtobufError):
+	static func from_bytes(_data: PackedByteArray) -> (Badge?, ProtobufError):
 		var _message: Badge = Badge.new()
-		var _error: ProtobufError = _message.merge_from_bytes(data)
+		var _error: ProtobufError = _message.merge_from_bytes(_data)
 		if _error != ProtobufError.OK:
 			var _failed: Badge? = null
 			return (_failed, _error)
@@ -98,7 +98,10 @@ var tags: Array[String] = []
 var scores: Array[int] = []
 
 ## The status protobuf field.
-var status: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED
+var status: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED:
+	set(value):
+		_status_unknown = PackedByteArray()
+		status = value
 
 ## The primary protobuf field.
 var primary: Slot? = null
@@ -113,7 +116,10 @@ var counts: Dictionary[String, int] = {}
 var badge: Badge? = null
 
 ## The tier protobuf field.
-var tier: Tier = Tier.TIER_UNSPECIFIED
+var tier: Tier = Tier.TIER_UNSPECIFIED:
+	set(value):
+		_tier_unknown = PackedByteArray()
+		tier = value
 
 ## The loadout protobuf field.
 var loadout: Dictionary[String, Slot] = {}
@@ -121,13 +127,19 @@ var loadout: Dictionary[String, Slot] = {}
 ## The payload protobuf oneof; null when no case is set.
 var payload: PlayerPayloadCase? = null
 
+## Raw bytes of an unrecognized status value, kept so a re-encode is lossless.
+var _status_unknown: PackedByteArray = PackedByteArray()
+
+## Raw bytes of an unrecognized tier value, kept so a re-encode is lossless.
+var _tier_unknown: PackedByteArray = PackedByteArray()
+
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _unknown_fields: PackedByteArray = PackedByteArray()
 
 ## Decodes protobuf wire data into a new Player message.
-static func from_bytes(data: PackedByteArray) -> (Player?, ProtobufError):
+static func from_bytes(_data: PackedByteArray) -> (Player?, ProtobufError):
 	var _message: Player = Player.new()
-	var _error: ProtobufError = _message.merge_from_bytes(data)
+	var _error: ProtobufError = _message.merge_from_bytes(_data)
 	if _error != ProtobufError.OK:
 		var _failed: Player? = null
 		return (_failed, _error)
@@ -169,7 +181,10 @@ func to_bytes() -> PackedByteArray:
 		_result.append_array(Wire.encode_varint(Wire.make_tag(7, Wire.WIRE_LENGTH_DELIMITED)))
 		_result.append_array(Wire.encode_varint(_scores_data.size()))
 		_result.append_array(_scores_data)
-	if status != PlayerStatus.PLAYER_STATUS_UNSPECIFIED:
+	if _status_unknown.size() > 0:
+		_result.append_array(Wire.encode_varint(Wire.make_tag(8, Wire.WIRE_VARINT)))
+		_result.append_array(_status_unknown)
+	elif status != PlayerStatus.PLAYER_STATUS_UNSPECIFIED:
 		_result.append_array(Wire.encode_varint(Wire.make_tag(8, Wire.WIRE_VARINT)))
 		_result.append_array(Wire.encode_varint(status.to_wire()))
 	if primary is Slot:
@@ -209,7 +224,10 @@ func to_bytes() -> PackedByteArray:
 		_result.append_array(Wire.encode_varint(Wire.make_tag(14, Wire.WIRE_LENGTH_DELIMITED)))
 		_result.append_array(Wire.encode_varint(_badge_data.size()))
 		_result.append_array(_badge_data)
-	if tier != Tier.TIER_UNSPECIFIED:
+	if _tier_unknown.size() > 0:
+		_result.append_array(Wire.encode_varint(Wire.make_tag(15, Wire.WIRE_VARINT)))
+		_result.append_array(_tier_unknown)
+	elif tier != Tier.TIER_UNSPECIFIED:
 		_result.append_array(Wire.encode_varint(Wire.make_tag(15, Wire.WIRE_VARINT)))
 		_result.append_array(Wire.encode_varint(tier.to_wire()))
 	for _loadout_key: String in loadout:
@@ -316,8 +334,8 @@ func merge_from_bytes(_data: PackedByteArray) -> ProtobufError:
 				if _status_case is PlayerStatus:
 					status = _status_case
 				else:
-					_unknown_fields.append_array(Wire.encode_varint(Wire.make_tag(8, Wire.WIRE_VARINT)))
-					_unknown_fields.append_array(_data.slice(_offset, _status_read.offset))
+					status = PlayerStatus.PLAYER_STATUS_UNSPECIFIED
+					_status_unknown = _data.slice(_offset, _status_read.offset)
 				_offset = _status_read.offset
 			9:
 				if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
@@ -411,8 +429,8 @@ func merge_from_bytes(_data: PackedByteArray) -> ProtobufError:
 				if _tier_case is Tier:
 					tier = _tier_case
 				else:
-					_unknown_fields.append_array(Wire.encode_varint(Wire.make_tag(15, Wire.WIRE_VARINT)))
-					_unknown_fields.append_array(_data.slice(_offset, _tier_read.offset))
+					tier = Tier.TIER_UNSPECIFIED
+					_tier_unknown = _data.slice(_offset, _tier_read.offset)
 				_offset = _tier_read.offset
 			16:
 				if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
