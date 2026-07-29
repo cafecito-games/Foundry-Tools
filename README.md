@@ -21,14 +21,31 @@ Supported protobuf constructs and how they map:
 | Protobuf | Foundry Script |
 |---|---|
 | `message` | `final class_name X extends RefCounted uses Message` |
-| `enum` | `enum_name X` hosting `to_wire()` / `from_wire()` |
+| `enum` | `enum_name X` hosting `to_wire()` / `from_wire() -> Self?` |
 | singular scalar | plain field, proto3 zero-value presence |
 | `optional` scalar | `String?` and friends, explicit presence |
 | message field | `X?`, length-delimited submessage |
 | `repeated` | `Array[T]`, packed for varint scalars |
 | `map<K, V>` | `Dictionary[K, V]` |
 | `oneof` | file-level tagged union, `X? = null` member |
-| nested `message` / `enum` | inner `class` / `enum`, referenced as `Outer.Inner` |
+| nested `message` / `enum` | inner `final class` / `enum`, referenced as `Outer.Inner` |
+| imported type | reference plus an `import` of the dependency's namespace |
+| unknown field | kept verbatim in `_unknown_fields` and re-emitted |
+
+proto3 enums are open, so `from_wire` returns `null` for a number the schema
+has no case for. A singular or `optional` enum field keeps that number's bytes
+and writes them back in the field's own position, so a decode/re-encode round
+trip is lossless for a peer on a newer schema; assigning the field supersedes
+the retained value. A `repeated` or map-valued enum cannot do this — the raw
+number has nowhere to live in an `Array[T]` or `Dictionary[K, T]`, and parking
+it in the unknown-field buffer would reorder the sequence or flip which record
+wins for a duplicate map key — so an unrecognized value there takes the enum's
+default instead.
+
+A `oneof` cannot carry a type nested inside the message that declares it: the
+union is emitted at file level, so that would close a resolution cycle Foundry
+cannot break for a class that conforms to a trait. Generation fails with an
+explicit error rather than emitting a file that will not parse.
 
 `float`, `double`, `fixed*`, `sfixed*`, and `sint*` need zig-zag or
 fixed-width framing that is not implemented yet; generation fails on them

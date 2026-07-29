@@ -1,6 +1,7 @@
 package fsgenerator
 
 import (
+	"strings"
 	"testing"
 
 	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
@@ -72,10 +73,18 @@ func generate(t *testing.T, file *protoast.ProtoFile) GeneratedFiles {
 	return files
 }
 
-func playerSource(t *testing.T, fields []*protoast.Field) string {
+func playerSource(t *testing.T, fields []*protoast.Field, alsoDeclared ...*protoast.Message) string {
 	t.Helper()
-	files := generate(t, namespacedFile([]*protoast.Message{{Name: "Player", Fields: fields}}, nil))
+	messages := append([]*protoast.Message{{Name: "Player", Fields: fields}}, alsoDeclared...)
+	files := generate(t, namespacedFile(messages, nil))
 	return files["cafecito/game/v1/Player.pb.fs"]
+}
+
+func slotMessage() *protoast.Message {
+	return &protoast.Message{
+		Name:   "Slot",
+		Fields: []*protoast.Field{{FieldType: "string", Name: "label", Number: 1}},
+	}
 }
 
 func TestGenerateMessageAndEnumSkeletons(t *testing.T) {
@@ -134,12 +143,12 @@ func TestGenerateEmitsPublicFieldsNotAccessorPairs(t *testing.T) {
 	require.Contains(t, source, "var level: int = 0")
 	require.NotContains(t, source, "func set_name(")
 	require.NotContains(t, source, "func get_name(")
-	require.NotContains(t, source, "var _name")
+	require.NotContains(t, source, "var _name:")
 }
 
 func TestGenerateDecodeFactoryReturnsTuple(t *testing.T) {
 	source := playerSource(t, []*protoast.Field{{FieldType: "string", Name: "name", Number: 1}})
-	require.Contains(t, source, "static func from_bytes(data: PackedByteArray) -> (Player?, ProtobufError):")
+	require.Contains(t, source, "static func from_bytes(_pb_data: PackedByteArray) -> (Player?, ProtobufError):")
 	require.NotContains(t, source, "DecodeResult[")
 	require.NotContains(t, source, "FieldRead[")
 	require.NotContains(t, source, "Variant")
@@ -151,18 +160,21 @@ func TestGenerateUsesNamedTupleCarriers(t *testing.T) {
 		{FieldType: "string", Name: "name", Number: 1},
 		{FieldType: "bytes", Name: "avatar", Number: 2},
 	})
-	require.Contains(t, source, "var tag_read: VarintRead = Wire.decode_varint(data, offset)")
-	require.Contains(t, source, "var name_read: StringRead = Wire.decode_string(")
-	require.Contains(t, source, "var avatar_read: BytesRead = Wire.decode_bytes(")
+	require.Contains(t, source, "var _pb_tag: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)")
+	require.Contains(t, source, "var _pb_name_read: StringRead = Wire.read_string(")
+	require.Contains(t, source, "var _pb_avatar_read: BytesRead = Wire.read_bytes(")
 }
 
-// Unknown-field skipping is invariant across every message, so it lives in the
-// runtime rather than being inlined into each binding.
-func TestGenerateDelegatesUnknownFieldSkipToRuntime(t *testing.T) {
+// Handling an unrecognized field is invariant across every message, so it lives
+// in the runtime rather than being inlined into each binding. proto3 requires
+// the bytes to survive a re-encode, so they are captured rather than dropped.
+func TestGenerateDelegatesUnknownFieldCaptureToRuntime(t *testing.T) {
 	source := playerSource(t, []*protoast.Field{{FieldType: "string", Name: "name", Number: 1}})
-	require.Contains(t, source, "var skipped: SkipRead = Wire.skip_field(data, offset, wire_type)")
+	require.Contains(t, source, "var _pb_skipped: SkipRead = Wire.capture_field(_pb_data, _pb_offset, _pb_tag.value, _pb_wire_type, _pb_unknown_fields)")
+	require.Contains(t, source, "var _pb_unknown_fields: PackedByteArray = PackedByteArray()")
+	require.Contains(t, source, "_pb_result.append_array(_pb_unknown_fields)")
 	require.NotContains(t, source, "Wire.WIRE_32BIT:")
-	require.NotContains(t, source, "offset += 8")
+	require.NotContains(t, source, "_pb_offset += 8")
 }
 
 func TestGenerateRepeatedFields(t *testing.T) {
@@ -173,15 +185,15 @@ func TestGenerateRepeatedFields(t *testing.T) {
 
 	require.Contains(t, source, "var tags: Array[String] = []")
 	require.Contains(t, source, "var scores: Array[int] = []")
-	require.Contains(t, source, "for tags_item: String in tags:")
-	require.Contains(t, source, "tags.append(tags_read.value)")
+	require.Contains(t, source, "for _pb_tags_item: String in tags:")
+	require.Contains(t, source, "tags.append(_pb_tags_read.value)")
 
 	// Varint scalars pack; length-delimited ones cannot.
-	require.Contains(t, source, "var scores_data: PackedByteArray = PackedByteArray()")
-	require.Contains(t, source, "for scores_item: int in scores:")
+	require.Contains(t, source, "var _pb_scores_data: PackedByteArray = PackedByteArray()")
+	require.Contains(t, source, "for _pb_scores_item: int in scores:")
 	// A packed field must still decode the unpacked encoding.
-	require.Contains(t, source, "if wire_type == Wire.WIRE_LENGTH_DELIMITED:")
-	require.Contains(t, source, "elif wire_type == Wire.WIRE_VARINT:")
+	require.Contains(t, source, "if _pb_wire_type == Wire.WIRE_LENGTH_DELIMITED:")
+	require.Contains(t, source, "elif _pb_wire_type == Wire.WIRE_VARINT:")
 }
 
 // proto3 explicit presence is the type-level nullable, so an optional string
@@ -204,7 +216,7 @@ func TestGeneratePresenceUsesIsNotNullComparison(t *testing.T) {
 	source := playerSource(t, []*protoast.Field{
 		{FieldType: "string", Name: "nickname", Number: 1, Optional: true},
 		{FieldType: "Slot", Name: "primary", Number: 2},
-	})
+	}, slotMessage())
 	require.NotContains(t, source, "!= null")
 	require.Contains(t, source, "if nickname is String:")
 	require.Contains(t, source, "if primary is Slot:")
@@ -212,15 +224,17 @@ func TestGeneratePresenceUsesIsNotNullComparison(t *testing.T) {
 
 // A message-typed field is a length-delimited submessage, not a varint.
 func TestGenerateMessageTypedFields(t *testing.T) {
-	source := playerSource(t, []*protoast.Field{{FieldType: "Slot", Name: "primary", Number: 1}})
+	source := playerSource(t, []*protoast.Field{{FieldType: "Slot", Name: "primary", Number: 1}}, slotMessage())
 
 	require.Contains(t, source, "var primary: Slot? = null")
 	require.NotContains(t, source, "var primary: Slot = 0")
-	require.Contains(t, source, "var primary_data: PackedByteArray = primary.to_bytes()")
-	// Field 1, wire type 2.
-	require.Contains(t, source, "Wire.encode_varint(10)")
-	require.Contains(t, source, "var primary_message: Slot = Slot.new()")
-	require.Contains(t, source, "merge_from_bytes(data.slice(offset, offset + primary_length.value))")
+	require.Contains(t, source, "var _pb_primary_data: PackedByteArray = primary.to_bytes()")
+	require.Contains(t, source, "Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED))")
+	// A singular message field merges rather than replaces, which protobuf
+	// requires when the same field appears twice in one stream.
+	require.Contains(t, source, "if not (primary is Slot):")
+	require.Contains(t, source, "primary = Slot.new()")
+	require.Contains(t, source, "var _pb_primary_read: SkipRead = Wire.read_message(_pb_data, _pb_offset, primary)")
 }
 
 func TestGenerateEnumFieldsUseHostedWireConversion(t *testing.T) {
@@ -239,14 +253,22 @@ func TestGenerateEnumFieldsUseHostedWireConversion(t *testing.T) {
 	))
 
 	enumSource := files["cafecito/game/v1/PlayerStatus.pb.fs"]
-	require.Contains(t, enumSource, "\tfunc to_wire() -> int:")
-	require.Contains(t, enumSource, "\tstatic func from_wire(value: int) -> PlayerStatus:")
-	require.Contains(t, enumSource, "\t\t\treturn PlayerStatus.PLAYER_STATUS_ONLINE")
+	// Each case is declared with its wire number, so the conversion out is a cast.
+	require.Contains(t, enumSource, "\tfunc to_wire() -> int:\n\t\treturn self as int\n")
+	// Self is what resolves to the namespaced enum from inside its own body.
+	require.Contains(t, enumSource, "\tstatic func from_wire(value: int) -> Self?:")
+	require.Contains(t, enumSource, "\t\t\t\treturn PlayerStatus.PLAYER_STATUS_ONLINE")
+	// An open enum reports an unrecognized value rather than folding it to zero.
+	require.Contains(t, enumSource, "\t\t\t_:\n\t\t\t\treturn null\n")
 
 	messageSource := files["cafecito/game/v1/Player.pb.fs"]
 	require.Contains(t, messageSource, "var status: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED")
 	require.Contains(t, messageSource, "Wire.encode_varint(status.to_wire())")
-	require.Contains(t, messageSource, "status = PlayerStatus.from_wire(status_read.value)")
+	require.Contains(t, messageSource, "var _pb_status_case: PlayerStatus? = PlayerStatus.from_wire(_pb_status_read.value)")
+	// An unrecognized value is kept verbatim rather than destroyed, in a
+	// companion of its own so it can stand in for the field on re-encode.
+	require.Contains(t, messageSource, "_pb_status_unknown = _pb_data.slice(_pb_offset, _pb_status_read.offset)")
+	require.Contains(t, messageSource, "var _pb_status_unknown: PackedByteArray = PackedByteArray()")
 }
 
 func TestGenerateMapFields(t *testing.T) {
@@ -262,11 +284,11 @@ func TestGenerateMapFields(t *testing.T) {
 	source := files["cafecito/game/v1/Player.pb.fs"]
 
 	require.Contains(t, source, "var counts: Dictionary[String, int] = {}")
-	require.Contains(t, source, "for counts_key: String in counts:")
+	require.Contains(t, source, "for _pb_counts_key: String in counts:")
 	// A map entry is a submessage of key = 1, value = 2.
-	require.Contains(t, source, "counts_entry.append_array(Wire.encode_varint(10))")
-	require.Contains(t, source, "counts_entry.append_array(Wire.encode_varint(16))")
-	require.Contains(t, source, "counts[counts_key] = counts_value")
+	require.Contains(t, source, "_pb_counts_entry.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))")
+	require.Contains(t, source, "_pb_counts_entry.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_VARINT)))")
+	require.Contains(t, source, "counts[_pb_counts_key] = _pb_counts_value")
 }
 
 // A oneof becomes a tagged union, which makes "two cases set at once"
@@ -291,8 +313,8 @@ func TestGenerateOneofAsTaggedUnion(t *testing.T) {
 	source := files["cafecito/game/v1/Player.pb.fs"]
 	require.Contains(t, source, "var payload: PlayerPayloadCase? = null")
 	require.Contains(t, source, "match payload:")
-	require.Contains(t, source, "PlayerPayloadCase.Text(var text):")
-	require.Contains(t, source, "payload = PlayerPayloadCase.Amount(amount_read.value)")
+	require.Contains(t, source, "PlayerPayloadCase.Text(var _pb_payload_text):")
+	require.Contains(t, source, "payload = PlayerPayloadCase.Amount(_pb_payload_amount_read.value)")
 	// No separate per-case fields and no which_case discriminator.
 	require.NotContains(t, source, "var text: String")
 	require.NotContains(t, source, "which_case")
@@ -334,7 +356,7 @@ func TestGenerateNestedTypes(t *testing.T) {
 	require.Len(t, files, 1)
 	source := files["cafecito/game/v1/Player.pb.fs"]
 
-	require.Contains(t, source, "class Badge extends RefCounted uses Message:")
+	require.Contains(t, source, "final class Badge extends RefCounted uses Message:")
 	require.Contains(t, source, "enum Tier:")
 	require.Contains(t, source, "var badge: Badge? = null")
 	require.Contains(t, source, "var tier: Tier = Tier.TIER_UNSPECIFIED")
@@ -441,4 +463,540 @@ func TestGeneratePrefersSchemaDocs(t *testing.T) {
 	require.Contains(t, enumSource, "## Schema-authored status docs.\nenum_name PlayerStatus")
 	require.Contains(t, enumSource, "\t## Unknown status.\n\tPLAYER_STATUS_UNSPECIFIED = 0\n")
 	require.NotContains(t, enumSource, "Generated protobuf enum binding for PlayerStatus.")
+}
+
+// A field name that is a Foundry Script keyword cannot be emitted verbatim, and
+// one that matches an emitter local must not be able to capture it.
+func TestGenerateEscapesCollidingFieldNames(t *testing.T) {
+	source := playerSource(t, []*protoast.Field{
+		{FieldType: "int32", Name: "var", Number: 1},
+		{FieldType: "int32", Name: "offset", Number: 2},
+		{FieldType: "string", Name: "data", Number: 3},
+		{FieldType: "bytes", Name: "result", Number: 4},
+	})
+
+	require.Contains(t, source, "var var_: int = 0")
+	// A name that is merely awkward stays readable; only keywords are renamed.
+	require.Contains(t, source, "var offset: int = 0")
+	require.Contains(t, source, "var data: String = \"\"")
+	require.Contains(t, source, "var result: PackedByteArray = PackedByteArray()")
+
+	// Every emitter-introduced name is underscore-prefixed, so none of the
+	// fields above is shadowed by the code that decodes it.
+	require.Contains(t, source, "func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:")
+	require.Contains(t, source, "var _pb_offset: int = 0")
+	require.Contains(t, source, "offset = _pb_offset_read.value")
+	require.Contains(t, source, "data = _pb_data_read.value")
+	require.NotContains(t, source, "var offset: int = 0\n\twhile")
+}
+
+// protoc accepts a leading underscore on a field name, so rejecting those would
+// refuse schemas that build everywhere else. Only the emitter's own prefix is
+// reserved, and it is narrow enough that no real schema reaches it.
+func TestGenerateAcceptsLeadingUnderscoreFieldNames(t *testing.T) {
+	source := playerSource(t, []*protoast.Field{
+		{FieldType: "int32", Name: "_private", Number: 1},
+		{FieldType: "int32", Name: "_offset", Number: 2},
+	})
+	require.Contains(t, source, "var _private: int = 0")
+	require.Contains(t, source, "var _offset: int = 0")
+	// The cursor still has a name of its own.
+	require.Contains(t, source, "var _pb_offset: int = 0")
+	require.Contains(t, source, "_offset = _pb__offset_read.value")
+}
+
+// The emitter's prefix is the one spelling a schema may not use, for fields and
+// oneofs alike: a oneof named _pb_result would be shadowed by the serializer's
+// own buffer.
+func TestGenerateRejectsTheGeneratedPrefix(t *testing.T) {
+	_, err := Generate(namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "int32", Name: "_pb_offset", Number: 1}},
+	}}, nil), "player.proto", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "the _pb_ prefix is reserved")
+
+	_, err = Generate(namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Oneofs: []*protoast.Oneof{{
+			Name:   "_pb_result",
+			Fields: []*protoast.Field{{FieldType: "int32", Name: "amount", Number: 1}},
+		}},
+	}}, nil), "player.proto", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "the _pb_ prefix is reserved")
+}
+
+// A dependency whose namespace would not parse cannot be imported, so a
+// reference to it is reported rather than emitted as `import bad..ns`.
+func TestReferenceToADependencyWithAnInvalidNamespaceIsRejected(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Options: map[string]any{"(foundrytools.namespace)": "bad..ns"},
+		Messages: []*protoast.Message{{
+			Name:   "Item",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "sku", Number: 1}},
+		}},
+	}
+	_, err := Generate(namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"}},
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no usable namespace")
+}
+
+// The union is hoisted to file level, so a payload declared in another message
+// has to be named by its scoped reference rather than lexically.
+func TestOneofPayloadUsesScopedReference(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{
+		{
+			Name: "Player",
+			Oneofs: []*protoast.Oneof{{
+				Name:   "payload",
+				Fields: []*protoast.Field{{FieldType: "Slot.Detail", Name: "detail", Number: 1}},
+			}},
+		},
+		{
+			Name: "Slot",
+			NestedMessages: []*protoast.Message{{
+				Name:   "Detail",
+				Fields: []*protoast.Field{{FieldType: "string", Name: "note", Number: 1}},
+			}},
+		},
+	}, nil))
+
+	require.Contains(t, files["cafecito/game/v1/PlayerPayloadCase.pb.fs"], "\tDetail(detail: Slot.Detail)\n")
+	// Inside the class the lexical spelling is still what Foundry resolves.
+	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var _pb_payload_detail_message: Slot.Detail = Slot.Detail.new()")
+}
+
+// The hoisted union cannot name a type nested in the class that owns the oneof:
+// the class needs the union to declare its member and the union needs the class
+// to reach the nested type, and Foundry cannot break that cycle for a class that
+// conforms to a trait. Failing loudly beats emitting a file that will not parse.
+func TestOneofRejectsPayloadNestedInDeclaringMessage(t *testing.T) {
+	_, err := Generate(namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		NestedMessages: []*protoast.Message{{
+			Name:   "Badge",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "code", Number: 1}},
+		}},
+		Oneofs: []*protoast.Oneof{{
+			Name:   "payload",
+			Fields: []*protoast.Field{{FieldType: "Badge", Name: "badge", Number: 1}},
+		}},
+	}}, nil), "player.proto", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot carry a type nested in the message that declares it")
+}
+
+// A oneof may still carry the top-level message it is declared in; only a type
+// nested inside it closes the cycle.
+func TestOneofAcceptsSiblingMessagePayload(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{
+		{
+			Name: "Player",
+			Oneofs: []*protoast.Oneof{{
+				Name:   "payload",
+				Fields: []*protoast.Field{{FieldType: "Slot", Name: "slot", Number: 1}},
+			}},
+		},
+		slotMessage(),
+	}, nil))
+	require.Contains(t, files["cafecito/game/v1/PlayerPayloadCase.pb.fs"], "\tSlot(slot: Slot)\n")
+}
+
+// An allow_alias enum declares one number twice; the second match arm would be
+// unreachable.
+func TestEnumFromWireDedupesAliasedNumbers(t *testing.T) {
+	files := generate(t, namespacedFile(nil, []*protoast.Enum{{
+		Name: "Tier",
+		Values: []*protoast.EnumValue{
+			{Name: "TIER_UNSPECIFIED", Number: 0},
+			{Name: "TIER_GOLD", Number: 1},
+			{Name: "TIER_PREMIUM", Number: 1},
+		},
+	}}))
+	source := files["cafecito/game/v1/Tier.pb.fs"]
+
+	require.Contains(t, source, "\t\t\treturn Tier.TIER_GOLD")
+	require.NotContains(t, source, "return Tier.TIER_PREMIUM")
+}
+
+// Records go out in field-number order, oneofs included, so a hexdump reads
+// against the schema.
+func TestSerializeWritesFieldsInNumberOrder(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "string", Name: "name", Number: 1},
+			{FieldType: "int32", Name: "level", Number: 9},
+		},
+		Oneofs: []*protoast.Oneof{{
+			Name:   "payload",
+			Fields: []*protoast.Field{{FieldType: "int32", Name: "amount", Number: 5}},
+		}},
+	}}, nil))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	nameAt := strings.Index(source, "if name != \"\":")
+	oneofAt := strings.Index(source, "match payload:")
+	levelAt := strings.Index(source, "if level != 0:")
+	require.Positive(t, nameAt)
+	require.Greater(t, oneofAt, nameAt)
+	require.Greater(t, levelAt, oneofAt)
+}
+
+// A type from another proto file resolves to its own namespace, which the
+// generated file has to import and, for an enum, take its default from.
+func TestCrossFileReferencesImportTheirNamespace(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Enums: []*protoast.Enum{{
+			Name: "Rarity",
+			Values: []*protoast.EnumValue{
+				{Name: "RARITY_UNSPECIFIED", Number: 0},
+				{Name: "RARITY_COMMON", Number: 1},
+			},
+		}},
+		Messages: []*protoast.Message{{
+			Name:   "Item",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "sku", Number: 1}},
+		}},
+	}
+	files, err := Generate(namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"},
+			{FieldType: "Rarity", Name: "rarity", Number: 2, IsEnum: true, SourceFile: "inventory.proto"},
+		},
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	require.NoError(t, err)
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "import cafecito.inventory.v1")
+	require.Contains(t, source, "var held: Item? = null")
+	// The zero case comes from the imported declaration; guessing it is what
+	// used to emit an unparseable `Rarity.`.
+	require.Contains(t, source, "var rarity: Rarity = Rarity.RARITY_UNSPECIFIED")
+	// Only the message being generated is emitted; the import is someone else's.
+	require.NotContains(t, files, "cafecito/inventory/v1/Item.pb.fs")
+}
+
+// The parser rewrites a cross-file reference to its short name, so a schema
+// that declares Slot locally and also imports one leaves two declarations
+// competing for the spelling. Only the field's source file says which was meant,
+// and only the namespace-qualified reference is unambiguous in the output.
+func TestImportedTypeIsNotCapturedByALocalOfTheSameName(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Messages: []*protoast.Message{{
+			Name:   "Slot",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "sku", Number: 1}},
+		}},
+		Enums: []*protoast.Enum{{
+			Name: "Tier",
+			Values: []*protoast.EnumValue{
+				{Name: "TIER_NONE", Number: 0},
+				{Name: "TIER_GOLD", Number: 1},
+			},
+		}},
+	}
+	files, err := Generate(namespacedFile([]*protoast.Message{
+		{
+			Name: "Player",
+			Fields: []*protoast.Field{
+				{FieldType: "Slot", Name: "held", Number: 1, SourceFile: "inventory.proto"},
+				{FieldType: "Slot", Name: "mine", Number: 2},
+				{FieldType: "Tier", Name: "tier", Number: 3, IsEnum: true, SourceFile: "inventory.proto"},
+			},
+		},
+		slotMessage(),
+	}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	require.NoError(t, err)
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "import cafecito.inventory.v1")
+	require.Contains(t, source, "var held: cafecito.inventory.v1.Slot? = null")
+	require.Contains(t, source, "if held is cafecito.inventory.v1.Slot:")
+	// The local declaration keeps the short spelling.
+	require.Contains(t, source, "var mine: Slot? = null")
+	// The enum's default comes from the imported declaration, qualified the
+	// same way even though only the message name actually collides, because
+	// the collision is decided on the outermost segment.
+	require.Contains(t, source, "var tier: Tier = Tier.TIER_NONE")
+}
+
+// An unqualified imported reference stays short when nothing shadows it.
+func TestImportedTypeKeepsTheShortSpellingWhenUnambiguous(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Messages: []*protoast.Message{{
+			Name:   "Item",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "sku", Number: 1}},
+		}},
+	}
+	files, err := Generate(namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"}},
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	require.NoError(t, err)
+
+	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var held: Item? = null")
+}
+
+// Escaping a keyword appends an underscore, which can land on a name the schema
+// already uses. Two fields mapping to one member would conflate them.
+func TestGenerateRejectsCollidingMemberNames(t *testing.T) {
+	_, err := Generate(namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "int32", Name: "var", Number: 1},
+			{FieldType: "string", Name: "var_", Number: 2},
+		},
+	}}, nil), "player.proto", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "both map to the member var_")
+}
+
+// A oneof member and a plain field can collide the same way.
+func TestGenerateRejectsOneofCollidingWithAField(t *testing.T) {
+	_, err := Generate(namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "int32", Name: "payload", Number: 1}},
+		Oneofs: []*protoast.Oneof{{
+			Name:   "payload",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "text", Number: 2}},
+		}},
+	}}, nil), "player.proto", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "both map to the member payload")
+}
+
+// Every record in the shared buffer carries a field number this schema has no
+// member for, so it competes with nothing and trails the live fields. A value
+// that does share a field number with a member is kept by that member instead.
+func TestSerializeWritesTheSharedBufferLast(t *testing.T) {
+	source := playerSource(t, []*protoast.Field{{FieldType: "string", Name: "name", Number: 1}})
+
+	nameAt := strings.Index(source, "if name != \"\":")
+	bufferAt := strings.Index(source, "_pb_result.append_array(_pb_unknown_fields)")
+	require.Positive(t, nameAt)
+	require.Greater(t, bufferAt, nameAt)
+}
+
+// proto3 enums are open, so a number this schema has no case for has to survive
+// a re-encode. It cannot go in the shared unknown-field buffer: it carries a
+// field number the schema does know, and protobuf takes the last record for a
+// singular field, so a copy on either side of the member would decide the value
+// rather than stand in for it. It is kept per field and written in the field's
+// own position instead, and the member's setter drops it the moment anything
+// assigns a value the schema can represent.
+func TestUnknownEnumValueIsRetainedPerFieldAndSuperseded(t *testing.T) {
+	files := generate(t, namespacedFile(
+		[]*protoast.Message{{
+			Name:   "Player",
+			Fields: []*protoast.Field{{FieldType: "PlayerStatus", Name: "status", Number: 1}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "var status: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED:\n"+
+		"\tset(_pb_value):\n"+
+		"\t\t_pb_status_unknown = PackedByteArray()\n"+
+		"\t\tstatus = _pb_value\n")
+	// The retained value takes the field's own position, and the two are
+	// mutually exclusive rather than both written.
+	require.Contains(t, source, "\tif _pb_status_unknown.size() > 0:\n"+
+		"\t\t_pb_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_VARINT)))\n"+
+		"\t\t_pb_result.append_array(_pb_status_unknown)\n"+
+		"\telif status != PlayerStatus.PLAYER_STATUS_UNSPECIFIED:\n")
+	// Retaining clears the member, which runs the setter and so discards any
+	// value retained for an earlier record of the same field.
+	require.Contains(t, source, "\t\t\t\t\tstatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED\n"+
+		"\t\t\t\t\t_pb_status_unknown = _pb_data.slice(_pb_offset, _pb_status_read.offset)")
+}
+
+// A repeated enum has no single member to attach raw bytes to, and the shared
+// buffer is emitted as one run, so moving an element into it would reorder the
+// sequence. The value is folded onto the default instead, which loses it
+// visibly rather than silently permuting data.
+func TestRepeatedEnumFoldsUnrecognizedValues(t *testing.T) {
+	files := generate(t, namespacedFile(
+		[]*protoast.Message{{
+			Name:   "Player",
+			Fields: []*protoast.Field{{FieldType: "PlayerStatus", Name: "history", Number: 1, Repeated: true}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "history.append(PlayerStatus.PLAYER_STATUS_UNSPECIFIED)")
+	require.NotContains(t, source, "_pb_history_unknown")
+	require.NotContains(t, source, "_pb_unknown_fields.append_array(_pb_data.slice(")
+}
+
+// A map-valued enum cannot be retained either: an entry moved into the shared
+// buffer changes which of two records for the same key protobuf takes as the
+// last one, so duplicate-key precedence would flip.
+func TestMapValuedEnumFoldsUnrecognizedValues(t *testing.T) {
+	files := generate(t, namespacedFile(
+		[]*protoast.Message{{
+			Name: "Player",
+			Maps: []*protoast.MapField{{
+				KeyType:     "string",
+				ValueType:   "PlayerStatus",
+				ValueIsEnum: true,
+				Name:        "seen",
+				Number:      1,
+			}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "_pb_seen_value = PlayerStatus.PLAYER_STATUS_UNSPECIFIED")
+	require.Contains(t, source, "seen[_pb_seen_key] = _pb_seen_value")
+	require.NotContains(t, source, "_pb_seen_unknown")
+}
+
+// A member and its setter parameter share a scope, so a field named `value`
+// with a parameter named `value` would leave the member unwritten -- silently,
+// with no diagnostic from the analyzer.
+func TestSetterParameterCannotCollideWithTheField(t *testing.T) {
+	files := generate(t, namespacedFile(
+		[]*protoast.Message{{
+			Name:   "Player",
+			Fields: []*protoast.Field{{FieldType: "PlayerStatus", Name: "value", Number: 1}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "\tset(_pb_value):\n\t\t_pb_value_unknown = PackedByteArray()\n\t\tvalue = _pb_value\n")
+	require.NotContains(t, source, "value = value")
+}
+
+// A retained-value companion is a member too, and its name is built by joining
+// names with underscores, so two different declarations can reach it.
+func TestGenerateRejectsCollidingRetentionMembers(t *testing.T) {
+	_, err := Generate(namespacedFile(
+		[]*protoast.Message{{
+			Name:   "Player",
+			Fields: []*protoast.Field{{FieldType: "PlayerStatus", Name: "pick_kind", Number: 1}},
+			Oneofs: []*protoast.Oneof{{
+				Name:   "pick",
+				Fields: []*protoast.Field{{FieldType: "PlayerStatus", Name: "kind", Number: 2}},
+			}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	), "player.proto", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "both map to the member _pb_pick_kind_unknown")
+}
+
+// Two imported namespaces declaring the same short name make it ambiguous even
+// though nothing local competes. Foundry rejects such a reference outright, so
+// both have to be named by their namespace.
+func TestSameNameFromTwoImportedNamespacesIsQualified(t *testing.T) {
+	first := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Messages: []*protoast.Message{{
+			Name:   "Item",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "sku", Number: 1}},
+		}},
+	}
+	second := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.catalog.v1",
+		Messages: []*protoast.Message{{
+			Name:   "Item",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "label", Number: 1}},
+		}},
+	}
+	files, err := Generate(namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"},
+			{FieldType: "Item", Name: "listed", Number: 2, SourceFile: "catalog.proto"},
+		},
+	}}, nil), "player.proto", []FileEntry{
+		{File: first, Filename: "inventory.proto"},
+		{File: second, Filename: "catalog.proto"},
+	})
+	require.NoError(t, err)
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "var held: cafecito.inventory.v1.Item? = null")
+	require.Contains(t, source, "var listed: cafecito.catalog.v1.Item? = null")
+	require.Contains(t, source, "import cafecito.catalog.v1")
+	require.Contains(t, source, "import cafecito.inventory.v1")
+}
+
+// Every generated file imports foundry.proto, so a schema type sharing a name
+// with one of its exports would make that name ambiguous and break the runtime
+// calls the binding makes through it.
+func TestSchemaTypesDoNotCollideWithRuntimeNames(t *testing.T) {
+	require.Equal(t, "Wire_", TypeName("Wire"))
+	require.Equal(t, "Message_", TypeName("message"))
+	require.Equal(t, "ProtobufError_", TypeName("ProtobufError"))
+	require.Equal(t, "VarintRead_", TypeName("varint_read"))
+
+	files := generate(t, namespacedFile([]*protoast.Message{
+		{
+			Name:   "Player",
+			Fields: []*protoast.Field{{FieldType: "Wire", Name: "wire", Number: 1}},
+		},
+		{
+			Name:   "Wire",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "kind", Number: 1}},
+		},
+	}, nil))
+
+	// The declaration and the reference are renamed together, so the runtime's
+	// own Wire keeps answering to the unqualified name the calls use.
+	require.Contains(t, files, "cafecito/game/v1/Wire_.pb.fs")
+	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var wire: Wire_? = null")
+	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "Wire.encode_varint(")
+}
+
+// A dependency with neither a package nor a namespace option has no name its
+// types can be reached by, so referencing one is reported rather than emitted
+// as a reference that cannot resolve.
+func TestReferenceToAnUnnamespacedDependencyIsRejected(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax: "proto3",
+		Messages: []*protoast.Message{{
+			Name:   "Item",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "sku", Number: 1}},
+		}},
+	}
+	_, err := Generate(namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "Item", Name: "held", Number: 1, SourceFile: "loose.proto"}},
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "loose.proto"}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no usable namespace")
 }

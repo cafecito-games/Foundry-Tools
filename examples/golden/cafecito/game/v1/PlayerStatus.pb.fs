@@ -8,20 +8,16 @@ enum_name PlayerStatus:
 
 	## Returns the protobuf wire value for this case.
 	func to_wire() -> int:
-		match self:
-			PlayerStatus.PLAYER_STATUS_ONLINE:
-				return 1
-			PlayerStatus.PLAYER_STATUS_AWAY:
-				return 2
-			_:
-				return 0
+		return self as int
 
-	## Returns the case for a protobuf wire value, tolerating unknown values.
-	static func from_wire(value: int) -> PlayerStatus:
+	## Returns the case for a protobuf wire value, or null if it names none.
+	static func from_wire(value: int) -> Self?:
 		match value:
+			0:
+				return PlayerStatus.PLAYER_STATUS_UNSPECIFIED
 			1:
 				return PlayerStatus.PLAYER_STATUS_ONLINE
 			2:
 				return PlayerStatus.PLAYER_STATUS_AWAY
 			_:
-				return PlayerStatus.PLAYER_STATUS_UNSPECIFIED
+				return null

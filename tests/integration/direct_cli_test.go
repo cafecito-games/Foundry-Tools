@@ -22,4 +22,6 @@ func TestDirectCLIGeneratesFoundryScript(t *testing.T) {
 	require.Contains(t, string(data), "class_name Player")
 	require.Contains(t, string(data), "## Player state shared with Foundry Script.\nfinal class_name Player extends RefCounted uses Message")
 	require.Contains(t, string(data), "## Player display name.\nvar name: String = \"\"")
+	require.Contains(t, string(data), "import cafecito.inventory.v1")
+	require.Contains(t, string(data), "var rarity: Rarity = Rarity.RARITY_UNSPECIFIED")
 }

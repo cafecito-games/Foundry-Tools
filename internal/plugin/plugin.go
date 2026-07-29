@@ -39,6 +39,14 @@ func Run(in io.Reader, out io.Writer) error {
 		}
 	}
 
+	// Every descriptor in the request is available to the generator as an
+	// import, which is how a type declared in another file resolves to its
+	// namespace and, for an enum, to its proto default.
+	dependencies := make(map[string][]string, len(req.GetProtoFile()))
+	for _, descriptor := range req.GetProtoFile() {
+		dependencies[descriptor.GetName()] = descriptor.GetDependency()
+	}
+
 	resp := &pluginpb.CodeGeneratorResponse{
 		SupportedFeatures: proto.Uint64(supportedFeatures),
 	}
@@ -51,7 +59,7 @@ func Run(in io.Reader, out io.Writer) error {
 		if validationErrors := foundryproto.Validate(file, name); len(validationErrors) != 0 {
 			return writeError(out, foundryproto.FormatValidationErrors(validationErrors))
 		}
-		generated, err := foundryproto.Generate(file, name, nil)
+		generated, err := foundryproto.Generate(file, name, importsFor(name, dependencies, filesByName))
 		if err != nil {
 			return writeError(out, err.Error())
 		}
@@ -65,6 +73,28 @@ func Run(in io.Reader, out io.Writer) error {
 	}
 
 	return writeResponse(out, resp)
+}
+
+// importsFor collects name's dependencies, following public re-exports through
+// the same transitive walk the source parser performs.
+func importsFor(name string, dependencies map[string][]string, filesByName map[string]*foundryproto.File) []foundryproto.FileEntry {
+	visited := map[string]bool{name: true}
+	var entries []foundryproto.FileEntry
+	var walk func(string)
+	walk = func(current string) {
+		for _, dependency := range dependencies[current] {
+			if visited[dependency] {
+				continue
+			}
+			visited[dependency] = true
+			if file, ok := filesByName[dependency]; ok {
+				entries = append(entries, foundryproto.FileEntry{File: file, Filename: dependency})
+			}
+			walk(dependency)
+		}
+	}
+	walk(name)
+	return entries
 }
 
 func appendFiles(resp *pluginpb.CodeGeneratorResponse, files map[string]string) {

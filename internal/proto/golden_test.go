@@ -29,7 +29,7 @@ func TestGoldenExampleProto(t *testing.T) {
 	parsed := parsedFiles[0]
 	require.Empty(t, proto.Validate(parsed.File, parsed.Filename))
 
-	generated, err := proto.Generate(parsed.File, parsed.Filename, nil)
+	generated, err := proto.Generate(parsed.File, parsed.Filename, proto.ImportsOf(parsed))
 	require.NoError(t, err)
 
 	if *updateGolden {

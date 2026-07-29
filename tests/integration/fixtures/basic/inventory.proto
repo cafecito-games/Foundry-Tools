@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package cafecito.inventory.v1;
+
+// Rarity of an inventory entry, declared in a different package so the
+// generated bindings have to import it rather than resolve it locally.
+enum Rarity {
+  RARITY_UNSPECIFIED = 0;
+  RARITY_COMMON = 1;
+  RARITY_LEGENDARY = 2;
+}
+
+// A durable item a player can hold.
+message Item {
+  string sku = 1;
+  Rarity rarity = 2;
+}

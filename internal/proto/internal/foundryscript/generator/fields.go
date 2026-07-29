@@ -6,27 +6,64 @@ import (
 )
 
 // fieldMember is the public member for a field. A plain field carries exactly
-// the information a get/set pair would, so no accessors are emitted.
+// the information a get/set pair would, so accessors are emitted only where
+// they do something a plain field cannot: dropping a retained enum value that
+// the caller has just superseded.
 func fieldMember(plan *fieldPlan) fsast.Node {
+	member := fsast.Var{
+		Name:  plan.Name,
+		Type:  plan.DeclaredType(),
+		Value: plan.DeclaredDefault(),
+	}
+	if plan.RetainsUnknownEnum() {
+		member.Setter = discardRetained([]string{plan.UnknownMember()}, plan.Name)
+	}
 	return fsast.Doc{
 		Lines: docOrFallback(plan.Doc, fieldDoc(plan.Name)),
-		Node: fsast.Var{
-			Name:  plan.Name,
-			Type:  plan.DeclaredType(),
-			Value: plan.DeclaredDefault(),
-		},
+		Node:  member,
 	}
 }
 
 // oneofMember is the nullable tagged-union member backing a oneof. Making the
 // union the only representation means "two cases set at once" cannot be built.
 func oneofMember(oneof *oneofPlan) fsast.Node {
+	member := fsast.Var{
+		Name:  oneof.Field,
+		Type:  fstypes.Nullable(fstypes.Named(oneof.Type)),
+		Value: "null",
+	}
+	if retaining := oneof.RetainingMembers(); len(retaining) > 0 {
+		buffers := make([]string, 0, len(retaining))
+		for i := range retaining {
+			buffers = append(buffers, retaining[i].UnknownMember())
+		}
+		member.Setter = discardRetained(buffers, oneof.Field)
+	}
 	return fsast.Doc{
 		Lines: docOrFallback(oneof.Doc, oneofDoc(oneof.Field)),
+		Node:  member,
+	}
+}
+
+// discardRetained is the setter body for a member that can carry a retained
+// enum value: assigning any representable value supersedes what was on the
+// wire, so the retained copy is dropped rather than re-emitted alongside it.
+func discardRetained(buffers []string, member string) []fsast.Node {
+	body := make([]fsast.Node, 0, len(buffers)+1)
+	for _, buffer := range buffers {
+		body = append(body, line(0, buffer+" = PackedByteArray()"))
+	}
+	return append(body, line(0, member+" = "+fsast.SetterParameter))
+}
+
+// unknownEnumMember is the companion holding one field's retained enum bytes.
+func unknownEnumMember(plan *fieldPlan) fsast.Node {
+	return fsast.Doc{
+		Lines: []string{"Raw bytes of an unrecognized " + plan.RawName + " value, kept so a re-encode is lossless."},
 		Node: fsast.Var{
-			Name:  oneof.Field,
-			Type:  fstypes.Nullable(fstypes.Named(oneof.Type)),
-			Value: "null",
+			Name:  plan.UnknownMember(),
+			Type:  fstypes.Named("PackedByteArray"),
+			Value: "PackedByteArray()",
 		},
 	}
 }
@@ -38,9 +75,11 @@ func oneofUnion(oneof *oneofPlan) fsast.Enum {
 	for i := range oneof.Members {
 		member := &oneof.Members[i]
 		values = append(values, fsast.EnumValue{
-			Doc:     docOrFallback(member.Doc, nil),
-			Name:    TypeName(member.Name),
-			Payload: []fsast.Parameter{{Name: member.Name, Type: member.Value.Type}},
+			Doc:  docOrFallback(member.Doc, nil),
+			Name: member.OneofCaseName,
+			// The union is declared at file level, not inside the message, so a
+			// payload type has to be named by its scoped reference.
+			Payload: []fsast.Parameter{{Name: member.Name, Type: member.Value.QualifiedType}},
 		})
 	}
 	return fsast.Enum{
@@ -55,16 +94,16 @@ func fromBytesFactory(className string) fsast.Func {
 		Doc:        fromBytesDoc(className),
 		Static:     true,
 		Name:       "from_bytes",
-		Parameters: []fsast.Parameter{{Name: "data", Type: fstypes.Named("PackedByteArray")}},
+		Parameters: []fsast.Parameter{{Name: dataParameter, Type: fstypes.Named("PackedByteArray")}},
 		ReturnType: fstypes.Tuple(fstypes.Nullable(fstypes.Named(className)), fstypes.Named("ProtobufError")),
 		Body: []fsast.Node{
-			line(0, "var message: "+className+" = "+className+".new()"),
-			line(0, "var error: ProtobufError = message.merge_from_bytes(data)"),
-			line(0, "if error != ProtobufError.OK:"),
+			line(0, "var "+generatedPrefix+"message: "+className+" = "+className+".new()"),
+			line(0, "var "+generatedPrefix+"error: ProtobufError = "+generatedPrefix+"message.merge_from_bytes("+dataParameter+")"),
+			line(0, "if "+generatedPrefix+"error != ProtobufError.OK:"),
 			// A bare null does not carry the nullable element type.
-			line(1, "var failed: "+className+"? = null"),
-			line(1, "return (failed, error)"),
-			fsast.Return{Value: "(message, ProtobufError.OK)"},
+			line(1, "var "+generatedPrefix+"failed: "+className+"? = null"),
+			line(1, "return ("+generatedPrefix+"failed, "+generatedPrefix+"error)"),
+			fsast.Return{Value: "(" + generatedPrefix + "message, ProtobufError.OK)"},
 		},
 	}
 }

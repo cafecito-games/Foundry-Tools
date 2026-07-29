@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package cafecito.game.v1;
 
+import "inventory.proto";
+
 // Lifecycle state of a player session.
 enum PlayerStatus {
   PLAYER_STATUS_UNSPECIFIED = 0;
@@ -54,4 +56,16 @@ message Player {
 
   Badge badge = 14;
   Tier tier = 15;
+
+  // Cross-file references: both the message and the enum are declared in
+  // another package, so the binding has to import that namespace.
+  cafecito.inventory.v1.Item held = 17;
+  cafecito.inventory.v1.Rarity rarity = 18;
+
+  // Names that collide with the emitter's own locals or with a Foundry Script
+  // keyword. The binding has to keep working and keep the field readable.
+  int32 offset = 19;
+  string data = 20;
+  bytes result = 21;
+  int32 var = 22;
 }
