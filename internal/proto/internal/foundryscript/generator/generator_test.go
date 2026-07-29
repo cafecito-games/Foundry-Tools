@@ -908,3 +908,49 @@ func TestSameNameFromTwoImportedNamespacesIsQualified(t *testing.T) {
 	require.Contains(t, source, "import cafecito.catalog.v1")
 	require.Contains(t, source, "import cafecito.inventory.v1")
 }
+
+// Every generated file imports foundry.proto, so a schema type sharing a name
+// with one of its exports would make that name ambiguous and break the runtime
+// calls the binding makes through it.
+func TestSchemaTypesDoNotCollideWithRuntimeNames(t *testing.T) {
+	require.Equal(t, "Wire_", TypeName("Wire"))
+	require.Equal(t, "Message_", TypeName("message"))
+	require.Equal(t, "ProtobufError_", TypeName("ProtobufError"))
+	require.Equal(t, "VarintRead_", TypeName("varint_read"))
+
+	files := generate(t, namespacedFile([]*protoast.Message{
+		{
+			Name:   "Player",
+			Fields: []*protoast.Field{{FieldType: "Wire", Name: "wire", Number: 1}},
+		},
+		{
+			Name:   "Wire",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "kind", Number: 1}},
+		},
+	}, nil))
+
+	// The declaration and the reference are renamed together, so the runtime's
+	// own Wire keeps answering to the unqualified name the calls use.
+	require.Contains(t, files, "cafecito/game/v1/Wire_.pb.fs")
+	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var wire: Wire_? = null")
+	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "Wire.encode_varint(")
+}
+
+// A dependency with neither a package nor a namespace option has no name its
+// types can be reached by, so referencing one is reported rather than emitted
+// as a reference that cannot resolve.
+func TestReferenceToAnUnnamespacedDependencyIsRejected(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax: "proto3",
+		Messages: []*protoast.Message{{
+			Name:   "Item",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "sku", Number: 1}},
+		}},
+	}
+	_, err := Generate(namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "Item", Name: "held", Number: 1, SourceFile: "loose.proto"}},
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "loose.proto"}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no package or namespace option")
+}

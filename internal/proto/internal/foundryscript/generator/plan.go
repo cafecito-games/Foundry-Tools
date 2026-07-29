@@ -242,17 +242,23 @@ type resolver struct {
 	// namespaces maps a proto source filename to the namespace its types are
 	// generated into.
 	namespaces map[string]string
+	// unnamespaced records dependencies that declare neither a package nor a
+	// namespace option. Their types cannot be named from another file at all,
+	// so a reference to one is reported rather than emitted unresolvable.
+	unnamespaced map[string]bool
 }
 
 func newResolver(file *protoast.ProtoFile, imports []FileEntry) *resolver {
 	resolve := &resolver{
-		local:      typeRegistry{},
-		imported:   map[string]typeRegistry{},
-		namespaces: map[string]string{},
+		local:        typeRegistry{},
+		imported:     map[string]typeRegistry{},
+		namespaces:   map[string]string{},
+		unnamespaced: map[string]bool{},
 	}
 	for i := range imports {
 		namespace := NamespaceFor(imports[i].File)
 		if namespace == "" {
+			resolve.unnamespaced[imports[i].Filename] = true
 			continue
 		}
 		resolve.namespaces[imports[i].Filename] = namespace
@@ -429,6 +435,11 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 	// Inside the declaring class the reference is emitted as the schema wrote
 	// it: Foundry resolves inner type names lexically, exactly as proto does.
 	// Outside it, the registry's scoped reference is what resolves.
+	if r.unnamespaced[use.SourceFile] {
+		return valuePlan{}, fmt.Errorf(
+			"%s is declared in %s, which has no package or namespace option, so it cannot be referenced from another file",
+			use.ProtoType, use.SourceFile)
+	}
 	reference := TypeReference(use.ProtoType)
 	info, found := r.resolve(use, scope, reference)
 	if !found {
