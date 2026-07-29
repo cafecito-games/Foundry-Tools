@@ -637,3 +637,118 @@ func TestCrossFileReferencesImportTheirNamespace(t *testing.T) {
 	// Only the message being generated is emitted; the import is someone else's.
 	require.NotContains(t, files, "cafecito/inventory/v1/Item.pb.fs")
 }
+
+// The parser rewrites a cross-file reference to its short name, so a schema
+// that declares Slot locally and also imports one leaves two declarations
+// competing for the spelling. Only the field's source file says which was meant,
+// and only the namespace-qualified reference is unambiguous in the output.
+func TestImportedTypeIsNotCapturedByALocalOfTheSameName(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Messages: []*protoast.Message{{
+			Name:   "Slot",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "sku", Number: 1}},
+		}},
+		Enums: []*protoast.Enum{{
+			Name: "Tier",
+			Values: []*protoast.EnumValue{
+				{Name: "TIER_NONE", Number: 0},
+				{Name: "TIER_GOLD", Number: 1},
+			},
+		}},
+	}
+	files, err := Generate(namespacedFile([]*protoast.Message{
+		{
+			Name: "Player",
+			Fields: []*protoast.Field{
+				{FieldType: "Slot", Name: "held", Number: 1, SourceFile: "inventory.proto"},
+				{FieldType: "Slot", Name: "mine", Number: 2},
+				{FieldType: "Tier", Name: "tier", Number: 3, IsEnum: true, SourceFile: "inventory.proto"},
+			},
+		},
+		slotMessage(),
+	}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	require.NoError(t, err)
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "import cafecito.inventory.v1")
+	require.Contains(t, source, "var held: cafecito.inventory.v1.Slot? = null")
+	require.Contains(t, source, "if held is cafecito.inventory.v1.Slot:")
+	// The local declaration keeps the short spelling.
+	require.Contains(t, source, "var mine: Slot? = null")
+	// The enum's default comes from the imported declaration, qualified the
+	// same way even though only the message name actually collides, because
+	// the collision is decided on the outermost segment.
+	require.Contains(t, source, "var tier: Tier = Tier.TIER_NONE")
+}
+
+// An unqualified imported reference stays short when nothing shadows it.
+func TestImportedTypeKeepsTheShortSpellingWhenUnambiguous(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Messages: []*protoast.Message{{
+			Name:   "Item",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "sku", Number: 1}},
+		}},
+	}
+	files, err := Generate(namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"}},
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	require.NoError(t, err)
+
+	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var held: Item? = null")
+}
+
+// Escaping a keyword appends an underscore, which can land on a name the schema
+// already uses. Two fields mapping to one member would conflate them.
+func TestGenerateRejectsCollidingMemberNames(t *testing.T) {
+	_, err := Generate(namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "int32", Name: "var", Number: 1},
+			{FieldType: "string", Name: "var_", Number: 2},
+		},
+	}}, nil), "player.proto", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "both map to the member var_")
+}
+
+// A oneof member and a plain field can collide the same way.
+func TestGenerateRejectsOneofCollidingWithAField(t *testing.T) {
+	_, err := Generate(namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "int32", Name: "payload", Number: 1}},
+		Oneofs: []*protoast.Oneof{{
+			Name:   "payload",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "text", Number: 2}},
+		}},
+	}}, nil), "player.proto", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "both map to the member payload")
+}
+
+// Retained bytes are what was on the wire before the binding touched the
+// message, so a later assignment has to be written after them: an unrecognized
+// enum value is retained under a field number this schema does know, and
+// protobuf takes the last record for a singular field.
+func TestSerializeWritesRetainedBytesBeforeLiveFields(t *testing.T) {
+	files := generate(t, namespacedFile(
+		[]*protoast.Message{{
+			Name:   "Player",
+			Fields: []*protoast.Field{{FieldType: "PlayerStatus", Name: "status", Number: 1}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	retainedAt := strings.Index(source, "_result.append_array(_unknown_fields)")
+	statusAt := strings.Index(source, "if status != PlayerStatus.PLAYER_STATUS_UNSPECIFIED:")
+	require.Positive(t, retainedAt)
+	require.Greater(t, statusAt, retainedAt)
+}

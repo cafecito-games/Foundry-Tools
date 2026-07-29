@@ -193,25 +193,54 @@ func (r typeRegistry) resolve(scope, reference string) (typeInfo, bool) {
 
 // resolver answers the two questions the emitter has about a named type: what
 // its declaration looks like, and which namespace it has to be imported from.
+//
+// Declarations are kept per source rather than merged into one table. The
+// parser rewrites a cross-file reference to its short name, so a schema that
+// declares `Slot` locally and also imports a `Slot` leaves two declarations
+// competing for one spelling; only the field's source file says which was
+// meant.
 type resolver struct {
-	types typeRegistry
+	local typeRegistry
+	// imported holds each dependency's declarations, keyed by its namespace.
+	imported map[string]typeRegistry
 	// namespaces maps a proto source filename to the namespace its types are
 	// generated into.
 	namespaces map[string]string
 }
 
-// newResolver records every named type the emitter can reference. Imports are
-// registered first so a local declaration of the same name wins, matching the
-// resolution the parser already performed on the field types themselves.
 func newResolver(file *protoast.ProtoFile, imports []FileEntry) *resolver {
-	resolve := &resolver{types: typeRegistry{}, namespaces: map[string]string{}}
+	resolve := &resolver{
+		local:      typeRegistry{},
+		imported:   map[string]typeRegistry{},
+		namespaces: map[string]string{},
+	}
 	for i := range imports {
 		namespace := NamespaceFor(imports[i].File)
+		if namespace == "" {
+			continue
+		}
 		resolve.namespaces[imports[i].Filename] = namespace
-		resolve.types.registerFile(imports[i].File, namespace)
+		registry, seen := resolve.imported[namespace]
+		if !seen {
+			registry = typeRegistry{}
+			resolve.imported[namespace] = registry
+		}
+		registry.registerFile(imports[i].File, namespace)
 	}
-	resolve.types.registerFile(file, "")
+	resolve.local.registerFile(file, "")
 	return resolve
+}
+
+// shadowedLocally reports whether reference would bind to a local declaration
+// rather than the imported one it names. Only the outermost segment matters: a
+// local `Slot` captures `Slot.Detail` just as surely as it captures `Slot`.
+func (r *resolver) shadowedLocally(reference string) bool {
+	topLevel := reference
+	if head, _, nested := strings.Cut(reference, "."); nested {
+		topLevel = head
+	}
+	_, taken := r.local[topLevel]
+	return taken
 }
 
 func (r typeRegistry) registerFile(file *protoast.ProtoFile, namespace string) {
@@ -337,12 +366,24 @@ type typeUse struct {
 	SourceFile string
 }
 
+// resolve looks a reference up in the source that declared it. A field the
+// parser resolved across files is looked up in that file's namespace only;
+// anything else resolves lexically from scope outward, as proto does.
+func (r *resolver) resolve(use typeUse, scope, reference string) (typeInfo, bool) {
+	if namespace := r.namespaces[use.SourceFile]; namespace != "" {
+		if info, found := r.imported[namespace][reference]; found {
+			return info, true
+		}
+	}
+	return r.local.resolve(scope, reference)
+}
+
 func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) {
 	// Inside the declaring class the reference is emitted as the schema wrote
 	// it: Foundry resolves inner type names lexically, exactly as proto does.
 	// Outside it, the registry's scoped reference is what resolves.
 	reference := TypeReference(use.ProtoType)
-	info, found := r.types.resolve(scope, reference)
+	info, found := r.resolve(use, scope, reference)
 	if !found {
 		// The descriptor-driven plugin path can hand over a reference whose
 		// declaration is not in the request. The parser still told us whether
@@ -356,10 +397,21 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 			TopLevel:  reference,
 		}
 	}
+	// An imported type is named by the short reference the import makes
+	// available, unless a local declaration of the same name would capture it,
+	// in which case only the namespace-qualified spelling is unambiguous.
+	lexical, qualified := reference, info.Reference
+	if info.Namespace != "" {
+		lexical = info.Reference
+		if r.shadowedLocally(info.Reference) {
+			lexical = info.Namespace + "." + info.Reference
+		}
+		qualified = lexical
+	}
 	plan := valuePlan{
 		ProtoType:     use.ProtoType,
-		Type:          fstypes.Named(reference),
-		QualifiedType: fstypes.Named(info.Reference),
+		Type:          fstypes.Named(lexical),
+		QualifiedType: fstypes.Named(qualified),
 		Namespace:     info.Namespace,
 		TopLevel:      info.TopLevel,
 	}
@@ -374,7 +426,7 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 		return valuePlan{}, fmt.Errorf("enum %s has no value to default to", use.ProtoType)
 	}
 	plan.Kind = kindEnum
-	plan.ZeroValue = reference + "." + info.ZeroCase
+	plan.ZeroValue = lexical + "." + info.ZeroCase
 	plan.WireType = wireVarint
 	return plan, nil
 }
@@ -521,6 +573,9 @@ func planMessage(message *protoast.Message, parentScope string, resolve *resolve
 	}
 
 	sortPlansByNumber(plans)
+	if err := validateMemberNames(message.Name, plans, oneofs); err != nil {
+		return messagePlan{}, err
+	}
 	return messagePlan{
 		Doc:    message.Doc,
 		Name:   TypeName(message.Name),
@@ -530,6 +585,37 @@ func planMessage(message *protoast.Message, parentScope string, resolve *resolve
 		Enums:  message.NestedEnums,
 		Nested: nested,
 	}, nil
+}
+
+// validateMemberNames refuses a message whose fields do not map onto distinct
+// members. Escaping a keyword appends an underscore, so a schema declaring both
+// `var` and `var_` would otherwise emit the member twice and conflate two
+// distinct protobuf fields.
+func validateMemberNames(messageName string, plans []fieldPlan, oneofs []oneofPlan) error {
+	declaredBy := map[string]string{unknownFieldsMember: "the generated unknown-field buffer"}
+	claim := func(member, source string) error {
+		if previous, taken := declaredBy[member]; taken {
+			return fmt.Errorf(
+				"message %s: %s and %s both map to the member %s; rename one of them",
+				messageName, previous, source, member)
+		}
+		declaredBy[member] = source
+		return nil
+	}
+	for i := range plans {
+		if plans[i].OneofCase != "" {
+			continue
+		}
+		if err := claim(plans[i].Name, "field "+plans[i].RawName); err != nil {
+			return err
+		}
+	}
+	for i := range oneofs {
+		if err := claim(oneofs[i].Field, "oneof "+oneofs[i].Field); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // validateOneofPayload refuses the one payload shape the hoisted union cannot

@@ -43,12 +43,12 @@ final class Badge extends RefCounted uses Message:
 	## Serializes this message to protobuf wire data.
 	func to_bytes() -> PackedByteArray:
 		var _result: PackedByteArray = PackedByteArray()
+		_result.append_array(_unknown_fields)
 		if code != "":
 			_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))
 			var _code_data: PackedByteArray = Wire.encode_string(code)
 			_result.append_array(Wire.encode_varint(_code_data.size()))
 			_result.append_array(_code_data)
-		_result.append_array(_unknown_fields)
 		return _result
 
 	## Merges protobuf wire data into this message.
@@ -136,6 +136,7 @@ static func from_bytes(data: PackedByteArray) -> (Player?, ProtobufError):
 ## Serializes this message to protobuf wire data.
 func to_bytes() -> PackedByteArray:
 	var _result: PackedByteArray = PackedByteArray()
+	_result.append_array(_unknown_fields)
 	if name != "":
 		_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))
 		var _name_data: PackedByteArray = Wire.encode_string(name)
@@ -224,7 +225,6 @@ func to_bytes() -> PackedByteArray:
 		_result.append_array(Wire.encode_varint(Wire.make_tag(16, Wire.WIRE_LENGTH_DELIMITED)))
 		_result.append_array(Wire.encode_varint(_loadout_entry.size()))
 		_result.append_array(_loadout_entry)
-	_result.append_array(_unknown_fields)
 	return _result
 
 ## Merges protobuf wire data into this message.

@@ -135,6 +135,17 @@ func _init() -> void:
 	check(forward.status == PlayerStatus.PLAYER_STATUS_UNSPECIFIED, "unknown enum leaves the field default")
 	check(forward.to_bytes() == future, "unknown enum value survives a re-encode")
 
+	## A retained record is what was on the wire before this binding touched it,
+	## so a later assignment to the same field has to be written after it: for a
+	## singular field protobuf takes the last record, and a receiver that does
+	## know the retained value would otherwise ignore the assignment entirely.
+	forward.status = PlayerStatus.PLAYER_STATUS_ONLINE
+	var superseded: PackedByteArray = PackedByteArray()
+	superseded.append_array(future)
+	superseded.append_array(Wire.encode_varint(Wire.make_tag(8, Wire.WIRE_VARINT)))
+	superseded.append_array(Wire.encode_varint(1))
+	check(forward.to_bytes() == superseded, "a later assignment supersedes a retained unknown value")
+
 	## A singular message field split across two records must merge, not replace.
 	var first: PackedByteArray = PackedByteArray()
 	var first_slot: Slot = Slot.new()

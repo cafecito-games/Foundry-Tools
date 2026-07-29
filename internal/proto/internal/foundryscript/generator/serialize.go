@@ -10,7 +10,16 @@ import (
 const resultBuffer = "_result"
 
 func toBytesFunction(plans []fieldPlan, oneofs []oneofPlan) fsast.Func {
-	body := []fsast.Node{line(0, "var "+resultBuffer+": PackedByteArray = PackedByteArray()")}
+	body := []fsast.Node{
+		line(0, "var "+resultBuffer+": PackedByteArray = PackedByteArray()"),
+		// Retained bytes are what was on the wire before this binding touched
+		// the message, so they go first and the live fields are written after
+		// them. An unrecognized enum value is retained under a field number
+		// this schema does know, and protobuf takes the last record for a
+		// singular field: writing the retained copy last would let it override
+		// an assignment made after the decode.
+		line(0, resultBuffer+".append_array("+unknownFieldsMember+")"),
+	}
 	// Fields are written in field-number order, oneofs included: a oneof's match
 	// is emitted where its lowest-numbered member falls, so the bytes come out
 	// in schema order and a hexdump reads against the .proto.
@@ -27,12 +36,7 @@ func toBytesFunction(plans []fieldPlan, oneofs []oneofPlan) fsast.Func {
 		written[oneof.Field] = true
 		body = append(body, serializeOneof(oneof)...)
 	}
-	// Unknown fields go last; protobuf does not order records, and appending
-	// them in one run keeps the emitted loop free of a per-field branch.
-	body = append(body,
-		line(0, resultBuffer+".append_array("+unknownFieldsMember+")"),
-		fsast.Return{Value: resultBuffer},
-	)
+	body = append(body, fsast.Return{Value: resultBuffer})
 	return fsast.Func{
 		Doc:        toBytesDoc(),
 		Name:       "to_bytes",
