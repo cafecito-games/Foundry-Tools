@@ -97,13 +97,13 @@ func fromBytesFactory(className string) fsast.Func {
 		Parameters: []fsast.Parameter{{Name: dataParameter, Type: fstypes.Named("PackedByteArray")}},
 		ReturnType: fstypes.Tuple(fstypes.Nullable(fstypes.Named(className)), fstypes.Named("ProtobufError")),
 		Body: []fsast.Node{
-			line(0, "var _message: "+className+" = "+className+".new()"),
-			line(0, "var _error: ProtobufError = _message.merge_from_bytes("+dataParameter+")"),
-			line(0, "if _error != ProtobufError.OK:"),
+			line(0, "var "+generatedPrefix+"message: "+className+" = "+className+".new()"),
+			line(0, "var "+generatedPrefix+"error: ProtobufError = "+generatedPrefix+"message.merge_from_bytes("+dataParameter+")"),
+			line(0, "if "+generatedPrefix+"error != ProtobufError.OK:"),
 			// A bare null does not carry the nullable element type.
-			line(1, "var _failed: "+className+"? = null"),
-			line(1, "return (_failed, _error)"),
-			fsast.Return{Value: "(_message, ProtobufError.OK)"},
+			line(1, "var "+generatedPrefix+"failed: "+className+"? = null"),
+			line(1, "return ("+generatedPrefix+"failed, "+generatedPrefix+"error)"),
+			fsast.Return{Value: "(" + generatedPrefix + "message, ProtobufError.OK)"},
 		},
 	}
 }

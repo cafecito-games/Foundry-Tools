@@ -7,7 +7,7 @@ import (
 	fstypes "github.com/cafecito-games/foundry-tools/internal/proto/internal/foundryscript/types"
 )
 
-const resultBuffer = "_result"
+const resultBuffer = generatedPrefix + "result"
 
 func toBytesFunction(plans []fieldPlan, oneofs []oneofPlan) fsast.Func {
 	body := []fsast.Node{

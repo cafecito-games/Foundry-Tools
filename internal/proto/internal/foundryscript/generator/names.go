@@ -12,9 +12,16 @@ import (
 const namespaceOptionKey = "(foundrytools.namespace)"
 const typePrefixOptionKey = "(foundrytools.type_prefix)"
 
+// generatedPrefix marks every name the emitter introduces -- locals, function
+// parameters, and private members alike. protobuf identifiers may begin with an
+// underscore, and protoc accepts them, so a bare `_` prefix is not enough to
+// stay clear of a schema; reserving this one narrow spelling is, and it is the
+// only spelling a schema may not use.
+const generatedPrefix = "_pb_"
+
 // unknownFieldsMember holds the raw bytes of fields the schema did not
 // recognize, so re-encoding a message decoded from a newer peer is lossless.
-const unknownFieldsMember = "_unknown_fields"
+const unknownFieldsMember = generatedPrefix + "unknown_fields"
 
 // Reserved for later generator stages that apply file-level type prefixes.
 var _ = typePrefixOptionKey
@@ -129,21 +136,20 @@ func FieldName(name string) string {
 }
 
 // localName is the name of a variable the emitter introduces inside a generated
-// function body. Every one of them is underscore-prefixed, which is what keeps
-// them from colliding with a field named `offset`, `data` or `result`: proto
-// field names cannot start with an underscore, and ValidateFieldName enforces
-// that for the inputs this tool's own parser is laxer about than the spec.
+// function body. The shared prefix is what keeps every one of them clear of a
+// field named `offset`, `data` or `result`.
 func localName(parts ...string) string {
-	return "_" + strings.Join(parts, "_")
+	return generatedPrefix + strings.Join(parts, "_")
 }
 
-// ValidateFieldName rejects the proto field names the emitter cannot represent.
-// A leading underscore is outside the protobuf identifier grammar and is the
-// one spelling that could collide with a generated local, so it is refused
-// rather than silently renamed.
-func ValidateFieldName(messageName, fieldName string) error {
-	if strings.HasPrefix(fieldName, "_") {
-		return fmt.Errorf("field %s.%s: a leading underscore is reserved for generated members", messageName, fieldName)
+// ValidateMemberName rejects the one proto name the emitter cannot represent.
+// Everything else, leading underscores included, is passed through: protoc
+// accepts those, so refusing them would reject schemas that build everywhere
+// else.
+func ValidateMemberName(messageName, kind, name string) error {
+	if strings.HasPrefix(name, generatedPrefix) {
+		return fmt.Errorf("%s %s.%s: the %s prefix is reserved for generated members",
+			kind, messageName, name, generatedPrefix)
 	}
 	return nil
 }

@@ -29,51 +29,51 @@ final class Badge extends RefCounted uses Message:
 	var code: String = ""
 
 	## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
-	var _unknown_fields: PackedByteArray = PackedByteArray()
+	var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
 	## Decodes protobuf wire data into a new Badge message.
-	static func from_bytes(_data: PackedByteArray) -> (Badge?, ProtobufError):
-		var _message: Badge = Badge.new()
-		var _error: ProtobufError = _message.merge_from_bytes(_data)
-		if _error != ProtobufError.OK:
-			var _failed: Badge? = null
-			return (_failed, _error)
-		return (_message, ProtobufError.OK)
+	static func from_bytes(_pb_data: PackedByteArray) -> (Badge?, ProtobufError):
+		var _pb_message: Badge = Badge.new()
+		var _pb_error: ProtobufError = _pb_message.merge_from_bytes(_pb_data)
+		if _pb_error != ProtobufError.OK:
+			var _pb_failed: Badge? = null
+			return (_pb_failed, _pb_error)
+		return (_pb_message, ProtobufError.OK)
 
 	## Serializes this message to protobuf wire data.
 	func to_bytes() -> PackedByteArray:
-		var _result: PackedByteArray = PackedByteArray()
+		var _pb_result: PackedByteArray = PackedByteArray()
 		if code != "":
-			_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))
-			var _code_data: PackedByteArray = Wire.encode_string(code)
-			_result.append_array(Wire.encode_varint(_code_data.size()))
-			_result.append_array(_code_data)
-		_result.append_array(_unknown_fields)
-		return _result
+			_pb_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))
+			var _pb_code_data: PackedByteArray = Wire.encode_string(code)
+			_pb_result.append_array(Wire.encode_varint(_pb_code_data.size()))
+			_pb_result.append_array(_pb_code_data)
+		_pb_result.append_array(_pb_unknown_fields)
+		return _pb_result
 
 	## Merges protobuf wire data into this message.
-	func merge_from_bytes(_data: PackedByteArray) -> ProtobufError:
-		var _offset: int = 0
-		while _offset < _data.size():
-			var _tag: VarintRead = Wire.decode_varint(_data, _offset)
-			if _tag.error != ProtobufError.OK:
-				return _tag.error
-			_offset = _tag.offset
-			var _wire_type: int = Wire.get_wire_type(_tag.value)
-			match Wire.get_field_number(_tag.value):
+	func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
+		var _pb_offset: int = 0
+		while _pb_offset < _pb_data.size():
+			var _pb_tag: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+			if _pb_tag.error != ProtobufError.OK:
+				return _pb_tag.error
+			_pb_offset = _pb_tag.offset
+			var _pb_wire_type: int = Wire.get_wire_type(_pb_tag.value)
+			match Wire.get_field_number(_pb_tag.value):
 				1:
-					if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
+					if _pb_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 						return ProtobufError.WIRE_TYPE_MISMATCH
-					var _code_read: StringRead = Wire.read_string(_data, _offset)
-					if _code_read.error != ProtobufError.OK:
-						return _code_read.error
-					code = _code_read.value
-					_offset = _code_read.offset
+					var _pb_code_read: StringRead = Wire.read_string(_pb_data, _pb_offset)
+					if _pb_code_read.error != ProtobufError.OK:
+						return _pb_code_read.error
+					code = _pb_code_read.value
+					_pb_offset = _pb_code_read.offset
 				_:
-					var _skipped: SkipRead = Wire.capture_field(_data, _offset, _tag.value, _wire_type, _unknown_fields)
-					if _skipped.error != ProtobufError.OK:
-						return _skipped.error
-					_offset = _skipped.offset
+					var _pb_skipped: SkipRead = Wire.capture_field(_pb_data, _pb_offset, _pb_tag.value, _pb_wire_type, _pb_unknown_fields)
+					if _pb_skipped.error != ProtobufError.OK:
+						return _pb_skipped.error
+					_pb_offset = _pb_skipped.offset
 		return ProtobufError.OK
 
 ## The name protobuf field.
@@ -99,9 +99,9 @@ var scores: Array[int] = []
 
 ## The status protobuf field.
 var status: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED:
-	set(_value):
-		_status_unknown = PackedByteArray()
-		status = _value
+	set(_pb_value):
+		_pb_status_unknown = PackedByteArray()
+		status = _pb_value
 
 ## The primary protobuf field.
 var primary: Slot? = null
@@ -117,9 +117,9 @@ var badge: Badge? = null
 
 ## The tier protobuf field.
 var tier: Tier = Tier.TIER_UNSPECIFIED:
-	set(_value):
-		_tier_unknown = PackedByteArray()
-		tier = _value
+	set(_pb_value):
+		_pb_tier_unknown = PackedByteArray()
+		tier = _pb_value
 
 ## The loadout protobuf field.
 var loadout: Dictionary[String, Slot] = {}
@@ -128,351 +128,351 @@ var loadout: Dictionary[String, Slot] = {}
 var payload: PlayerPayloadCase? = null
 
 ## Raw bytes of an unrecognized status value, kept so a re-encode is lossless.
-var _status_unknown: PackedByteArray = PackedByteArray()
+var _pb_status_unknown: PackedByteArray = PackedByteArray()
 
 ## Raw bytes of an unrecognized tier value, kept so a re-encode is lossless.
-var _tier_unknown: PackedByteArray = PackedByteArray()
+var _pb_tier_unknown: PackedByteArray = PackedByteArray()
 
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
-var _unknown_fields: PackedByteArray = PackedByteArray()
+var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
 ## Decodes protobuf wire data into a new Player message.
-static func from_bytes(_data: PackedByteArray) -> (Player?, ProtobufError):
-	var _message: Player = Player.new()
-	var _error: ProtobufError = _message.merge_from_bytes(_data)
-	if _error != ProtobufError.OK:
-		var _failed: Player? = null
-		return (_failed, _error)
-	return (_message, ProtobufError.OK)
+static func from_bytes(_pb_data: PackedByteArray) -> (Player?, ProtobufError):
+	var _pb_message: Player = Player.new()
+	var _pb_error: ProtobufError = _pb_message.merge_from_bytes(_pb_data)
+	if _pb_error != ProtobufError.OK:
+		var _pb_failed: Player? = null
+		return (_pb_failed, _pb_error)
+	return (_pb_message, ProtobufError.OK)
 
 ## Serializes this message to protobuf wire data.
 func to_bytes() -> PackedByteArray:
-	var _result: PackedByteArray = PackedByteArray()
+	var _pb_result: PackedByteArray = PackedByteArray()
 	if name != "":
-		_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))
-		var _name_data: PackedByteArray = Wire.encode_string(name)
-		_result.append_array(Wire.encode_varint(_name_data.size()))
-		_result.append_array(_name_data)
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))
+		var _pb_name_data: PackedByteArray = Wire.encode_string(name)
+		_pb_result.append_array(Wire.encode_varint(_pb_name_data.size()))
+		_pb_result.append_array(_pb_name_data)
 	if level != 0:
-		_result.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_VARINT)))
-		_result.append_array(Wire.encode_varint(level))
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_VARINT)))
+		_pb_result.append_array(Wire.encode_varint(level))
 	if active:
-		_result.append_array(Wire.encode_varint(Wire.make_tag(3, Wire.WIRE_VARINT)))
-		_result.append_array(Wire.encode_varint(1 if active else 0))
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(3, Wire.WIRE_VARINT)))
+		_pb_result.append_array(Wire.encode_varint(1 if active else 0))
 	if avatar.size() > 0:
-		_result.append_array(Wire.encode_varint(Wire.make_tag(4, Wire.WIRE_LENGTH_DELIMITED)))
-		_result.append_array(Wire.encode_varint(avatar.size()))
-		_result.append_array(avatar)
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(4, Wire.WIRE_LENGTH_DELIMITED)))
+		_pb_result.append_array(Wire.encode_varint(avatar.size()))
+		_pb_result.append_array(avatar)
 	if nickname is String:
-		_result.append_array(Wire.encode_varint(Wire.make_tag(5, Wire.WIRE_LENGTH_DELIMITED)))
-		var _nickname_data: PackedByteArray = Wire.encode_string(nickname)
-		_result.append_array(Wire.encode_varint(_nickname_data.size()))
-		_result.append_array(_nickname_data)
-	for _tags_item: String in tags:
-		_result.append_array(Wire.encode_varint(Wire.make_tag(6, Wire.WIRE_LENGTH_DELIMITED)))
-		var _tags_data: PackedByteArray = Wire.encode_string(_tags_item)
-		_result.append_array(Wire.encode_varint(_tags_data.size()))
-		_result.append_array(_tags_data)
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(5, Wire.WIRE_LENGTH_DELIMITED)))
+		var _pb_nickname_data: PackedByteArray = Wire.encode_string(nickname)
+		_pb_result.append_array(Wire.encode_varint(_pb_nickname_data.size()))
+		_pb_result.append_array(_pb_nickname_data)
+	for _pb_tags_item: String in tags:
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(6, Wire.WIRE_LENGTH_DELIMITED)))
+		var _pb_tags_data: PackedByteArray = Wire.encode_string(_pb_tags_item)
+		_pb_result.append_array(Wire.encode_varint(_pb_tags_data.size()))
+		_pb_result.append_array(_pb_tags_data)
 	if scores.size() > 0:
-		var _scores_data: PackedByteArray = PackedByteArray()
-		for _scores_item: int in scores:
-			_scores_data.append_array(Wire.encode_varint(_scores_item))
-		_result.append_array(Wire.encode_varint(Wire.make_tag(7, Wire.WIRE_LENGTH_DELIMITED)))
-		_result.append_array(Wire.encode_varint(_scores_data.size()))
-		_result.append_array(_scores_data)
-	if _status_unknown.size() > 0:
-		_result.append_array(Wire.encode_varint(Wire.make_tag(8, Wire.WIRE_VARINT)))
-		_result.append_array(_status_unknown)
+		var _pb_scores_data: PackedByteArray = PackedByteArray()
+		for _pb_scores_item: int in scores:
+			_pb_scores_data.append_array(Wire.encode_varint(_pb_scores_item))
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(7, Wire.WIRE_LENGTH_DELIMITED)))
+		_pb_result.append_array(Wire.encode_varint(_pb_scores_data.size()))
+		_pb_result.append_array(_pb_scores_data)
+	if _pb_status_unknown.size() > 0:
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(8, Wire.WIRE_VARINT)))
+		_pb_result.append_array(_pb_status_unknown)
 	elif status != PlayerStatus.PLAYER_STATUS_UNSPECIFIED:
-		_result.append_array(Wire.encode_varint(Wire.make_tag(8, Wire.WIRE_VARINT)))
-		_result.append_array(Wire.encode_varint(status.to_wire()))
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(8, Wire.WIRE_VARINT)))
+		_pb_result.append_array(Wire.encode_varint(status.to_wire()))
 	if primary is Slot:
-		var _primary_data: PackedByteArray = primary.to_bytes()
-		_result.append_array(Wire.encode_varint(Wire.make_tag(9, Wire.WIRE_LENGTH_DELIMITED)))
-		_result.append_array(Wire.encode_varint(_primary_data.size()))
-		_result.append_array(_primary_data)
-	for _slots_item: Slot in slots:
-		var _slots_data: PackedByteArray = _slots_item.to_bytes()
-		_result.append_array(Wire.encode_varint(Wire.make_tag(10, Wire.WIRE_LENGTH_DELIMITED)))
-		_result.append_array(Wire.encode_varint(_slots_data.size()))
-		_result.append_array(_slots_data)
-	for _counts_key: String in counts:
-		var _counts_entry: PackedByteArray = PackedByteArray()
-		_counts_entry.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))
-		var _counts_key_data: PackedByteArray = Wire.encode_string(_counts_key)
-		_counts_entry.append_array(Wire.encode_varint(_counts_key_data.size()))
-		_counts_entry.append_array(_counts_key_data)
-		_counts_entry.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_VARINT)))
-		_counts_entry.append_array(Wire.encode_varint(counts[_counts_key]))
-		_result.append_array(Wire.encode_varint(Wire.make_tag(11, Wire.WIRE_LENGTH_DELIMITED)))
-		_result.append_array(Wire.encode_varint(_counts_entry.size()))
-		_result.append_array(_counts_entry)
+		var _pb_primary_data: PackedByteArray = primary.to_bytes()
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(9, Wire.WIRE_LENGTH_DELIMITED)))
+		_pb_result.append_array(Wire.encode_varint(_pb_primary_data.size()))
+		_pb_result.append_array(_pb_primary_data)
+	for _pb_slots_item: Slot in slots:
+		var _pb_slots_data: PackedByteArray = _pb_slots_item.to_bytes()
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(10, Wire.WIRE_LENGTH_DELIMITED)))
+		_pb_result.append_array(Wire.encode_varint(_pb_slots_data.size()))
+		_pb_result.append_array(_pb_slots_data)
+	for _pb_counts_key: String in counts:
+		var _pb_counts_entry: PackedByteArray = PackedByteArray()
+		_pb_counts_entry.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))
+		var _pb_counts_key_data: PackedByteArray = Wire.encode_string(_pb_counts_key)
+		_pb_counts_entry.append_array(Wire.encode_varint(_pb_counts_key_data.size()))
+		_pb_counts_entry.append_array(_pb_counts_key_data)
+		_pb_counts_entry.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_VARINT)))
+		_pb_counts_entry.append_array(Wire.encode_varint(counts[_pb_counts_key]))
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(11, Wire.WIRE_LENGTH_DELIMITED)))
+		_pb_result.append_array(Wire.encode_varint(_pb_counts_entry.size()))
+		_pb_result.append_array(_pb_counts_entry)
 	match payload:
-		PlayerPayloadCase.Text(var _payload_text):
-			_result.append_array(Wire.encode_varint(Wire.make_tag(12, Wire.WIRE_LENGTH_DELIMITED)))
-			var _payload_text_data: PackedByteArray = Wire.encode_string(_payload_text)
-			_result.append_array(Wire.encode_varint(_payload_text_data.size()))
-			_result.append_array(_payload_text_data)
-		PlayerPayloadCase.Amount(var _payload_amount):
-			_result.append_array(Wire.encode_varint(Wire.make_tag(13, Wire.WIRE_VARINT)))
-			_result.append_array(Wire.encode_varint(_payload_amount))
+		PlayerPayloadCase.Text(var _pb_payload_text):
+			_pb_result.append_array(Wire.encode_varint(Wire.make_tag(12, Wire.WIRE_LENGTH_DELIMITED)))
+			var _pb_payload_text_data: PackedByteArray = Wire.encode_string(_pb_payload_text)
+			_pb_result.append_array(Wire.encode_varint(_pb_payload_text_data.size()))
+			_pb_result.append_array(_pb_payload_text_data)
+		PlayerPayloadCase.Amount(var _pb_payload_amount):
+			_pb_result.append_array(Wire.encode_varint(Wire.make_tag(13, Wire.WIRE_VARINT)))
+			_pb_result.append_array(Wire.encode_varint(_pb_payload_amount))
 		_:
 			pass
 	if badge is Badge:
-		var _badge_data: PackedByteArray = badge.to_bytes()
-		_result.append_array(Wire.encode_varint(Wire.make_tag(14, Wire.WIRE_LENGTH_DELIMITED)))
-		_result.append_array(Wire.encode_varint(_badge_data.size()))
-		_result.append_array(_badge_data)
-	if _tier_unknown.size() > 0:
-		_result.append_array(Wire.encode_varint(Wire.make_tag(15, Wire.WIRE_VARINT)))
-		_result.append_array(_tier_unknown)
+		var _pb_badge_data: PackedByteArray = badge.to_bytes()
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(14, Wire.WIRE_LENGTH_DELIMITED)))
+		_pb_result.append_array(Wire.encode_varint(_pb_badge_data.size()))
+		_pb_result.append_array(_pb_badge_data)
+	if _pb_tier_unknown.size() > 0:
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(15, Wire.WIRE_VARINT)))
+		_pb_result.append_array(_pb_tier_unknown)
 	elif tier != Tier.TIER_UNSPECIFIED:
-		_result.append_array(Wire.encode_varint(Wire.make_tag(15, Wire.WIRE_VARINT)))
-		_result.append_array(Wire.encode_varint(tier.to_wire()))
-	for _loadout_key: String in loadout:
-		var _loadout_entry: PackedByteArray = PackedByteArray()
-		_loadout_entry.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))
-		var _loadout_key_data: PackedByteArray = Wire.encode_string(_loadout_key)
-		_loadout_entry.append_array(Wire.encode_varint(_loadout_key_data.size()))
-		_loadout_entry.append_array(_loadout_key_data)
-		var _loadout_value_data: PackedByteArray = loadout[_loadout_key].to_bytes()
-		_loadout_entry.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_LENGTH_DELIMITED)))
-		_loadout_entry.append_array(Wire.encode_varint(_loadout_value_data.size()))
-		_loadout_entry.append_array(_loadout_value_data)
-		_result.append_array(Wire.encode_varint(Wire.make_tag(16, Wire.WIRE_LENGTH_DELIMITED)))
-		_result.append_array(Wire.encode_varint(_loadout_entry.size()))
-		_result.append_array(_loadout_entry)
-	_result.append_array(_unknown_fields)
-	return _result
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(15, Wire.WIRE_VARINT)))
+		_pb_result.append_array(Wire.encode_varint(tier.to_wire()))
+	for _pb_loadout_key: String in loadout:
+		var _pb_loadout_entry: PackedByteArray = PackedByteArray()
+		_pb_loadout_entry.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))
+		var _pb_loadout_key_data: PackedByteArray = Wire.encode_string(_pb_loadout_key)
+		_pb_loadout_entry.append_array(Wire.encode_varint(_pb_loadout_key_data.size()))
+		_pb_loadout_entry.append_array(_pb_loadout_key_data)
+		var _pb_loadout_value_data: PackedByteArray = loadout[_pb_loadout_key].to_bytes()
+		_pb_loadout_entry.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_LENGTH_DELIMITED)))
+		_pb_loadout_entry.append_array(Wire.encode_varint(_pb_loadout_value_data.size()))
+		_pb_loadout_entry.append_array(_pb_loadout_value_data)
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(16, Wire.WIRE_LENGTH_DELIMITED)))
+		_pb_result.append_array(Wire.encode_varint(_pb_loadout_entry.size()))
+		_pb_result.append_array(_pb_loadout_entry)
+	_pb_result.append_array(_pb_unknown_fields)
+	return _pb_result
 
 ## Merges protobuf wire data into this message.
-func merge_from_bytes(_data: PackedByteArray) -> ProtobufError:
-	var _offset: int = 0
-	while _offset < _data.size():
-		var _tag: VarintRead = Wire.decode_varint(_data, _offset)
-		if _tag.error != ProtobufError.OK:
-			return _tag.error
-		_offset = _tag.offset
-		var _wire_type: int = Wire.get_wire_type(_tag.value)
-		match Wire.get_field_number(_tag.value):
+func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
+	var _pb_offset: int = 0
+	while _pb_offset < _pb_data.size():
+		var _pb_tag: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+		if _pb_tag.error != ProtobufError.OK:
+			return _pb_tag.error
+		_pb_offset = _pb_tag.offset
+		var _pb_wire_type: int = Wire.get_wire_type(_pb_tag.value)
+		match Wire.get_field_number(_pb_tag.value):
 			1:
-				if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
+				if _pb_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _name_read: StringRead = Wire.read_string(_data, _offset)
-				if _name_read.error != ProtobufError.OK:
-					return _name_read.error
-				name = _name_read.value
-				_offset = _name_read.offset
+				var _pb_name_read: StringRead = Wire.read_string(_pb_data, _pb_offset)
+				if _pb_name_read.error != ProtobufError.OK:
+					return _pb_name_read.error
+				name = _pb_name_read.value
+				_pb_offset = _pb_name_read.offset
 			2:
-				if _wire_type != Wire.WIRE_VARINT:
+				if _pb_wire_type != Wire.WIRE_VARINT:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _level_read: VarintRead = Wire.decode_varint(_data, _offset)
-				if _level_read.error != ProtobufError.OK:
-					return _level_read.error
-				level = _level_read.value
-				_offset = _level_read.offset
+				var _pb_level_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+				if _pb_level_read.error != ProtobufError.OK:
+					return _pb_level_read.error
+				level = _pb_level_read.value
+				_pb_offset = _pb_level_read.offset
 			3:
-				if _wire_type != Wire.WIRE_VARINT:
+				if _pb_wire_type != Wire.WIRE_VARINT:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _active_read: VarintRead = Wire.decode_varint(_data, _offset)
-				if _active_read.error != ProtobufError.OK:
-					return _active_read.error
-				active = _active_read.value != 0
-				_offset = _active_read.offset
+				var _pb_active_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+				if _pb_active_read.error != ProtobufError.OK:
+					return _pb_active_read.error
+				active = _pb_active_read.value != 0
+				_pb_offset = _pb_active_read.offset
 			4:
-				if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
+				if _pb_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _avatar_read: BytesRead = Wire.read_bytes(_data, _offset)
-				if _avatar_read.error != ProtobufError.OK:
-					return _avatar_read.error
-				avatar = _avatar_read.value
-				_offset = _avatar_read.offset
+				var _pb_avatar_read: BytesRead = Wire.read_bytes(_pb_data, _pb_offset)
+				if _pb_avatar_read.error != ProtobufError.OK:
+					return _pb_avatar_read.error
+				avatar = _pb_avatar_read.value
+				_pb_offset = _pb_avatar_read.offset
 			5:
-				if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
+				if _pb_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _nickname_read: StringRead = Wire.read_string(_data, _offset)
-				if _nickname_read.error != ProtobufError.OK:
-					return _nickname_read.error
-				nickname = _nickname_read.value
-				_offset = _nickname_read.offset
+				var _pb_nickname_read: StringRead = Wire.read_string(_pb_data, _pb_offset)
+				if _pb_nickname_read.error != ProtobufError.OK:
+					return _pb_nickname_read.error
+				nickname = _pb_nickname_read.value
+				_pb_offset = _pb_nickname_read.offset
 			6:
-				if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
+				if _pb_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _tags_read: StringRead = Wire.read_string(_data, _offset)
-				if _tags_read.error != ProtobufError.OK:
-					return _tags_read.error
-				tags.append(_tags_read.value)
-				_offset = _tags_read.offset
+				var _pb_tags_read: StringRead = Wire.read_string(_pb_data, _pb_offset)
+				if _pb_tags_read.error != ProtobufError.OK:
+					return _pb_tags_read.error
+				tags.append(_pb_tags_read.value)
+				_pb_offset = _pb_tags_read.offset
 			7:
-				if _wire_type == Wire.WIRE_LENGTH_DELIMITED:
-					var _scores_length: VarintRead = Wire.read_length(_data, _offset)
-					if _scores_length.error != ProtobufError.OK:
-						return _scores_length.error
-					var _scores_end: int = _scores_length.offset + _scores_length.value
-					_offset = _scores_length.offset
-					while _offset < _scores_end:
-						var _scores_packed: VarintRead = Wire.decode_varint(_data, _offset)
-						if _scores_packed.error != ProtobufError.OK:
-							return _scores_packed.error
-						scores.append(_scores_packed.value)
-						_offset = _scores_packed.offset
-				elif _wire_type == Wire.WIRE_VARINT:
-					var _scores_read: VarintRead = Wire.decode_varint(_data, _offset)
-					if _scores_read.error != ProtobufError.OK:
-						return _scores_read.error
-					scores.append(_scores_read.value)
-					_offset = _scores_read.offset
+				if _pb_wire_type == Wire.WIRE_LENGTH_DELIMITED:
+					var _pb_scores_length: VarintRead = Wire.read_length(_pb_data, _pb_offset)
+					if _pb_scores_length.error != ProtobufError.OK:
+						return _pb_scores_length.error
+					var _pb_scores_end: int = _pb_scores_length.offset + _pb_scores_length.value
+					_pb_offset = _pb_scores_length.offset
+					while _pb_offset < _pb_scores_end:
+						var _pb_scores_packed: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+						if _pb_scores_packed.error != ProtobufError.OK:
+							return _pb_scores_packed.error
+						scores.append(_pb_scores_packed.value)
+						_pb_offset = _pb_scores_packed.offset
+				elif _pb_wire_type == Wire.WIRE_VARINT:
+					var _pb_scores_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+					if _pb_scores_read.error != ProtobufError.OK:
+						return _pb_scores_read.error
+					scores.append(_pb_scores_read.value)
+					_pb_offset = _pb_scores_read.offset
 				else:
 					return ProtobufError.WIRE_TYPE_MISMATCH
 			8:
-				if _wire_type != Wire.WIRE_VARINT:
+				if _pb_wire_type != Wire.WIRE_VARINT:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _status_read: VarintRead = Wire.decode_varint(_data, _offset)
-				if _status_read.error != ProtobufError.OK:
-					return _status_read.error
-				var _status_case: PlayerStatus? = PlayerStatus.from_wire(_status_read.value)
-				if _status_case is PlayerStatus:
-					status = _status_case
+				var _pb_status_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+				if _pb_status_read.error != ProtobufError.OK:
+					return _pb_status_read.error
+				var _pb_status_case: PlayerStatus? = PlayerStatus.from_wire(_pb_status_read.value)
+				if _pb_status_case is PlayerStatus:
+					status = _pb_status_case
 				else:
 					status = PlayerStatus.PLAYER_STATUS_UNSPECIFIED
-					_status_unknown = _data.slice(_offset, _status_read.offset)
-				_offset = _status_read.offset
+					_pb_status_unknown = _pb_data.slice(_pb_offset, _pb_status_read.offset)
+				_pb_offset = _pb_status_read.offset
 			9:
-				if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
+				if _pb_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 					return ProtobufError.WIRE_TYPE_MISMATCH
 				if not (primary is Slot):
 					primary = Slot.new()
-				var _primary_read: SkipRead = Wire.read_message(_data, _offset, primary)
-				if _primary_read.error != ProtobufError.OK:
-					return _primary_read.error
-				_offset = _primary_read.offset
+				var _pb_primary_read: SkipRead = Wire.read_message(_pb_data, _pb_offset, primary)
+				if _pb_primary_read.error != ProtobufError.OK:
+					return _pb_primary_read.error
+				_pb_offset = _pb_primary_read.offset
 			10:
-				if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
+				if _pb_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _slots_message: Slot = Slot.new()
-				var _slots_read: SkipRead = Wire.read_message(_data, _offset, _slots_message)
-				if _slots_read.error != ProtobufError.OK:
-					return _slots_read.error
-				slots.append(_slots_message)
-				_offset = _slots_read.offset
+				var _pb_slots_message: Slot = Slot.new()
+				var _pb_slots_read: SkipRead = Wire.read_message(_pb_data, _pb_offset, _pb_slots_message)
+				if _pb_slots_read.error != ProtobufError.OK:
+					return _pb_slots_read.error
+				slots.append(_pb_slots_message)
+				_pb_offset = _pb_slots_read.offset
 			11:
-				if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
+				if _pb_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _counts_length: VarintRead = Wire.read_length(_data, _offset)
-				if _counts_length.error != ProtobufError.OK:
-					return _counts_length.error
-				var _counts_end: int = _counts_length.offset + _counts_length.value
-				_offset = _counts_length.offset
-				var _counts_key: String = ""
-				var _counts_value: int = 0
-				while _offset < _counts_end:
-					var _counts_entry_tag: VarintRead = Wire.decode_varint(_data, _offset)
-					if _counts_entry_tag.error != ProtobufError.OK:
-						return _counts_entry_tag.error
-					_offset = _counts_entry_tag.offset
-					var _counts_entry_wire_type: int = Wire.get_wire_type(_counts_entry_tag.value)
-					match Wire.get_field_number(_counts_entry_tag.value):
+				var _pb_counts_length: VarintRead = Wire.read_length(_pb_data, _pb_offset)
+				if _pb_counts_length.error != ProtobufError.OK:
+					return _pb_counts_length.error
+				var _pb_counts_end: int = _pb_counts_length.offset + _pb_counts_length.value
+				_pb_offset = _pb_counts_length.offset
+				var _pb_counts_key: String = ""
+				var _pb_counts_value: int = 0
+				while _pb_offset < _pb_counts_end:
+					var _pb_counts_entry_tag: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+					if _pb_counts_entry_tag.error != ProtobufError.OK:
+						return _pb_counts_entry_tag.error
+					_pb_offset = _pb_counts_entry_tag.offset
+					var _pb_counts_entry_wire_type: int = Wire.get_wire_type(_pb_counts_entry_tag.value)
+					match Wire.get_field_number(_pb_counts_entry_tag.value):
 						1:
-							if _counts_entry_wire_type != Wire.WIRE_LENGTH_DELIMITED:
+							if _pb_counts_entry_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 								return ProtobufError.WIRE_TYPE_MISMATCH
-							var _counts_key_read: StringRead = Wire.read_string(_data, _offset)
-							if _counts_key_read.error != ProtobufError.OK:
-								return _counts_key_read.error
-							_counts_key = _counts_key_read.value
-							_offset = _counts_key_read.offset
+							var _pb_counts_key_read: StringRead = Wire.read_string(_pb_data, _pb_offset)
+							if _pb_counts_key_read.error != ProtobufError.OK:
+								return _pb_counts_key_read.error
+							_pb_counts_key = _pb_counts_key_read.value
+							_pb_offset = _pb_counts_key_read.offset
 						2:
-							if _counts_entry_wire_type != Wire.WIRE_VARINT:
+							if _pb_counts_entry_wire_type != Wire.WIRE_VARINT:
 								return ProtobufError.WIRE_TYPE_MISMATCH
-							var _counts_value_read: VarintRead = Wire.decode_varint(_data, _offset)
-							if _counts_value_read.error != ProtobufError.OK:
-								return _counts_value_read.error
-							_counts_value = _counts_value_read.value
-							_offset = _counts_value_read.offset
+							var _pb_counts_value_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+							if _pb_counts_value_read.error != ProtobufError.OK:
+								return _pb_counts_value_read.error
+							_pb_counts_value = _pb_counts_value_read.value
+							_pb_offset = _pb_counts_value_read.offset
 						_:
-							var _counts_skip: SkipRead = Wire.skip_field(_data, _offset, _counts_entry_wire_type)
-							if _counts_skip.error != ProtobufError.OK:
-								return _counts_skip.error
-							_offset = _counts_skip.offset
-				counts[_counts_key] = _counts_value
+							var _pb_counts_skip: SkipRead = Wire.skip_field(_pb_data, _pb_offset, _pb_counts_entry_wire_type)
+							if _pb_counts_skip.error != ProtobufError.OK:
+								return _pb_counts_skip.error
+							_pb_offset = _pb_counts_skip.offset
+				counts[_pb_counts_key] = _pb_counts_value
 			12:
-				if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
+				if _pb_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _payload_text_read: StringRead = Wire.read_string(_data, _offset)
-				if _payload_text_read.error != ProtobufError.OK:
-					return _payload_text_read.error
-				payload = PlayerPayloadCase.Text(_payload_text_read.value)
-				_offset = _payload_text_read.offset
+				var _pb_payload_text_read: StringRead = Wire.read_string(_pb_data, _pb_offset)
+				if _pb_payload_text_read.error != ProtobufError.OK:
+					return _pb_payload_text_read.error
+				payload = PlayerPayloadCase.Text(_pb_payload_text_read.value)
+				_pb_offset = _pb_payload_text_read.offset
 			13:
-				if _wire_type != Wire.WIRE_VARINT:
+				if _pb_wire_type != Wire.WIRE_VARINT:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _payload_amount_read: VarintRead = Wire.decode_varint(_data, _offset)
-				if _payload_amount_read.error != ProtobufError.OK:
-					return _payload_amount_read.error
-				payload = PlayerPayloadCase.Amount(_payload_amount_read.value)
-				_offset = _payload_amount_read.offset
+				var _pb_payload_amount_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+				if _pb_payload_amount_read.error != ProtobufError.OK:
+					return _pb_payload_amount_read.error
+				payload = PlayerPayloadCase.Amount(_pb_payload_amount_read.value)
+				_pb_offset = _pb_payload_amount_read.offset
 			14:
-				if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
+				if _pb_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 					return ProtobufError.WIRE_TYPE_MISMATCH
 				if not (badge is Badge):
 					badge = Badge.new()
-				var _badge_read: SkipRead = Wire.read_message(_data, _offset, badge)
-				if _badge_read.error != ProtobufError.OK:
-					return _badge_read.error
-				_offset = _badge_read.offset
+				var _pb_badge_read: SkipRead = Wire.read_message(_pb_data, _pb_offset, badge)
+				if _pb_badge_read.error != ProtobufError.OK:
+					return _pb_badge_read.error
+				_pb_offset = _pb_badge_read.offset
 			15:
-				if _wire_type != Wire.WIRE_VARINT:
+				if _pb_wire_type != Wire.WIRE_VARINT:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _tier_read: VarintRead = Wire.decode_varint(_data, _offset)
-				if _tier_read.error != ProtobufError.OK:
-					return _tier_read.error
-				var _tier_case: Tier? = Tier.from_wire(_tier_read.value)
-				if _tier_case is Tier:
-					tier = _tier_case
+				var _pb_tier_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+				if _pb_tier_read.error != ProtobufError.OK:
+					return _pb_tier_read.error
+				var _pb_tier_case: Tier? = Tier.from_wire(_pb_tier_read.value)
+				if _pb_tier_case is Tier:
+					tier = _pb_tier_case
 				else:
 					tier = Tier.TIER_UNSPECIFIED
-					_tier_unknown = _data.slice(_offset, _tier_read.offset)
-				_offset = _tier_read.offset
+					_pb_tier_unknown = _pb_data.slice(_pb_offset, _pb_tier_read.offset)
+				_pb_offset = _pb_tier_read.offset
 			16:
-				if _wire_type != Wire.WIRE_LENGTH_DELIMITED:
+				if _pb_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _loadout_length: VarintRead = Wire.read_length(_data, _offset)
-				if _loadout_length.error != ProtobufError.OK:
-					return _loadout_length.error
-				var _loadout_end: int = _loadout_length.offset + _loadout_length.value
-				_offset = _loadout_length.offset
-				var _loadout_key: String = ""
-				var _loadout_value: Slot = Slot.new()
-				while _offset < _loadout_end:
-					var _loadout_entry_tag: VarintRead = Wire.decode_varint(_data, _offset)
-					if _loadout_entry_tag.error != ProtobufError.OK:
-						return _loadout_entry_tag.error
-					_offset = _loadout_entry_tag.offset
-					var _loadout_entry_wire_type: int = Wire.get_wire_type(_loadout_entry_tag.value)
-					match Wire.get_field_number(_loadout_entry_tag.value):
+				var _pb_loadout_length: VarintRead = Wire.read_length(_pb_data, _pb_offset)
+				if _pb_loadout_length.error != ProtobufError.OK:
+					return _pb_loadout_length.error
+				var _pb_loadout_end: int = _pb_loadout_length.offset + _pb_loadout_length.value
+				_pb_offset = _pb_loadout_length.offset
+				var _pb_loadout_key: String = ""
+				var _pb_loadout_value: Slot = Slot.new()
+				while _pb_offset < _pb_loadout_end:
+					var _pb_loadout_entry_tag: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+					if _pb_loadout_entry_tag.error != ProtobufError.OK:
+						return _pb_loadout_entry_tag.error
+					_pb_offset = _pb_loadout_entry_tag.offset
+					var _pb_loadout_entry_wire_type: int = Wire.get_wire_type(_pb_loadout_entry_tag.value)
+					match Wire.get_field_number(_pb_loadout_entry_tag.value):
 						1:
-							if _loadout_entry_wire_type != Wire.WIRE_LENGTH_DELIMITED:
+							if _pb_loadout_entry_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 								return ProtobufError.WIRE_TYPE_MISMATCH
-							var _loadout_key_read: StringRead = Wire.read_string(_data, _offset)
-							if _loadout_key_read.error != ProtobufError.OK:
-								return _loadout_key_read.error
-							_loadout_key = _loadout_key_read.value
-							_offset = _loadout_key_read.offset
+							var _pb_loadout_key_read: StringRead = Wire.read_string(_pb_data, _pb_offset)
+							if _pb_loadout_key_read.error != ProtobufError.OK:
+								return _pb_loadout_key_read.error
+							_pb_loadout_key = _pb_loadout_key_read.value
+							_pb_offset = _pb_loadout_key_read.offset
 						2:
-							if _loadout_entry_wire_type != Wire.WIRE_LENGTH_DELIMITED:
+							if _pb_loadout_entry_wire_type != Wire.WIRE_LENGTH_DELIMITED:
 								return ProtobufError.WIRE_TYPE_MISMATCH
-							var _loadout_value_read: SkipRead = Wire.read_message(_data, _offset, _loadout_value)
-							if _loadout_value_read.error != ProtobufError.OK:
-								return _loadout_value_read.error
-							_offset = _loadout_value_read.offset
+							var _pb_loadout_value_read: SkipRead = Wire.read_message(_pb_data, _pb_offset, _pb_loadout_value)
+							if _pb_loadout_value_read.error != ProtobufError.OK:
+								return _pb_loadout_value_read.error
+							_pb_offset = _pb_loadout_value_read.offset
 						_:
-							var _loadout_skip: SkipRead = Wire.skip_field(_data, _offset, _loadout_entry_wire_type)
-							if _loadout_skip.error != ProtobufError.OK:
-								return _loadout_skip.error
-							_offset = _loadout_skip.offset
-				loadout[_loadout_key] = _loadout_value
+							var _pb_loadout_skip: SkipRead = Wire.skip_field(_pb_data, _pb_offset, _pb_loadout_entry_wire_type)
+							if _pb_loadout_skip.error != ProtobufError.OK:
+								return _pb_loadout_skip.error
+							_pb_offset = _pb_loadout_skip.offset
+				loadout[_pb_loadout_key] = _pb_loadout_value
 			_:
-				var _skipped: SkipRead = Wire.capture_field(_data, _offset, _tag.value, _wire_type, _unknown_fields)
-				if _skipped.error != ProtobufError.OK:
-					return _skipped.error
-				_offset = _skipped.offset
+				var _pb_skipped: SkipRead = Wire.capture_field(_pb_data, _pb_offset, _pb_tag.value, _pb_wire_type, _pb_unknown_fields)
+				if _pb_skipped.error != ProtobufError.OK:
+					return _pb_skipped.error
+				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK

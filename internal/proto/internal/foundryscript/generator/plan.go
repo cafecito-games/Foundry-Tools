@@ -242,9 +242,10 @@ type resolver struct {
 	// namespaces maps a proto source filename to the namespace its types are
 	// generated into.
 	namespaces map[string]string
-	// unnamespaced records dependencies that declare neither a package nor a
-	// namespace option. Their types cannot be named from another file at all,
-	// so a reference to one is reported rather than emitted unresolvable.
+	// unnamespaced records dependencies with no usable namespace, whether they
+	// declare none at all or one that would not parse. Their types cannot be
+	// named from another file, so a reference is reported rather than emitted
+	// as an import that breaks the generated file.
 	unnamespaced map[string]bool
 }
 
@@ -257,7 +258,10 @@ func newResolver(file *protoast.ProtoFile, imports []FileEntry) *resolver {
 	}
 	for i := range imports {
 		namespace := NamespaceFor(imports[i].File)
-		if namespace == "" {
+		// A dependency's namespace is emitted as an import statement, so a
+		// malformed one is a parse error in a file the user did not write.
+		// Treat it as unusable rather than passing it through.
+		if ValidateNamespace(namespace) != nil {
 			resolve.unnamespaced[imports[i].Filename] = true
 			continue
 		}
@@ -437,7 +441,7 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 	// Outside it, the registry's scoped reference is what resolves.
 	if r.unnamespaced[use.SourceFile] {
 		return valuePlan{}, fmt.Errorf(
-			"%s is declared in %s, which has no package or namespace option, so it cannot be referenced from another file",
+			"%s is declared in %s, which has no usable namespace: give it a package or a valid (foundrytools.namespace) option",
 			use.ProtoType, use.SourceFile)
 	}
 	reference := TypeReference(use.ProtoType)
@@ -596,6 +600,9 @@ func planMessage(message *protoast.Message, parentScope string, resolve *resolve
 
 	oneofs := make([]oneofPlan, 0, len(message.Oneofs))
 	for _, oneof := range message.Oneofs {
+		if err := ValidateMemberName(message.Name, "oneof", oneof.Name); err != nil {
+			return messagePlan{}, err
+		}
 		caseType := oneofTypeName(scope, oneof)
 		members := make([]fieldPlan, 0, len(oneof.Fields))
 		for _, field := range oneof.Fields {
@@ -723,7 +730,7 @@ func (v valuePlan) Reference() string {
 }
 
 func planField(field *protoast.Field, messageName, scope string, resolve *resolver) (fieldPlan, error) {
-	if err := ValidateFieldName(messageName, field.Name); err != nil {
+	if err := ValidateMemberName(messageName, "field", field.Name); err != nil {
 		return fieldPlan{}, err
 	}
 	value, err := resolve.valuePlanFor(typeUse{
@@ -755,7 +762,7 @@ func planField(field *protoast.Field, messageName, scope string, resolve *resolv
 }
 
 func planMapField(mapField *protoast.MapField, messageName, scope string, resolve *resolver) (fieldPlan, error) {
-	if err := ValidateFieldName(messageName, mapField.Name); err != nil {
+	if err := ValidateMemberName(messageName, "field", mapField.Name); err != nil {
 		return fieldPlan{}, err
 	}
 	key, err := resolve.valuePlanFor(typeUse{ProtoType: mapField.KeyType}, scope)

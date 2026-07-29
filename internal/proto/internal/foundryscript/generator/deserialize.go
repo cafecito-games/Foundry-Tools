@@ -8,16 +8,16 @@ import (
 )
 
 // The cursor and the tag decoded at the top of every merge_from_bytes loop.
-// Every name the emitter introduces is underscore-prefixed, which is what keeps
-// it from colliding with a field named `offset`, `data` or `result`.
+// Every name the emitter introduces carries generatedPrefix, which is what
+// keeps it clear of a field named `offset`, `data` or `result`.
 const (
-	cursorLocal   = "_offset"
-	tagLocal      = "_tag"
-	wireTypeLocal = "_wire_type"
+	cursorLocal   = generatedPrefix + "offset"
+	tagLocal      = generatedPrefix + "tag"
+	wireTypeLocal = generatedPrefix + "wire_type"
 	// dataParameter is the wire payload merge_from_bytes reads from. It is
-	// underscore-prefixed like every other generated name so a field named
-	// `data` is not shadowed by it inside the function body.
-	dataParameter = "_data"
+	// prefixed like every other generated name so a field named `data` is not
+	// shadowed by it inside the function body.
+	dataParameter = generatedPrefix + "data"
 )
 
 // mergeMode says how a submessage acquires the instance it decodes into.
@@ -53,6 +53,7 @@ type readContext struct {
 }
 
 func mergeFromBytesFunction(plans []fieldPlan) fsast.Func {
+	skipped := localName("skipped")
 	body := []fsast.Node{
 		line(0, "var "+cursorLocal+": int = 0"),
 		line(0, "while "+cursorLocal+" < "+dataParameter+".size():"),
@@ -72,11 +73,11 @@ func mergeFromBytesFunction(plans []fieldPlan) fsast.Func {
 	// passing through this binding.
 	body = append(body,
 		line(2, "_:"),
-		line(3, fmt.Sprintf("var _skipped: SkipRead = Wire.capture_field(%s, %s, %s.value, %s, %s)",
-			dataParameter, cursorLocal, tagLocal, wireTypeLocal, unknownFieldsMember)),
-		line(3, "if _skipped.error != ProtobufError.OK:"),
-		line(4, "return _skipped.error"),
-		line(3, cursorLocal+" = _skipped.offset"),
+		line(3, fmt.Sprintf("var %s: SkipRead = Wire.capture_field(%s, %s, %s.value, %s, %s)",
+			skipped, dataParameter, cursorLocal, tagLocal, wireTypeLocal, unknownFieldsMember)),
+		line(3, fmt.Sprintf("if %s.error != ProtobufError.OK:", skipped)),
+		line(4, "return "+skipped+".error"),
+		line(3, cursorLocal+" = "+skipped+".offset"),
 		fsast.Return{Value: "ProtobufError.OK"},
 	)
 	return fsast.Func{
