@@ -869,3 +869,42 @@ func TestGenerateRejectsCollidingRetentionMembers(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "both map to the member _pick_kind_unknown")
 }
+
+// Two imported namespaces declaring the same short name make it ambiguous even
+// though nothing local competes. Foundry rejects such a reference outright, so
+// both have to be named by their namespace.
+func TestSameNameFromTwoImportedNamespacesIsQualified(t *testing.T) {
+	first := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Messages: []*protoast.Message{{
+			Name:   "Item",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "sku", Number: 1}},
+		}},
+	}
+	second := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.catalog.v1",
+		Messages: []*protoast.Message{{
+			Name:   "Item",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "label", Number: 1}},
+		}},
+	}
+	files, err := Generate(namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"},
+			{FieldType: "Item", Name: "listed", Number: 2, SourceFile: "catalog.proto"},
+		},
+	}}, nil), "player.proto", []FileEntry{
+		{File: first, Filename: "inventory.proto"},
+		{File: second, Filename: "catalog.proto"},
+	})
+	require.NoError(t, err)
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "var held: cafecito.inventory.v1.Item? = null")
+	require.Contains(t, source, "var listed: cafecito.catalog.v1.Item? = null")
+	require.Contains(t, source, "import cafecito.catalog.v1")
+	require.Contains(t, source, "import cafecito.inventory.v1")
+}

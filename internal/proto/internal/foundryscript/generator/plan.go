@@ -267,15 +267,27 @@ func newResolver(file *protoast.ProtoFile, imports []FileEntry) *resolver {
 	return resolve
 }
 
-// shadowedLocally reports whether reference would bind to a local declaration
-// rather than the imported one it names. Only the outermost segment matters --
-// a local `Slot` captures `Slot.Detail` just as surely as it captures `Slot` --
-// and it is resolved the way Foundry resolves it, from scope outward, so a type
-// nested in an enclosing message captures the name just as a top-level one does.
-func (r *resolver) shadowedLocally(scope, reference string) bool {
+// ambiguous reports whether the short spelling of an imported reference would
+// fail to name the declaration it means. Only the outermost segment matters: a
+// competing `Slot` captures `Slot.Detail` just as surely as it captures `Slot`.
+//
+// Two things make it ambiguous. A local declaration captures the name outright,
+// and it is resolved the way Foundry resolves it -- from scope outward -- so a
+// type nested in an enclosing message shadows just as a top-level one does. A
+// second imported namespace declaring the same name is also ambiguous, and
+// Foundry rejects that outright rather than picking one.
+func (r *resolver) ambiguous(scope, reference string) bool {
 	head, _, _ := strings.Cut(reference, ".")
-	_, taken := r.local.resolve(scope, head)
-	return taken
+	if _, shadowed := r.local.resolve(scope, head); shadowed {
+		return true
+	}
+	declaring := 0
+	for _, registry := range r.imported {
+		if _, declares := registry[head]; declares {
+			declaring++
+		}
+	}
+	return declaring > 1
 }
 
 func (r typeRegistry) registerFile(file *protoast.ProtoFile, namespace string) {
@@ -433,12 +445,12 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 		}
 	}
 	// An imported type is named by the short reference the import makes
-	// available, unless a local declaration of the same name would capture it,
-	// in which case only the namespace-qualified spelling is unambiguous.
+	// available, unless something else would answer to that name too, in which
+	// case only the namespace-qualified spelling picks out the declaration.
 	lexical, qualified := reference, info.Reference
 	if info.Namespace != "" {
 		lexical = info.Reference
-		if r.shadowedLocally(scope, info.Reference) {
+		if r.ambiguous(scope, info.Reference) {
 			lexical = info.Namespace + "." + info.Reference
 		}
 		qualified = lexical
