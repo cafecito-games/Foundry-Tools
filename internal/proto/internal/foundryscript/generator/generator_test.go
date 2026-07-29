@@ -1,6 +1,7 @@
 package fsgenerator
 
 import (
+	"strings"
 	"testing"
 
 	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
@@ -72,10 +73,18 @@ func generate(t *testing.T, file *protoast.ProtoFile) GeneratedFiles {
 	return files
 }
 
-func playerSource(t *testing.T, fields []*protoast.Field) string {
+func playerSource(t *testing.T, fields []*protoast.Field, alsoDeclared ...*protoast.Message) string {
 	t.Helper()
-	files := generate(t, namespacedFile([]*protoast.Message{{Name: "Player", Fields: fields}}, nil))
+	messages := append([]*protoast.Message{{Name: "Player", Fields: fields}}, alsoDeclared...)
+	files := generate(t, namespacedFile(messages, nil))
 	return files["cafecito/game/v1/Player.pb.fs"]
+}
+
+func slotMessage() *protoast.Message {
+	return &protoast.Message{
+		Name:   "Slot",
+		Fields: []*protoast.Field{{FieldType: "string", Name: "label", Number: 1}},
+	}
 }
 
 func TestGenerateMessageAndEnumSkeletons(t *testing.T) {
@@ -134,7 +143,7 @@ func TestGenerateEmitsPublicFieldsNotAccessorPairs(t *testing.T) {
 	require.Contains(t, source, "var level: int = 0")
 	require.NotContains(t, source, "func set_name(")
 	require.NotContains(t, source, "func get_name(")
-	require.NotContains(t, source, "var _name")
+	require.NotContains(t, source, "var _name:")
 }
 
 func TestGenerateDecodeFactoryReturnsTuple(t *testing.T) {
@@ -151,18 +160,21 @@ func TestGenerateUsesNamedTupleCarriers(t *testing.T) {
 		{FieldType: "string", Name: "name", Number: 1},
 		{FieldType: "bytes", Name: "avatar", Number: 2},
 	})
-	require.Contains(t, source, "var tag_read: VarintRead = Wire.decode_varint(data, offset)")
-	require.Contains(t, source, "var name_read: StringRead = Wire.decode_string(")
-	require.Contains(t, source, "var avatar_read: BytesRead = Wire.decode_bytes(")
+	require.Contains(t, source, "var _tag: VarintRead = Wire.decode_varint(_data, _offset)")
+	require.Contains(t, source, "var _name_read: StringRead = Wire.read_string(")
+	require.Contains(t, source, "var _avatar_read: BytesRead = Wire.read_bytes(")
 }
 
-// Unknown-field skipping is invariant across every message, so it lives in the
-// runtime rather than being inlined into each binding.
-func TestGenerateDelegatesUnknownFieldSkipToRuntime(t *testing.T) {
+// Handling an unrecognized field is invariant across every message, so it lives
+// in the runtime rather than being inlined into each binding. proto3 requires
+// the bytes to survive a re-encode, so they are captured rather than dropped.
+func TestGenerateDelegatesUnknownFieldCaptureToRuntime(t *testing.T) {
 	source := playerSource(t, []*protoast.Field{{FieldType: "string", Name: "name", Number: 1}})
-	require.Contains(t, source, "var skipped: SkipRead = Wire.skip_field(data, offset, wire_type)")
+	require.Contains(t, source, "var _skipped: SkipRead = Wire.capture_field(_data, _offset, _tag.value, _wire_type, _unknown_fields)")
+	require.Contains(t, source, "var _unknown_fields: PackedByteArray = PackedByteArray()")
+	require.Contains(t, source, "_result.append_array(_unknown_fields)")
 	require.NotContains(t, source, "Wire.WIRE_32BIT:")
-	require.NotContains(t, source, "offset += 8")
+	require.NotContains(t, source, "_offset += 8")
 }
 
 func TestGenerateRepeatedFields(t *testing.T) {
@@ -173,15 +185,15 @@ func TestGenerateRepeatedFields(t *testing.T) {
 
 	require.Contains(t, source, "var tags: Array[String] = []")
 	require.Contains(t, source, "var scores: Array[int] = []")
-	require.Contains(t, source, "for tags_item: String in tags:")
-	require.Contains(t, source, "tags.append(tags_read.value)")
+	require.Contains(t, source, "for _tags_item: String in tags:")
+	require.Contains(t, source, "tags.append(_tags_read.value)")
 
 	// Varint scalars pack; length-delimited ones cannot.
-	require.Contains(t, source, "var scores_data: PackedByteArray = PackedByteArray()")
-	require.Contains(t, source, "for scores_item: int in scores:")
+	require.Contains(t, source, "var _scores_data: PackedByteArray = PackedByteArray()")
+	require.Contains(t, source, "for _scores_item: int in scores:")
 	// A packed field must still decode the unpacked encoding.
-	require.Contains(t, source, "if wire_type == Wire.WIRE_LENGTH_DELIMITED:")
-	require.Contains(t, source, "elif wire_type == Wire.WIRE_VARINT:")
+	require.Contains(t, source, "if _wire_type == Wire.WIRE_LENGTH_DELIMITED:")
+	require.Contains(t, source, "elif _wire_type == Wire.WIRE_VARINT:")
 }
 
 // proto3 explicit presence is the type-level nullable, so an optional string
@@ -204,7 +216,7 @@ func TestGeneratePresenceUsesIsNotNullComparison(t *testing.T) {
 	source := playerSource(t, []*protoast.Field{
 		{FieldType: "string", Name: "nickname", Number: 1, Optional: true},
 		{FieldType: "Slot", Name: "primary", Number: 2},
-	})
+	}, slotMessage())
 	require.NotContains(t, source, "!= null")
 	require.Contains(t, source, "if nickname is String:")
 	require.Contains(t, source, "if primary is Slot:")
@@ -212,15 +224,17 @@ func TestGeneratePresenceUsesIsNotNullComparison(t *testing.T) {
 
 // A message-typed field is a length-delimited submessage, not a varint.
 func TestGenerateMessageTypedFields(t *testing.T) {
-	source := playerSource(t, []*protoast.Field{{FieldType: "Slot", Name: "primary", Number: 1}})
+	source := playerSource(t, []*protoast.Field{{FieldType: "Slot", Name: "primary", Number: 1}}, slotMessage())
 
 	require.Contains(t, source, "var primary: Slot? = null")
 	require.NotContains(t, source, "var primary: Slot = 0")
-	require.Contains(t, source, "var primary_data: PackedByteArray = primary.to_bytes()")
-	// Field 1, wire type 2.
-	require.Contains(t, source, "Wire.encode_varint(10)")
-	require.Contains(t, source, "var primary_message: Slot = Slot.new()")
-	require.Contains(t, source, "merge_from_bytes(data.slice(offset, offset + primary_length.value))")
+	require.Contains(t, source, "var _primary_data: PackedByteArray = primary.to_bytes()")
+	require.Contains(t, source, "Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED))")
+	// A singular message field merges rather than replaces, which protobuf
+	// requires when the same field appears twice in one stream.
+	require.Contains(t, source, "if not (primary is Slot):")
+	require.Contains(t, source, "primary = Slot.new()")
+	require.Contains(t, source, "var _primary_read: SkipRead = Wire.read_message(_data, _offset, primary)")
 }
 
 func TestGenerateEnumFieldsUseHostedWireConversion(t *testing.T) {
@@ -239,14 +253,20 @@ func TestGenerateEnumFieldsUseHostedWireConversion(t *testing.T) {
 	))
 
 	enumSource := files["cafecito/game/v1/PlayerStatus.pb.fs"]
-	require.Contains(t, enumSource, "\tfunc to_wire() -> int:")
-	require.Contains(t, enumSource, "\tstatic func from_wire(value: int) -> PlayerStatus:")
-	require.Contains(t, enumSource, "\t\t\treturn PlayerStatus.PLAYER_STATUS_ONLINE")
+	// Each case is declared with its wire number, so the conversion out is a cast.
+	require.Contains(t, enumSource, "\tfunc to_wire() -> int:\n\t\treturn self as int\n")
+	// Self is what resolves to the namespaced enum from inside its own body.
+	require.Contains(t, enumSource, "\tstatic func from_wire(value: int) -> Self?:")
+	require.Contains(t, enumSource, "\t\t\t\treturn PlayerStatus.PLAYER_STATUS_ONLINE")
+	// An open enum reports an unrecognized value rather than folding it to zero.
+	require.Contains(t, enumSource, "\t\t\t_:\n\t\t\t\treturn null\n")
 
 	messageSource := files["cafecito/game/v1/Player.pb.fs"]
 	require.Contains(t, messageSource, "var status: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED")
 	require.Contains(t, messageSource, "Wire.encode_varint(status.to_wire())")
-	require.Contains(t, messageSource, "status = PlayerStatus.from_wire(status_read.value)")
+	require.Contains(t, messageSource, "var _status_case: PlayerStatus? = PlayerStatus.from_wire(_status_read.value)")
+	// An unrecognized value is kept verbatim rather than destroyed.
+	require.Contains(t, messageSource, "_unknown_fields.append_array(_data.slice(_offset, _status_read.offset))")
 }
 
 func TestGenerateMapFields(t *testing.T) {
@@ -262,11 +282,11 @@ func TestGenerateMapFields(t *testing.T) {
 	source := files["cafecito/game/v1/Player.pb.fs"]
 
 	require.Contains(t, source, "var counts: Dictionary[String, int] = {}")
-	require.Contains(t, source, "for counts_key: String in counts:")
+	require.Contains(t, source, "for _counts_key: String in counts:")
 	// A map entry is a submessage of key = 1, value = 2.
-	require.Contains(t, source, "counts_entry.append_array(Wire.encode_varint(10))")
-	require.Contains(t, source, "counts_entry.append_array(Wire.encode_varint(16))")
-	require.Contains(t, source, "counts[counts_key] = counts_value")
+	require.Contains(t, source, "_counts_entry.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)))")
+	require.Contains(t, source, "_counts_entry.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_VARINT)))")
+	require.Contains(t, source, "counts[_counts_key] = _counts_value")
 }
 
 // A oneof becomes a tagged union, which makes "two cases set at once"
@@ -291,8 +311,8 @@ func TestGenerateOneofAsTaggedUnion(t *testing.T) {
 	source := files["cafecito/game/v1/Player.pb.fs"]
 	require.Contains(t, source, "var payload: PlayerPayloadCase? = null")
 	require.Contains(t, source, "match payload:")
-	require.Contains(t, source, "PlayerPayloadCase.Text(var text):")
-	require.Contains(t, source, "payload = PlayerPayloadCase.Amount(amount_read.value)")
+	require.Contains(t, source, "PlayerPayloadCase.Text(var _payload_text):")
+	require.Contains(t, source, "payload = PlayerPayloadCase.Amount(_payload_amount_read.value)")
 	// No separate per-case fields and no which_case discriminator.
 	require.NotContains(t, source, "var text: String")
 	require.NotContains(t, source, "which_case")
@@ -334,7 +354,7 @@ func TestGenerateNestedTypes(t *testing.T) {
 	require.Len(t, files, 1)
 	source := files["cafecito/game/v1/Player.pb.fs"]
 
-	require.Contains(t, source, "class Badge extends RefCounted uses Message:")
+	require.Contains(t, source, "final class Badge extends RefCounted uses Message:")
 	require.Contains(t, source, "enum Tier:")
 	require.Contains(t, source, "var badge: Badge? = null")
 	require.Contains(t, source, "var tier: Tier = Tier.TIER_UNSPECIFIED")
@@ -441,4 +461,179 @@ func TestGeneratePrefersSchemaDocs(t *testing.T) {
 	require.Contains(t, enumSource, "## Schema-authored status docs.\nenum_name PlayerStatus")
 	require.Contains(t, enumSource, "\t## Unknown status.\n\tPLAYER_STATUS_UNSPECIFIED = 0\n")
 	require.NotContains(t, enumSource, "Generated protobuf enum binding for PlayerStatus.")
+}
+
+// A field name that is a Foundry Script keyword cannot be emitted verbatim, and
+// one that matches an emitter local must not be able to capture it.
+func TestGenerateEscapesCollidingFieldNames(t *testing.T) {
+	source := playerSource(t, []*protoast.Field{
+		{FieldType: "int32", Name: "var", Number: 1},
+		{FieldType: "int32", Name: "offset", Number: 2},
+		{FieldType: "string", Name: "data", Number: 3},
+		{FieldType: "bytes", Name: "result", Number: 4},
+	})
+
+	require.Contains(t, source, "var var_: int = 0")
+	// A name that is merely awkward stays readable; only keywords are renamed.
+	require.Contains(t, source, "var offset: int = 0")
+	require.Contains(t, source, "var data: String = \"\"")
+	require.Contains(t, source, "var result: PackedByteArray = PackedByteArray()")
+
+	// Every emitter-introduced name is underscore-prefixed, so none of the
+	// fields above is shadowed by the code that decodes it.
+	require.Contains(t, source, "func merge_from_bytes(_data: PackedByteArray) -> ProtobufError:")
+	require.Contains(t, source, "var _offset: int = 0")
+	require.Contains(t, source, "offset = _offset_read.value")
+	require.Contains(t, source, "data = _data_read.value")
+	require.NotContains(t, source, "var offset: int = 0\n\twhile")
+}
+
+// A leading underscore is outside the protobuf identifier grammar and is the one
+// spelling that could still collide with a generated name.
+func TestGenerateRejectsLeadingUnderscoreFieldNames(t *testing.T) {
+	_, err := Generate(namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "int32", Name: "_offset", Number: 1}},
+	}}, nil), "player.proto", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "leading underscore is reserved")
+}
+
+// The union is hoisted to file level, so a payload declared in another message
+// has to be named by its scoped reference rather than lexically.
+func TestOneofPayloadUsesScopedReference(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{
+		{
+			Name: "Player",
+			Oneofs: []*protoast.Oneof{{
+				Name:   "payload",
+				Fields: []*protoast.Field{{FieldType: "Slot.Detail", Name: "detail", Number: 1}},
+			}},
+		},
+		{
+			Name: "Slot",
+			NestedMessages: []*protoast.Message{{
+				Name:   "Detail",
+				Fields: []*protoast.Field{{FieldType: "string", Name: "note", Number: 1}},
+			}},
+		},
+	}, nil))
+
+	require.Contains(t, files["cafecito/game/v1/PlayerPayloadCase.pb.fs"], "\tDetail(detail: Slot.Detail)\n")
+	// Inside the class the lexical spelling is still what Foundry resolves.
+	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var _payload_detail_message: Slot.Detail = Slot.Detail.new()")
+}
+
+// The hoisted union cannot name a type nested in the class that owns the oneof:
+// the class needs the union to declare its member and the union needs the class
+// to reach the nested type, and Foundry cannot break that cycle for a class that
+// conforms to a trait. Failing loudly beats emitting a file that will not parse.
+func TestOneofRejectsPayloadNestedInDeclaringMessage(t *testing.T) {
+	_, err := Generate(namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		NestedMessages: []*protoast.Message{{
+			Name:   "Badge",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "code", Number: 1}},
+		}},
+		Oneofs: []*protoast.Oneof{{
+			Name:   "payload",
+			Fields: []*protoast.Field{{FieldType: "Badge", Name: "badge", Number: 1}},
+		}},
+	}}, nil), "player.proto", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot carry a type nested in the message that declares it")
+}
+
+// A oneof may still carry the top-level message it is declared in; only a type
+// nested inside it closes the cycle.
+func TestOneofAcceptsSiblingMessagePayload(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{
+		{
+			Name: "Player",
+			Oneofs: []*protoast.Oneof{{
+				Name:   "payload",
+				Fields: []*protoast.Field{{FieldType: "Slot", Name: "slot", Number: 1}},
+			}},
+		},
+		slotMessage(),
+	}, nil))
+	require.Contains(t, files["cafecito/game/v1/PlayerPayloadCase.pb.fs"], "\tSlot(slot: Slot)\n")
+}
+
+// An allow_alias enum declares one number twice; the second match arm would be
+// unreachable.
+func TestEnumFromWireDedupesAliasedNumbers(t *testing.T) {
+	files := generate(t, namespacedFile(nil, []*protoast.Enum{{
+		Name: "Tier",
+		Values: []*protoast.EnumValue{
+			{Name: "TIER_UNSPECIFIED", Number: 0},
+			{Name: "TIER_GOLD", Number: 1},
+			{Name: "TIER_PREMIUM", Number: 1},
+		},
+	}}))
+	source := files["cafecito/game/v1/Tier.pb.fs"]
+
+	require.Contains(t, source, "\t\t\treturn Tier.TIER_GOLD")
+	require.NotContains(t, source, "return Tier.TIER_PREMIUM")
+}
+
+// Records go out in field-number order, oneofs included, so a hexdump reads
+// against the schema.
+func TestSerializeWritesFieldsInNumberOrder(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "string", Name: "name", Number: 1},
+			{FieldType: "int32", Name: "level", Number: 9},
+		},
+		Oneofs: []*protoast.Oneof{{
+			Name:   "payload",
+			Fields: []*protoast.Field{{FieldType: "int32", Name: "amount", Number: 5}},
+		}},
+	}}, nil))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	nameAt := strings.Index(source, "if name != \"\":")
+	oneofAt := strings.Index(source, "match payload:")
+	levelAt := strings.Index(source, "if level != 0:")
+	require.Positive(t, nameAt)
+	require.Greater(t, oneofAt, nameAt)
+	require.Greater(t, levelAt, oneofAt)
+}
+
+// A type from another proto file resolves to its own namespace, which the
+// generated file has to import and, for an enum, take its default from.
+func TestCrossFileReferencesImportTheirNamespace(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Enums: []*protoast.Enum{{
+			Name: "Rarity",
+			Values: []*protoast.EnumValue{
+				{Name: "RARITY_UNSPECIFIED", Number: 0},
+				{Name: "RARITY_COMMON", Number: 1},
+			},
+		}},
+		Messages: []*protoast.Message{{
+			Name:   "Item",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "sku", Number: 1}},
+		}},
+	}
+	files, err := Generate(namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"},
+			{FieldType: "Rarity", Name: "rarity", Number: 2, IsEnum: true, SourceFile: "inventory.proto"},
+		},
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	require.NoError(t, err)
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "import cafecito.inventory.v1")
+	require.Contains(t, source, "var held: Item? = null")
+	// The zero case comes from the imported declaration; guessing it is what
+	// used to emit an unparseable `Rarity.`.
+	require.Contains(t, source, "var rarity: Rarity = Rarity.RARITY_UNSPECIFIED")
+	// Only the message being generated is emitted; the import is someone else's.
+	require.NotContains(t, files, "cafecito/inventory/v1/Item.pb.fs")
 }

@@ -54,6 +54,52 @@ static func decode_bytes(data: PackedByteArray, offset: int, length: int) -> Byt
 		return BytesRead(PackedByteArray(), offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
 	return BytesRead(data.slice(offset, offset + length), offset + length, ProtobufError.OK)
 
+## Reads a length prefix and bounds-checks the payload it announces. The
+## returned value is the payload length and the returned offset is where the
+## payload starts, so every length-delimited read shares one bounds policy.
+static func read_length(data: PackedByteArray, offset: int) -> VarintRead:
+	var length: VarintRead = decode_varint(data, offset)
+	if length.error != ProtobufError.OK:
+		return VarintRead(0, offset, length.error)
+	if length.value < 0 or length.offset + length.value > data.size():
+		return VarintRead(0, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
+	return length
+
+## Reads a length-prefixed string field, prefix and payload together.
+static func read_string(data: PackedByteArray, offset: int) -> StringRead:
+	var length: VarintRead = read_length(data, offset)
+	if length.error != ProtobufError.OK:
+		return StringRead("", offset, length.error)
+	return decode_string(data, length.offset, length.value)
+
+## Reads a length-prefixed bytes field, prefix and payload together.
+static func read_bytes(data: PackedByteArray, offset: int) -> BytesRead:
+	var length: VarintRead = read_length(data, offset)
+	if length.error != ProtobufError.OK:
+		return BytesRead(PackedByteArray(), offset, length.error)
+	return decode_bytes(data, length.offset, length.value)
+
+## Merges a length-prefixed submessage into target and reports the new offset.
+## Merging rather than replacing is what protobuf requires when a singular
+## message field appears more than once in the same stream.
+static func read_message(data: PackedByteArray, offset: int, target: Message) -> SkipRead:
+	var length: VarintRead = read_length(data, offset)
+	if length.error != ProtobufError.OK:
+		return SkipRead(offset, length.error)
+	var end: int = length.offset + length.value
+	return SkipRead(end, target.merge_from_bytes(data.slice(length.offset, end)))
+
+## Copies one unrecognized field, tag included, into sink and advances past it.
+## proto3 requires unknown fields to survive a decode/re-encode round trip, so
+## a peer on a newer schema does not lose data passing through an older binding.
+static func capture_field(data: PackedByteArray, offset: int, tag: int, wire_type: int, sink: PackedByteArray) -> SkipRead:
+	var skipped: SkipRead = skip_field(data, offset, wire_type)
+	if skipped.error != ProtobufError.OK:
+		return skipped
+	sink.append_array(encode_varint(tag))
+	sink.append_array(data.slice(offset, skipped.offset))
+	return skipped
+
 ## Advances past one unknown field of wire_type and returns the new offset.
 ## Every generated binding shares this, so the skip policy lives in one place.
 static func skip_field(data: PackedByteArray, offset: int, wire_type: int) -> SkipRead:

@@ -17,7 +17,7 @@ type FileEntry struct {
 }
 
 // Generate renders top-level message and enum skeletons for a proto file.
-func Generate(file *protoast.ProtoFile, sourceName string, _ []FileEntry) (GeneratedFiles, error) {
+func Generate(file *protoast.ProtoFile, sourceName string, imports []FileEntry) (GeneratedFiles, error) {
 	_ = sourceName
 
 	namespace := NamespaceFor(file)
@@ -30,7 +30,7 @@ func Generate(file *protoast.ProtoFile, sourceName string, _ []FileEntry) (Gener
 		return files, nil
 	}
 
-	enums := collectEnums(file)
+	resolve := newResolver(file, imports)
 
 	for _, enum := range file.Enums {
 		typeName := TypeName(enum.Name)
@@ -40,8 +40,11 @@ func Generate(file *protoast.ProtoFile, sourceName string, _ []FileEntry) (Gener
 		if err := validateWireFields(message); err != nil {
 			return nil, err
 		}
-		plan := planMessage(message, "", enums)
-		source := renderMessage(namespace, &plan, enums)
+		plan, err := planMessage(message, "", resolve)
+		if err != nil {
+			return nil, err
+		}
+		source := renderMessage(namespace, &plan)
 		if err := CheckPublicAPI(source); err != nil {
 			return nil, err
 		}
@@ -69,6 +72,7 @@ func collectOneofs(plan *messagePlan) []oneofPlan {
 func renderOneofUnion(namespace string, oneof *oneofPlan) string {
 	return fsast.File{
 		Namespace:    namespace,
+		Imports:      oneof.Namespaces(),
 		Declarations: []fsast.Node{oneofUnion(oneof)},
 	}.Render()
 }
@@ -145,7 +149,7 @@ func toWireDoc() []string {
 }
 
 func fromWireDoc() []string {
-	return []string{"Returns the case for a protobuf wire value, tolerating unknown values."}
+	return []string{"Returns the case for a protobuf wire value, or null if it names none."}
 }
 
 func fromBytesDoc(typeName string) []string {
@@ -211,28 +215,29 @@ func enumDeclaration(typeName string, enum *protoast.Enum, inner bool) fsast.Enu
 }
 
 func enumWireFunctions(typeName string, enum *protoast.Enum) []fsast.Node {
-	zero := zeroValueName(enum)
-	if zero == "" {
+	if zeroValueName(enum) == "" {
 		return nil
 	}
 
-	toWire := []fsast.Node{line(0, "match self:")}
+	// Each case is declared with its own wire number, so the conversion out is
+	// the cast and a match table could only ever drift from the constants.
+	toWire := []fsast.Node{line(0, "return self as int")}
+
 	fromWire := []fsast.Node{line(0, "match value:")}
+	emitted := map[int]bool{}
 	for _, value := range enum.Values {
-		if value.Number == 0 {
+		// An allow_alias enum declares the same number twice; the second arm
+		// would be dead, so the first declared spelling wins.
+		if emitted[value.Number] {
 			continue
 		}
-		toWire = append(toWire,
-			line(1, typeName+"."+value.Name+":"),
-			line(2, "return "+strconv.Itoa(value.Number)),
-		)
+		emitted[value.Number] = true
 		fromWire = append(fromWire,
 			line(1, strconv.Itoa(value.Number)+":"),
 			line(2, "return "+typeName+"."+value.Name),
 		)
 	}
-	toWire = append(toWire, line(1, "_:"), line(2, "return 0"))
-	fromWire = append(fromWire, line(1, "_:"), line(2, "return "+typeName+"."+zero))
+	fromWire = append(fromWire, line(1, "_:"), line(2, "return null"))
 
 	return []fsast.Node{
 		fsast.Func{
@@ -246,33 +251,55 @@ func enumWireFunctions(typeName string, enum *protoast.Enum) []fsast.Node {
 			Static:     true,
 			Name:       "from_wire",
 			Parameters: []fsast.Parameter{{Name: "value", Type: fstypes.Named("int")}},
-			ReturnType: fstypes.Named(typeName),
+			// Self is the spelling that resolves to the namespaced enum from
+			// inside its own body; the bare name does not unify with it in
+			// every position, notably a tagged-union case argument.
+			ReturnType: fstypes.Nullable(fstypes.Named("Self")),
 			Body:       fromWire,
 		},
 	}
 }
 
+// unknownFieldsMemberDeclaration is the buffer every message keeps unrecognized
+// fields in.
+func unknownFieldsMemberDeclaration() fsast.Node {
+	return fsast.Doc{
+		Lines: []string{"Fields this schema does not recognize, kept verbatim so a re-encode is lossless."},
+		Node: fsast.Var{
+			Name:  unknownFieldsMember,
+			Type:  fstypes.Named("PackedByteArray"),
+			Value: "PackedByteArray()",
+		},
+	}
+}
+
 func zeroValueName(enum *protoast.Enum) string {
-	for _, value := range enum.Values {
+	return zeroValueNameOf(enum.Values)
+}
+
+// zeroValueNameOf is the case a proto3 enum defaults to: the one numbered zero,
+// which proto3 requires to be declared first.
+func zeroValueNameOf(values []*protoast.EnumValue) string {
+	for _, value := range values {
 		if value.Number == 0 {
 			return value.Name
 		}
 	}
-	if len(enum.Values) > 0 {
-		return enum.Values[0].Name
+	if len(values) > 0 {
+		return values[0].Name
 	}
 	return ""
 }
 
-func renderMessage(namespace string, plan *messagePlan, enums enumRegistry) string {
+func renderMessage(namespace string, plan *messagePlan) string {
 	return fsast.File{
 		Namespace:    namespace,
-		Imports:      []string{"foundry.proto"},
-		Declarations: []fsast.Node{messageClass(plan, enums, false)},
+		Imports:      append([]string{"foundry.proto"}, plan.Namespaces()...),
+		Declarations: []fsast.Node{messageClass(plan, false)},
 	}.Render()
 }
 
-func messageClass(plan *messagePlan, enums enumRegistry, inner bool) fsast.Class {
+func messageClass(plan *messagePlan, inner bool) fsast.Class {
 	members := make([]fsast.Node, 0, len(plan.Fields)+len(plan.Oneofs)*2+4)
 
 	// Nested types are declared before the members that reference them.
@@ -280,7 +307,7 @@ func messageClass(plan *messagePlan, enums enumRegistry, inner bool) fsast.Class
 		members = append(members, enumDeclaration(TypeName(nested.Name), nested, true))
 	}
 	for i := range plan.Nested {
-		members = append(members, messageClass(&plan.Nested[i], enums, true))
+		members = append(members, messageClass(&plan.Nested[i], true))
 	}
 	for i := range plan.Fields {
 		if plan.Fields[i].OneofCase != "" {
@@ -291,17 +318,18 @@ func messageClass(plan *messagePlan, enums enumRegistry, inner bool) fsast.Class
 	for i := range plan.Oneofs {
 		members = append(members, oneofMember(&plan.Oneofs[i]))
 	}
-
 	members = append(members,
+		unknownFieldsMemberDeclaration(),
 		fromBytesFactory(plan.Name),
 		toBytesFunction(plan.Fields, plan.Oneofs),
 		mergeFromBytesFunction(plan.Fields),
 	)
 
 	return fsast.Class{
-		Doc:     messageDoc(plan.Name, plan.Doc),
-		Inner:   inner,
-		Final:   !inner,
+		Doc:   messageDoc(plan.Name, plan.Doc),
+		Inner: inner,
+		// A nested binding is as much a leaf as a top-level one.
+		Final:   true,
 		Name:    plan.Name,
 		Extends: "RefCounted",
 		Uses:    []string{"Message"},

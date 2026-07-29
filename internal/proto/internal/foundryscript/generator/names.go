@@ -12,6 +12,10 @@ import (
 const namespaceOptionKey = "(foundrytools.namespace)"
 const typePrefixOptionKey = "(foundrytools.type_prefix)"
 
+// unknownFieldsMember holds the raw bytes of fields the schema did not
+// recognize, so re-encoding a message decoded from a newer peer is lossless.
+const unknownFieldsMember = "_unknown_fields"
+
 // Reserved for later generator stages that apply file-level type prefixes.
 var _ = typePrefixOptionKey
 
@@ -75,4 +79,58 @@ func escapeIdentifier(name string) string {
 	default:
 		return name
 	}
+}
+
+// reservedFieldNames are the Foundry Script keywords that cannot appear after
+// `var`, so a proto field carrying one of these names has to be renamed rather
+// than emitted verbatim. Verified against the analyzer one word at a time;
+// contextual keywords such as `match`, `uses`, `case` and `emit` are legal
+// identifiers and are deliberately absent.
+var reservedFieldNames = map[string]bool{
+	"abstract": true, "and": true, "as": true, "assert": true, "await": true,
+	"break": true, "breakpoint": true, "class": true, "const": true,
+	"continue": true, "elif": true, "else": true, "enum": true, "extends": true,
+	"false": true, "final": true, "for": true, "func": true, "if": true,
+	"import": true, "in": true, "is": true, "namespace": true, "not": true,
+	"null": true, "or": true, "pass": true, "return": true, "self": true,
+	"signal": true, "static": true, "super": true, "trait": true, "true": true,
+	"tuple": true, "var": true, "void": true, "while": true, "yield": true,
+}
+
+// generatedMemberNames are the members every message binding declares. A proto
+// field with one of these names would replace the generated member rather than
+// sit beside it, so it is renamed for the same reason a keyword is.
+var generatedMemberNames = map[string]bool{
+	"from_bytes": true, "to_bytes": true, "merge_from_bytes": true,
+	unknownFieldsMember: true,
+}
+
+// FieldName converts a proto field name to the member name it is emitted as.
+// Proto field names are otherwise passed through unchanged: they are the
+// binding's public API, and mangling them would break every caller.
+func FieldName(name string) string {
+	if reservedFieldNames[name] || generatedMemberNames[name] {
+		return name + "_"
+	}
+	return name
+}
+
+// localName is the name of a variable the emitter introduces inside a generated
+// function body. Every one of them is underscore-prefixed, which is what keeps
+// them from colliding with a field named `offset`, `data` or `result`: proto
+// field names cannot start with an underscore, and ValidateFieldName enforces
+// that for the inputs this tool's own parser is laxer about than the spec.
+func localName(parts ...string) string {
+	return "_" + strings.Join(parts, "_")
+}
+
+// ValidateFieldName rejects the proto field names the emitter cannot represent.
+// A leading underscore is outside the protobuf identifier grammar and is the
+// one spelling that could collide with a generated local, so it is refused
+// rather than silently renamed.
+func ValidateFieldName(messageName, fieldName string) error {
+	if strings.HasPrefix(fieldName, "_") {
+		return fmt.Errorf("field %s.%s: a leading underscore is reserved for generated members", messageName, fieldName)
+	}
+	return nil
 }

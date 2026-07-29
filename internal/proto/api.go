@@ -34,6 +34,18 @@ func ParseFiles(filenames, importRoots []string) ([]ParsedFile, error) {
 	return protoparse.ParseFiles(filenames, importRoots)
 }
 
+// ImportsOf converts a parsed file's resolved imports into generator entries.
+func ImportsOf(parsed ParsedFile) []FileEntry {
+	entries := make([]FileEntry, 0, len(parsed.Imports))
+	for i := range parsed.Imports {
+		entries = append(entries, FileEntry{
+			File:     parsed.Imports[i].File,
+			Filename: parsed.Imports[i].Filename,
+		})
+	}
+	return entries
+}
+
 // Validate performs semantic validation on file.
 func Validate(file *File, filename string) []ValidationError {
 	return protovalidate.Validate(file, filename)

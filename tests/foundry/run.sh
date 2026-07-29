@@ -24,7 +24,8 @@ mkdir -p "$OUT"
 "$ROOT/bin/anvil" proto generate \
   -I "$ROOT/tests/integration/fixtures/basic" \
   -o "$OUT" \
-  "$ROOT/tests/integration/fixtures/basic/player.proto"
+  "$ROOT/tests/integration/fixtures/basic/player.proto" \
+  "$ROOT/tests/integration/fixtures/basic/inventory.proto"
 
 if grep -R -n -E -e '(^|[^_])func [A-Za-z0-9_]+\(.*Variant|-> Variant' "$OUT"; then
   echo "public Variant signature found in generated Foundry Script"

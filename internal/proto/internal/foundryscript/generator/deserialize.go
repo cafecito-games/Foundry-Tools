@@ -7,34 +7,82 @@ import (
 	fstypes "github.com/cafecito-games/foundry-tools/internal/proto/internal/foundryscript/types"
 )
 
+// The cursor and the tag decoded at the top of every merge_from_bytes loop.
+// Every name the emitter introduces is underscore-prefixed, which is what keeps
+// it from colliding with a field named `offset`, `data` or `result`.
+const (
+	cursorLocal   = "_offset"
+	tagLocal      = "_tag"
+	wireTypeLocal = "_wire_type"
+	// dataParameter is the wire payload merge_from_bytes reads from. It is
+	// underscore-prefixed like every other generated name so a field named
+	// `data` is not shadowed by it inside the function body.
+	dataParameter = "_data"
+)
+
+// mergeMode says how a submessage acquires the instance it decodes into.
+type mergeMode int
+
+const (
+	// mergeFresh builds a new instance and hands it to the assignment. This is
+	// right for a repeated element, a oneof case, or any value that replaces
+	// rather than accumulates.
+	mergeFresh mergeMode = iota
+	// mergeInto merges into an instance the surrounding code already holds.
+	mergeInto
+	// mergeMember merges into the message-typed member itself, instantiating it
+	// first if it is still null. protobuf requires a singular message field to
+	// merge, not replace, when it appears more than once in the same stream.
+	mergeMember
+)
+
+// readContext is everything a value decode needs beyond the value itself: where
+// to put the result, how a submessage gets its instance, and what to do with a
+// wire value the schema has no enum case for.
+type readContext struct {
+	// local is the stem for the temporaries this decode introduces.
+	local string
+	// assign stores one decoded value.
+	assign func(expression string) string
+	mode   mergeMode
+	// target is the instance to merge into for mergeInto and mergeMember.
+	target string
+	// retainUnknownEnum emits the statements that preserve an unrecognized enum
+	// value spanning data[from:to].
+	retainUnknownEnum func(depth int, from, to string) []fsast.Node
+}
+
 func mergeFromBytesFunction(plans []fieldPlan) fsast.Func {
 	body := []fsast.Node{
-		line(0, "var offset: int = 0"),
-		line(0, "while offset < data.size():"),
-		line(1, "var tag_read: VarintRead = Wire.decode_varint(data, offset)"),
-		line(1, "if tag_read.error != ProtobufError.OK:"),
-		line(2, "return tag_read.error"),
-		line(1, "offset = tag_read.offset"),
-		line(1, "var wire_type: int = Wire.get_wire_type(tag_read.value)"),
-		line(1, "match Wire.get_field_number(tag_read.value):"),
+		line(0, "var "+cursorLocal+": int = 0"),
+		line(0, "while "+cursorLocal+" < "+dataParameter+".size():"),
+		line(1, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(%s, %s)", tagLocal, dataParameter, cursorLocal)),
+		line(1, fmt.Sprintf("if %s.error != ProtobufError.OK:", tagLocal)),
+		line(2, "return "+tagLocal+".error"),
+		line(1, fmt.Sprintf("%s = %s.offset", cursorLocal, tagLocal)),
+		line(1, fmt.Sprintf("var %s: int = Wire.get_wire_type(%s.value)", wireTypeLocal, tagLocal)),
+		line(1, fmt.Sprintf("match Wire.get_field_number(%s.value):", tagLocal)),
 	}
 	for i := range plans {
 		body = append(body, line(2, fmt.Sprintf("%d:", plans[i].Number)))
 		body = append(body, deserializeField(&plans[i])...)
 	}
-	// Unknown fields must be tolerated; the skip policy lives in the runtime.
+	// An unknown field is kept, not just skipped: proto3 requires it to survive
+	// a decode/re-encode round trip so a peer on a newer schema loses nothing
+	// passing through this binding.
 	body = append(body,
 		line(2, "_:"),
-		line(3, "var skipped: SkipRead = Wire.skip_field(data, offset, wire_type)"),
-		line(3, "if skipped.error != ProtobufError.OK:"),
-		line(4, "return skipped.error"),
-		line(3, "offset = skipped.offset"),
+		line(3, fmt.Sprintf("var _skipped: SkipRead = Wire.capture_field(%s, %s, %s.value, %s, %s)",
+			dataParameter, cursorLocal, tagLocal, wireTypeLocal, unknownFieldsMember)),
+		line(3, "if _skipped.error != ProtobufError.OK:"),
+		line(4, "return _skipped.error"),
+		line(3, cursorLocal+" = _skipped.offset"),
 		fsast.Return{Value: "ProtobufError.OK"},
 	)
 	return fsast.Func{
 		Doc:        mergeFromBytesDoc(),
 		Name:       "merge_from_bytes",
-		Parameters: []fsast.Parameter{{Name: "data", Type: fstypes.Named("PackedByteArray")}},
+		Parameters: []fsast.Parameter{{Name: dataParameter, Type: fstypes.Named("PackedByteArray")}},
 		ReturnType: fstypes.Named("ProtobufError"),
 		Body:       body,
 	}
@@ -47,170 +95,279 @@ func deserializeField(plan *fieldPlan) []fsast.Node {
 	case plan.Cardinality == cardinalityRepeated && plan.Packed:
 		return deserializePackedRepeated(plan)
 	default:
-		return decodeValue(3, plan.Value, plan.Name, assignmentFor(plan))
+		return decodeValue(3, plan.Value, fieldContext(plan))
 	}
 }
 
-// assignmentFor builds the statement that stores one decoded value, which is
-// the only thing that differs between a scalar field, a repeated element, and
-// a oneof case.
-func assignmentFor(plan *fieldPlan) func(expression string) string {
+// fieldContext is how a whole field stores what it decodes, which is the only
+// thing that differs between a singular field, a repeated element, and a oneof
+// case.
+func fieldContext(plan *fieldPlan) readContext {
+	context := readContext{
+		local:             plan.Local(),
+		retainUnknownEnum: retainUnknownEnumAt(plan.Number),
+	}
 	switch {
 	case plan.OneofCase != "":
-		return func(expression string) string {
+		context.assign = func(expression string) string {
 			return fmt.Sprintf("%s = %s(%s)", plan.OneofField, plan.OneofCase, expression)
 		}
 	case plan.Cardinality == cardinalityRepeated:
-		return func(expression string) string {
+		context.assign = func(expression string) string {
 			return fmt.Sprintf("%s.append(%s)", plan.Name, expression)
 		}
 	default:
-		return func(expression string) string {
+		context.assign = func(expression string) string {
 			return fmt.Sprintf("%s = %s", plan.Name, expression)
+		}
+		if plan.Value.Kind == kindMessage {
+			context.mode = mergeMember
+			context.target = plan.Name
+		}
+	}
+	return context
+}
+
+// retainUnknownEnumAt copies the original bytes of an unrecognized enum value
+// into the unknown-field buffer, re-tagged as its own varint record. Writing it
+// unpacked is legal for a packed field too, so one form covers every
+// cardinality an enum can have.
+func retainUnknownEnumAt(number int) func(int, string, string) []fsast.Node {
+	return func(depth int, from, to string) []fsast.Node {
+		return []fsast.Node{
+			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))",
+				unknownFieldsMember, tagExpression(number, wireVarint))),
+			line(depth, fmt.Sprintf("%s.append_array(%s.slice(%s, %s))", unknownFieldsMember, dataParameter, from, to)),
 		}
 	}
 }
 
 // decodeValue emits the wire-type guard, the read, and the store for one value.
-func decodeValue(depth int, value valuePlan, name string, assign func(string) string) []fsast.Node {
+func decodeValue(depth int, value valuePlan, context readContext) []fsast.Node {
 	nodes := []fsast.Node{
-		line(depth, fmt.Sprintf("if wire_type != %s:", wireTypeConstant(value.WireType))),
+		line(depth, fmt.Sprintf("if %s != %s:", wireTypeLocal, wireTypeConstant(value.WireType))),
 		line(depth+1, "return ProtobufError.WIRE_TYPE_MISMATCH"),
 	}
-	return append(nodes, readValue(depth, value, name, assign, "wire_type")...)
+	return append(nodes, readValue(depth, value, context)...)
 }
 
 // readValue emits the read and store for one value, without the wire-type
 // guard, so map entries and repeated elements can reuse it.
-func readValue(depth int, value valuePlan, name string, assign func(string) string, _ string) []fsast.Node {
+func readValue(depth int, value valuePlan, context readContext) []fsast.Node {
+	read := context.local + "_read"
 	switch {
 	case value.Kind == kindMessage:
-		length := name + "_length"
-		message := name + "_message"
-		errorName := name + "_error"
-		nodes := lengthPrefix(depth, length)
-		return append(nodes,
-			line(depth, fmt.Sprintf("var %s: %s = %s.new()", message, value.Type.Render(), value.Type.Render())),
-			line(depth, fmt.Sprintf("var %s: ProtobufError = %s.merge_from_bytes(data.slice(offset, offset + %s.value))", errorName, message, length)),
-			line(depth, fmt.Sprintf("if %s != ProtobufError.OK:", errorName)),
-			line(depth+1, "return "+errorName),
-			line(depth, assign(message)),
-			line(depth, fmt.Sprintf("offset += %s.value", length)),
-		)
+		return readMessageValue(depth, value, context, read)
+	case value.Kind == kindEnum:
+		return readEnumValue(depth, value, context, read)
 	case value.ProtoType == "string", value.ProtoType == "bytes":
-		length := name + "_length"
-		read := name + "_read"
-		carrier, decoder := "StringRead", "decode_string"
+		carrier, reader := "StringRead", "read_string"
 		if value.ProtoType == "bytes" {
-			carrier, decoder = "BytesRead", "decode_bytes"
+			carrier, reader = "BytesRead", "read_bytes"
 		}
-		nodes := lengthPrefix(depth, length)
-		return append(nodes,
-			line(depth, fmt.Sprintf("var %s: %s = Wire.%s(data, offset, %s.value)", read, carrier, decoder, length)),
-			line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", read)),
-			line(depth+1, "return "+read+".error"),
-			line(depth, assign(read+".value")),
-			line(depth, fmt.Sprintf("offset = %s.offset", read)),
-		)
-	default:
-		read := name + "_read"
 		return []fsast.Node{
-			line(depth, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(data, offset)", read)),
+			line(depth, fmt.Sprintf("var %s: %s = Wire.%s(%s, %s)", read, carrier, reader, dataParameter, cursorLocal)),
 			line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", read)),
 			line(depth+1, "return "+read+".error"),
-			line(depth, assign(varintResultExpression(value, read+".value"))),
-			line(depth, fmt.Sprintf("offset = %s.offset", read)),
+			line(depth, context.assign(read+".value")),
+			line(depth, fmt.Sprintf("%s = %s.offset", cursorLocal, read)),
+		}
+	default:
+		return []fsast.Node{
+			line(depth, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(%s, %s)", read, dataParameter, cursorLocal)),
+			line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", read)),
+			line(depth+1, "return "+read+".error"),
+			line(depth, context.assign(varintResultExpression(value, read+".value"))),
+			line(depth, fmt.Sprintf("%s = %s.offset", cursorLocal, read)),
 		}
 	}
 }
 
-// lengthPrefix reads and bounds-checks the length of a length-delimited field.
-func lengthPrefix(depth int, length string) []fsast.Node {
-	return []fsast.Node{
-		line(depth, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(data, offset)", length)),
-		line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", length)),
-		line(depth+1, "return "+length+".error"),
-		line(depth, fmt.Sprintf("offset = %s.offset", length)),
-		line(depth, fmt.Sprintf("if %s.value < 0 or offset + %s.value > data.size():", length, length)),
-		line(depth+1, "return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH"),
+func readMessageValue(depth int, value valuePlan, context readContext, read string) []fsast.Node {
+	typeName := value.Type.Render()
+	var nodes []fsast.Node
+	target := context.target
+	switch context.mode {
+	case mergeMember:
+		nodes = append(nodes,
+			line(depth, fmt.Sprintf("if not (%s is %s):", target, typeName)),
+			line(depth+1, fmt.Sprintf("%s = %s.new()", target, typeName)),
+		)
+	case mergeInto:
+		// The caller already holds the instance.
+	default:
+		target = context.local + "_message"
+		nodes = append(nodes, line(depth, fmt.Sprintf("var %s: %s = %s.new()", target, typeName, typeName)))
 	}
+	nodes = append(nodes,
+		line(depth, fmt.Sprintf("var %s: SkipRead = Wire.read_message(%s, %s, %s)", read, dataParameter, cursorLocal, target)),
+		line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", read)),
+		line(depth+1, "return "+read+".error"),
+	)
+	if context.mode == mergeFresh {
+		nodes = append(nodes, line(depth, context.assign(target)))
+	}
+	return append(nodes, line(depth, fmt.Sprintf("%s = %s.offset", cursorLocal, read)))
+}
+
+// readEnumValue keeps a wire value this schema has no case for instead of
+// folding it onto the zero case. proto3 enums are open, so collapsing an
+// unrecognized value would silently destroy a field written by a newer peer.
+func readEnumValue(depth int, value valuePlan, context readContext, read string) []fsast.Node {
+	typeName := value.Type.Render()
+	decoded := context.local + "_case"
+	nodes := []fsast.Node{
+		line(depth, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(%s, %s)", read, dataParameter, cursorLocal)),
+		line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", read)),
+		line(depth+1, "return "+read+".error"),
+		line(depth, fmt.Sprintf("var %s: %s? = %s.from_wire(%s.value)", decoded, typeName, typeName, read)),
+		line(depth, fmt.Sprintf("if %s is %s:", decoded, typeName)),
+		line(depth+1, context.assign(decoded)),
+		line(depth, "else:"),
+	}
+	nodes = append(nodes, context.retainUnknownEnum(depth+1, cursorLocal, read+".offset")...)
+	return append(nodes, line(depth, fmt.Sprintf("%s = %s.offset", cursorLocal, read)))
 }
 
 // deserializePackedRepeated accepts both encodings: a packed run and the
 // unpacked one-record-per-element form, which protobuf parsers must tolerate
 // regardless of how the sender chose to write the field.
 func deserializePackedRepeated(plan *fieldPlan) []fsast.Node {
-	length := plan.Name + "_length"
-	end := plan.Name + "_end"
-	packed := plan.Name + "_packed"
-	assign := assignmentFor(plan)
+	length := plan.Local("length")
+	end := plan.Local("end")
+	packed := plan.Local("packed")
+	context := fieldContext(plan)
 
-	nodes := []fsast.Node{line(3, "if wire_type == Wire.WIRE_LENGTH_DELIMITED:")}
-	nodes = append(nodes, lengthPrefix(4, length)...)
+	nodes := []fsast.Node{line(3, "if "+wireTypeLocal+" == Wire.WIRE_LENGTH_DELIMITED:")}
+	nodes = append(nodes, readLength(4, length)...)
 	nodes = append(nodes,
-		line(4, fmt.Sprintf("var %s: int = offset + %s.value", end, length)),
-		line(4, fmt.Sprintf("while offset < %s:", end)),
-		line(5, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(data, offset)", packed)),
-		line(5, fmt.Sprintf("if %s.error != ProtobufError.OK:", packed)),
-		line(6, "return "+packed+".error"),
-		line(5, assign(varintResultExpression(plan.Value, packed+".value"))),
-		line(5, fmt.Sprintf("offset = %s.offset", packed)),
-		line(3, fmt.Sprintf("elif wire_type == %s:", wireTypeConstant(plan.Value.WireType))),
+		line(4, fmt.Sprintf("var %s: int = %s.offset + %s.value", end, length, length)),
+		line(4, fmt.Sprintf("%s = %s.offset", cursorLocal, length)),
+		line(4, fmt.Sprintf("while %s < %s:", cursorLocal, end)),
 	)
-	nodes = append(nodes, readValue(4, plan.Value, plan.Name, assign, "wire_type")...)
+	nodes = append(nodes, readPackedElement(5, plan, context, packed)...)
+	nodes = append(nodes, line(3, fmt.Sprintf("elif %s == %s:", wireTypeLocal, wireTypeConstant(plan.Value.WireType))))
+	nodes = append(nodes, readValue(4, plan.Value, context)...)
 	return append(nodes,
 		line(3, "else:"),
 		line(4, "return ProtobufError.WIRE_TYPE_MISMATCH"),
 	)
 }
 
+// readPackedElement decodes one element of a packed run, which carries no tag
+// of its own and so cannot reuse the tagged read path.
+func readPackedElement(depth int, plan *fieldPlan, context readContext, packed string) []fsast.Node {
+	nodes := []fsast.Node{
+		line(depth, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(%s, %s)", packed, dataParameter, cursorLocal)),
+		line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", packed)),
+		line(depth+1, "return "+packed+".error"),
+	}
+	if plan.Value.Kind == kindEnum {
+		typeName := plan.Value.Type.Render()
+		decoded := plan.Local("packed", "case")
+		nodes = append(nodes,
+			line(depth, fmt.Sprintf("var %s: %s? = %s.from_wire(%s.value)", decoded, typeName, typeName, packed)),
+			line(depth, fmt.Sprintf("if %s is %s:", decoded, typeName)),
+			line(depth+1, context.assign(decoded)),
+			line(depth, "else:"),
+		)
+		nodes = append(nodes, context.retainUnknownEnum(depth+1, cursorLocal, packed+".offset")...)
+	} else {
+		nodes = append(nodes, line(depth, context.assign(varintResultExpression(plan.Value, packed+".value"))))
+	}
+	return append(nodes, line(depth, fmt.Sprintf("%s = %s.offset", cursorLocal, packed)))
+}
+
 func deserializeMap(plan *fieldPlan) []fsast.Node {
-	length := plan.Name + "_length"
-	end := plan.Name + "_end"
-	key := plan.Name + "_key"
-	value := plan.Name + "_value"
-	entryTag := plan.Name + "_entry_tag"
-	entryWireType := plan.Name + "_entry_wire_type"
+	length := plan.Local("length")
+	start := plan.Local("start")
+	end := plan.Local("end")
+	key := plan.Local("key")
+	value := plan.Local("value")
+	entryTag := plan.Local("entry", "tag")
+	entryWireType := plan.Local("entry", "wire", "type")
+	unknown := plan.Local("unknown")
+	// A map value is the only place an unrecognized enum cannot be re-tagged on
+	// its own, so the whole entry is kept instead and the pair is not inserted.
+	retainsEntry := plan.Value.Kind == kindEnum
 
 	nodes := []fsast.Node{
-		line(3, "if wire_type != Wire.WIRE_LENGTH_DELIMITED:"),
+		line(3, fmt.Sprintf("if %s != Wire.WIRE_LENGTH_DELIMITED:", wireTypeLocal)),
 		line(4, "return ProtobufError.WIRE_TYPE_MISMATCH"),
 	}
-	nodes = append(nodes, lengthPrefix(3, length)...)
+	nodes = append(nodes, readLength(3, length)...)
+	if retainsEntry {
+		nodes = append(nodes, line(3, fmt.Sprintf("var %s: int = %s.offset", start, length)))
+	}
 	nodes = append(nodes,
-		line(3, fmt.Sprintf("var %s: int = offset + %s.value", end, length)),
+		line(3, fmt.Sprintf("var %s: int = %s.offset + %s.value", end, length, length)),
+		line(3, fmt.Sprintf("%s = %s.offset", cursorLocal, length)),
 		line(3, fmt.Sprintf("var %s: %s = %s", key, plan.Key.Type.Render(), plan.Key.ZeroValue)),
 		line(3, fmt.Sprintf("var %s: %s = %s", value, plan.Value.Type.Render(), mapValueZero(plan.Value))),
-		line(3, fmt.Sprintf("while offset < %s:", end)),
-		line(4, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(data, offset)", entryTag)),
+	)
+	if retainsEntry {
+		nodes = append(nodes, line(3, fmt.Sprintf("var %s: bool = false", unknown)))
+	}
+	nodes = append(nodes,
+		line(3, fmt.Sprintf("while %s < %s:", cursorLocal, end)),
+		line(4, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(%s, %s)", entryTag, dataParameter, cursorLocal)),
 		line(4, fmt.Sprintf("if %s.error != ProtobufError.OK:", entryTag)),
 		line(5, "return "+entryTag+".error"),
-		line(4, fmt.Sprintf("offset = %s.offset", entryTag)),
+		line(4, fmt.Sprintf("%s = %s.offset", cursorLocal, entryTag)),
 		line(4, fmt.Sprintf("var %s: int = Wire.get_wire_type(%s.value)", entryWireType, entryTag)),
 		line(4, fmt.Sprintf("match Wire.get_field_number(%s.value):", entryTag)),
 		line(5, "1:"),
 		line(6, fmt.Sprintf("if %s != %s:", entryWireType, wireTypeConstant(plan.Key.WireType))),
 		line(7, "return ProtobufError.WIRE_TYPE_MISMATCH"),
 	)
-	nodes = append(nodes, readValue(6, plan.Key, key, func(expression string) string {
-		return key + " = " + expression
-	}, entryWireType)...)
+	nodes = append(nodes, readValue(6, plan.Key, readContext{
+		local:  key,
+		assign: func(expression string) string { return key + " = " + expression },
+	})...)
 	nodes = append(nodes,
 		line(5, "2:"),
 		line(6, fmt.Sprintf("if %s != %s:", entryWireType, wireTypeConstant(plan.Value.WireType))),
 		line(7, "return ProtobufError.WIRE_TYPE_MISMATCH"),
 	)
-	nodes = append(nodes, readValue(6, plan.Value, value, func(expression string) string {
-		return value + " = " + expression
-	}, entryWireType)...)
-	return append(nodes,
+	nodes = append(nodes, readValue(6, plan.Value, readContext{
+		local:  value,
+		assign: func(expression string) string { return value + " = " + expression },
+		// The entry's value already holds a fresh instance, so a submessage
+		// merges into it rather than replacing it.
+		mode:   mergeInto,
+		target: value,
+		retainUnknownEnum: func(depth int, _, _ string) []fsast.Node {
+			return []fsast.Node{line(depth, unknown+" = true")}
+		},
+	})...)
+	nodes = append(nodes,
 		line(5, "_:"),
-		line(6, fmt.Sprintf("var %s_skip: SkipRead = Wire.skip_field(data, offset, %s)", plan.Name, entryWireType)),
-		line(6, fmt.Sprintf("if %s_skip.error != ProtobufError.OK:", plan.Name)),
-		line(7, fmt.Sprintf("return %s_skip.error", plan.Name)),
-		line(6, fmt.Sprintf("offset = %s_skip.offset", plan.Name)),
-		line(3, fmt.Sprintf("%s[%s] = %s", plan.Name, key, value)),
+		line(6, fmt.Sprintf("var %s: SkipRead = Wire.skip_field(%s, %s, %s)", plan.Local("skip"), dataParameter, cursorLocal, entryWireType)),
+		line(6, fmt.Sprintf("if %s.error != ProtobufError.OK:", plan.Local("skip"))),
+		line(7, fmt.Sprintf("return %s.error", plan.Local("skip"))),
+		line(6, fmt.Sprintf("%s = %s.offset", cursorLocal, plan.Local("skip"))),
 	)
+	if !retainsEntry {
+		return append(nodes, line(3, fmt.Sprintf("%s[%s] = %s", plan.Name, key, value)))
+	}
+	return append(nodes,
+		line(3, "if "+unknown+":"),
+		line(4, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", unknownFieldsMember, plan.TagExpression())),
+		line(4, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s - %s))", unknownFieldsMember, end, start)),
+		line(4, fmt.Sprintf("%s.append_array(%s.slice(%s, %s))", unknownFieldsMember, dataParameter, start, end)),
+		line(3, "else:"),
+		line(4, fmt.Sprintf("%s[%s] = %s", plan.Name, key, value)),
+	)
+}
+
+// readLength reads and bounds-checks a length prefix. The runtime owns the
+// policy; this is only the error propagation the caller has to do.
+func readLength(depth int, length string) []fsast.Node {
+	return []fsast.Node{
+		line(depth, fmt.Sprintf("var %s: VarintRead = Wire.read_length(%s, %s)", length, dataParameter, cursorLocal)),
+		line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", length)),
+		line(depth+1, "return "+length+".error"),
+	}
 }
 
 // mapValueZero is the value a map entry starts from. An entry may legally omit
@@ -226,14 +383,10 @@ func mapValueZero(value valuePlan) string {
 
 // varintResultExpression converts a decoded varint back into the field type.
 func varintResultExpression(value valuePlan, expression string) string {
-	switch {
-	case value.Kind == kindEnum:
-		return value.Type.Render() + ".from_wire(" + expression + ")"
-	case value.ProtoType == "bool":
+	if value.ProtoType == "bool" {
 		return expression + " != 0"
-	default:
-		return expression
 	}
+	return expression
 }
 
 func wireTypeConstant(wireType int) string {

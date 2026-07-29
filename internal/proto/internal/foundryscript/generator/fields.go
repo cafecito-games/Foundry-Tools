@@ -38,9 +38,11 @@ func oneofUnion(oneof *oneofPlan) fsast.Enum {
 	for i := range oneof.Members {
 		member := &oneof.Members[i]
 		values = append(values, fsast.EnumValue{
-			Doc:     docOrFallback(member.Doc, nil),
-			Name:    TypeName(member.Name),
-			Payload: []fsast.Parameter{{Name: member.Name, Type: member.Value.Type}},
+			Doc:  docOrFallback(member.Doc, nil),
+			Name: member.OneofCaseName,
+			// The union is declared at file level, not inside the message, so a
+			// payload type has to be named by its scoped reference.
+			Payload: []fsast.Parameter{{Name: member.Name, Type: member.Value.QualifiedType}},
 		})
 	}
 	return fsast.Enum{
@@ -58,13 +60,13 @@ func fromBytesFactory(className string) fsast.Func {
 		Parameters: []fsast.Parameter{{Name: "data", Type: fstypes.Named("PackedByteArray")}},
 		ReturnType: fstypes.Tuple(fstypes.Nullable(fstypes.Named(className)), fstypes.Named("ProtobufError")),
 		Body: []fsast.Node{
-			line(0, "var message: "+className+" = "+className+".new()"),
-			line(0, "var error: ProtobufError = message.merge_from_bytes(data)"),
-			line(0, "if error != ProtobufError.OK:"),
+			line(0, "var _message: "+className+" = "+className+".new()"),
+			line(0, "var _error: ProtobufError = _message.merge_from_bytes(data)"),
+			line(0, "if _error != ProtobufError.OK:"),
 			// A bare null does not carry the nullable element type.
-			line(1, "var failed: "+className+"? = null"),
-			line(1, "return (failed, error)"),
-			fsast.Return{Value: "(message, ProtobufError.OK)"},
+			line(1, "var _failed: "+className+"? = null"),
+			line(1, "return (_failed, _error)"),
+			fsast.Return{Value: "(_message, ProtobufError.OK)"},
 		},
 	}
 }

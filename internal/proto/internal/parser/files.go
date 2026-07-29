@@ -11,6 +11,10 @@ import (
 type ParsedFile struct {
 	Filename string
 	File     *protoast.ProtoFile
+	// Imports are the files this one pulled in, transitively through public
+	// re-exports. The generator needs them to resolve the namespace and the
+	// enum defaults of any type declared outside this file.
+	Imports []ImportedFile
 }
 
 // ParseFiles parses root proto files using importRoots.
@@ -33,10 +37,11 @@ func ParseFiles(filenames, importRoots []string) ([]ParsedFile, error) {
 			BaseDir:      filepath.Dir(filename),
 			IncludePaths: importRoots,
 		}
-		if _, err := ResolveExternalWithFiles(file, filename, importFS); err != nil {
+		imported, err := ResolveExternalWithFiles(file, filename, importFS)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, ParsedFile{Filename: filename, File: file})
+		out = append(out, ParsedFile{Filename: filename, File: file, Imports: imported})
 	}
 	return out, nil
 }

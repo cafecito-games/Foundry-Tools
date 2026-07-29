@@ -7,24 +7,47 @@ import (
 	fstypes "github.com/cafecito-games/foundry-tools/internal/proto/internal/foundryscript/types"
 )
 
+const resultBuffer = "_result"
+
 func toBytesFunction(plans []fieldPlan, oneofs []oneofPlan) fsast.Func {
-	body := []fsast.Node{line(0, "var result: PackedByteArray = PackedByteArray()")}
+	body := []fsast.Node{line(0, "var "+resultBuffer+": PackedByteArray = PackedByteArray()")}
+	// Fields are written in field-number order, oneofs included: a oneof's match
+	// is emitted where its lowest-numbered member falls, so the bytes come out
+	// in schema order and a hexdump reads against the .proto.
+	written := map[string]bool{}
 	for i := range plans {
-		if plans[i].OneofCase != "" {
+		if plans[i].OneofCase == "" {
+			body = append(body, serializeField(&plans[i])...)
 			continue
 		}
-		body = append(body, serializeField(&plans[i])...)
+		oneof := findOneof(oneofs, plans[i].OneofField)
+		if oneof == nil || written[oneof.Field] {
+			continue
+		}
+		written[oneof.Field] = true
+		body = append(body, serializeOneof(oneof)...)
 	}
-	for i := range oneofs {
-		body = append(body, serializeOneof(&oneofs[i])...)
-	}
-	body = append(body, fsast.Return{Value: "result"})
+	// Unknown fields go last; protobuf does not order records, and appending
+	// them in one run keeps the emitted loop free of a per-field branch.
+	body = append(body,
+		line(0, resultBuffer+".append_array("+unknownFieldsMember+")"),
+		fsast.Return{Value: resultBuffer},
+	)
 	return fsast.Func{
 		Doc:        toBytesDoc(),
 		Name:       "to_bytes",
 		ReturnType: fstypes.Named("PackedByteArray"),
 		Body:       body,
 	}
+}
+
+func findOneof(oneofs []oneofPlan, field string) *oneofPlan {
+	for i := range oneofs {
+		if oneofs[i].Field == field {
+			return &oneofs[i]
+		}
+	}
+	return nil
 }
 
 func serializeField(plan *fieldPlan) []fsast.Node {
@@ -66,45 +89,45 @@ func presenceCondition(plan *fieldPlan) string {
 
 func serializeSingular(plan *fieldPlan) []fsast.Node {
 	nodes := []fsast.Node{line(0, "if "+presenceCondition(plan)+":")}
-	return append(nodes, appendValue(1, plan.Value, plan.Name, plan.Name, plan.Tag(), "result")...)
+	return append(nodes, appendValue(1, plan.Value, plan.Name, plan.Local(), plan.TagExpression(), resultBuffer)...)
 }
 
 func serializeUnpackedRepeated(plan *fieldPlan) []fsast.Node {
-	item := plan.Name + "_item"
+	item := plan.Local("item")
 	nodes := []fsast.Node{
 		line(0, fmt.Sprintf("for %s: %s in %s:", item, plan.Value.Type.Render(), plan.Name)),
 	}
-	return append(nodes, appendValue(1, plan.Value, item, plan.Name, plan.Tag(), "result")...)
+	return append(nodes, appendValue(1, plan.Value, item, plan.Local(), plan.TagExpression(), resultBuffer)...)
 }
 
 func serializePackedRepeated(plan *fieldPlan) []fsast.Node {
-	item := plan.Name + "_item"
-	buffer := plan.Name + "_data"
+	item := plan.Local("item")
+	buffer := plan.Local("data")
 	return []fsast.Node{
 		line(0, fmt.Sprintf("if %s.size() > 0:", plan.Name)),
 		line(1, fmt.Sprintf("var %s: PackedByteArray = PackedByteArray()", buffer)),
 		line(1, fmt.Sprintf("for %s: %s in %s:", item, plan.Value.Type.Render(), plan.Name)),
 		line(2, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", buffer, varintExpression(plan.Value, item))),
-		line(1, fmt.Sprintf("result.append_array(Wire.encode_varint(%d))", plan.Tag())),
-		line(1, fmt.Sprintf("result.append_array(Wire.encode_varint(%s.size()))", buffer)),
-		line(1, fmt.Sprintf("result.append_array(%s)", buffer)),
+		line(1, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", resultBuffer, plan.TagExpression())),
+		line(1, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s.size()))", resultBuffer, buffer)),
+		line(1, fmt.Sprintf("%s.append_array(%s)", resultBuffer, buffer)),
 	}
 }
 
 func serializeMap(plan *fieldPlan) []fsast.Node {
-	key := plan.Name + "_key"
-	entry := plan.Name + "_entry"
+	key := plan.Local("key")
+	entry := plan.Local("entry")
 	nodes := []fsast.Node{
 		line(0, fmt.Sprintf("for %s: %s in %s:", key, plan.Key.Type.Render(), plan.Name)),
 		line(1, fmt.Sprintf("var %s: PackedByteArray = PackedByteArray()", entry)),
 	}
 	// On the wire a map is a repeated message of {key = 1, value = 2} entries.
-	nodes = append(nodes, appendValue(1, plan.Key, key, key, 1<<3|plan.Key.WireType, entry)...)
-	nodes = append(nodes, appendValue(1, plan.Value, plan.Name+"["+key+"]", plan.Name+"_value", 2<<3|plan.Value.WireType, entry)...)
+	nodes = append(nodes, appendValue(1, plan.Key, key, plan.Local("key"), tagExpression(1, plan.Key.WireType), entry)...)
+	nodes = append(nodes, appendValue(1, plan.Value, plan.Name+"["+key+"]", plan.Local("value"), tagExpression(2, plan.Value.WireType), entry)...)
 	return append(nodes,
-		line(1, fmt.Sprintf("result.append_array(Wire.encode_varint(%d))", plan.Tag())),
-		line(1, fmt.Sprintf("result.append_array(Wire.encode_varint(%s.size()))", entry)),
-		line(1, fmt.Sprintf("result.append_array(%s)", entry)),
+		line(1, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", resultBuffer, plan.TagExpression())),
+		line(1, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s.size()))", resultBuffer, entry)),
+		line(1, fmt.Sprintf("%s.append_array(%s)", resultBuffer, entry)),
 	)
 }
 
@@ -112,41 +135,44 @@ func serializeOneof(oneof *oneofPlan) []fsast.Node {
 	nodes := []fsast.Node{line(0, "match "+oneof.Field+":")}
 	for i := range oneof.Members {
 		member := &oneof.Members[i]
-		nodes = append(nodes, line(1, fmt.Sprintf("%s(var %s):", member.OneofCase, member.Name)))
-		nodes = append(nodes, appendValue(2, member.Value, member.Name, member.Name, member.Tag(), "result")...)
+		bound := member.Local()
+		nodes = append(nodes, line(1, fmt.Sprintf("%s(var %s):", member.OneofCase, bound)))
+		nodes = append(nodes, appendValue(2, member.Value, bound, member.Local(), member.TagExpression(), resultBuffer)...)
 	}
 	// An unset union writes nothing; proto3 has no tag for an empty oneof.
 	return append(nodes, line(1, "_:"), line(2, "pass"))
 }
 
-// appendValue appends one tagged value to the named buffer.
-func appendValue(depth int, value valuePlan, expression, name string, tag int, buffer string) []fsast.Node {
+// appendValue appends one tagged value to the named buffer. local is the stem
+// for any temporary the encoding needs; tag is the expression that builds the
+// field key.
+func appendValue(depth int, value valuePlan, expression, local, tag, buffer string) []fsast.Node {
 	switch {
 	case value.Kind == kindMessage:
-		data := name + "_data"
+		data := local + "_data"
 		return []fsast.Node{
 			line(depth, fmt.Sprintf("var %s: PackedByteArray = %s.to_bytes()", data, expression)),
-			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%d))", buffer, tag)),
+			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", buffer, tag)),
 			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s.size()))", buffer, data)),
 			line(depth, fmt.Sprintf("%s.append_array(%s)", buffer, data)),
 		}
 	case value.ProtoType == "string":
-		data := name + "_data"
+		data := local + "_data"
 		return []fsast.Node{
-			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%d))", buffer, tag)),
+			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", buffer, tag)),
 			line(depth, fmt.Sprintf("var %s: PackedByteArray = Wire.encode_string(%s)", data, expression)),
 			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s.size()))", buffer, data)),
 			line(depth, fmt.Sprintf("%s.append_array(%s)", buffer, data)),
 		}
 	case value.ProtoType == "bytes":
 		return []fsast.Node{
-			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%d))", buffer, tag)),
+			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", buffer, tag)),
 			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s.size()))", buffer, expression)),
 			line(depth, fmt.Sprintf("%s.append_array(%s)", buffer, expression)),
 		}
 	default:
 		return []fsast.Node{
-			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%d))", buffer, tag)),
+			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", buffer, tag)),
 			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", buffer, varintExpression(value, expression))),
 		}
 	}
