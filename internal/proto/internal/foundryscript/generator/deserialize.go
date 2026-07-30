@@ -349,6 +349,10 @@ func deserializeMap(plan *fieldPlan) []fsast.Node {
 		line(4, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(%s, %s)", entryTag, dataParameter, cursorLocal)),
 		line(4, fmt.Sprintf("if %s.error != ProtobufError.OK:", entryTag)),
 		line(5, "return "+entryTag+".error"),
+		// The tag is read from the whole buffer, so an unterminated one inside
+		// the entry would otherwise carry on into the field after it.
+		line(4, fmt.Sprintf("if %s.offset > %s:", entryTag, end)),
+		line(5, "return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH"),
 		line(4, fmt.Sprintf("%s = %s.offset", cursorLocal, entryTag)),
 		line(4, fmt.Sprintf("var %s: int = Wire.get_wire_type(%s.value)", entryWireType, entryTag)),
 		line(4, fmt.Sprintf("match Wire.get_field_number(%s.value):", entryTag)),
@@ -382,6 +386,8 @@ func deserializeMap(plan *fieldPlan) []fsast.Node {
 		line(6, fmt.Sprintf("var %s: SkipRead = Wire.skip_field(%s, %s, %s)", plan.Local("skip"), dataParameter, cursorLocal, entryWireType)),
 		line(6, fmt.Sprintf("if %s.error != ProtobufError.OK:", plan.Local("skip"))),
 		line(7, fmt.Sprintf("return %s.error", plan.Local("skip"))),
+		line(6, fmt.Sprintf("if %s.offset > %s:", plan.Local("skip"), end)),
+		line(7, "return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH"),
 		line(6, fmt.Sprintf("%s = %s.offset", cursorLocal, plan.Local("skip"))),
 	)
 	return append(nodes, line(3, fmt.Sprintf("%s[%s] = %s", plan.Name, key, value)))

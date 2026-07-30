@@ -397,6 +397,8 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					var _pb_counts_entry_tag: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
 					if _pb_counts_entry_tag.error != ProtobufError.OK:
 						return _pb_counts_entry_tag.error
+					if _pb_counts_entry_tag.offset > _pb_counts_end:
+						return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH
 					_pb_offset = _pb_counts_entry_tag.offset
 					var _pb_counts_entry_wire_type: int = Wire.get_wire_type(_pb_counts_entry_tag.value)
 					match Wire.get_field_number(_pb_counts_entry_tag.value):
@@ -424,6 +426,8 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 							var _pb_counts_skip: SkipRead = Wire.skip_field(_pb_data, _pb_offset, _pb_counts_entry_wire_type)
 							if _pb_counts_skip.error != ProtobufError.OK:
 								return _pb_counts_skip.error
+							if _pb_counts_skip.offset > _pb_counts_end:
+								return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH
 							_pb_offset = _pb_counts_skip.offset
 				counts[_pb_counts_key] = _pb_counts_value
 			12:
@@ -478,6 +482,8 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					var _pb_loadout_entry_tag: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
 					if _pb_loadout_entry_tag.error != ProtobufError.OK:
 						return _pb_loadout_entry_tag.error
+					if _pb_loadout_entry_tag.offset > _pb_loadout_end:
+						return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH
 					_pb_offset = _pb_loadout_entry_tag.offset
 					var _pb_loadout_entry_wire_type: int = Wire.get_wire_type(_pb_loadout_entry_tag.value)
 					match Wire.get_field_number(_pb_loadout_entry_tag.value):
@@ -504,6 +510,8 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 							var _pb_loadout_skip: SkipRead = Wire.skip_field(_pb_data, _pb_offset, _pb_loadout_entry_wire_type)
 							if _pb_loadout_skip.error != ProtobufError.OK:
 								return _pb_loadout_skip.error
+							if _pb_loadout_skip.offset > _pb_loadout_end:
+								return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH
 							_pb_offset = _pb_loadout_skip.offset
 				loadout[_pb_loadout_key] = _pb_loadout_value
 			17:

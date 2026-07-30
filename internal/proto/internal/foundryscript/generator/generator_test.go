@@ -842,6 +842,12 @@ func TestGenerateMapEntryRejectsReadsCrossingItsEnd(t *testing.T) {
 	require.Contains(t, source, "if _pb_ratios_key_read.offset > _pb_ratios_end:")
 	require.Contains(t, source, "if _pb_ratios_value_read.offset > _pb_ratios_end:")
 	require.Contains(t, source, "return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH")
+
+	// The entry's own tag and the skip of a field the entry does not recognize
+	// read from the same buffer, so they need the same bound: either one can
+	// otherwise run off the end of the entry and into the next field.
+	require.Contains(t, source, "if _pb_ratios_entry_tag.offset > _pb_ratios_end:")
+	require.Contains(t, source, "if _pb_ratios_skip.offset > _pb_ratios_end:")
 }
 
 // The same framing has to hold where the value is not a plain field: map keys
