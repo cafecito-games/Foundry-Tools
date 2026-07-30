@@ -51,9 +51,6 @@ type valuePlan struct {
 	// Namespace is the Foundry Script namespace this type is generated into
 	// when it comes from an imported proto file; empty for local types.
 	Namespace string
-	// TopLevel is the outermost declaration the type is nested in. A hoisted
-	// union cannot name a type nested inside the class that owns it.
-	TopLevel string
 }
 
 // fieldPlan is a fully resolved message field.
@@ -707,10 +704,6 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 		// declaration is not in the request. The parser still told us whether
 		// it is an enum and what its values are, which is everything the wire
 		// framing needs; only the scoped reference degrades to the lexical one.
-		topLevel := emittedReference
-		if cut := strings.Index(topLevel, "."); cut >= 0 {
-			topLevel = topLevel[:cut]
-		}
 		namespace := ""
 		if isDependency {
 			namespace = r.namespaces[use.SourceFile]
@@ -721,7 +714,6 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 			IsEnum:         use.IsEnum,
 			ZeroCase:       zeroValueNameOf(use.EnumValues),
 			Namespace:      namespace,
-			TopLevel:       topLevel,
 		}
 	} else if isDependency {
 		if declaration, declared := r.importedDeclarations[use.SourceFile].resolve(
@@ -747,7 +739,6 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 		Type:          fstypes.Named(lexical),
 		QualifiedType: fstypes.Named(qualified),
 		Namespace:     info.Namespace,
-		TopLevel:      info.TopLevel,
 	}
 	if !info.IsEnum {
 		plan.Kind = kindMessage
@@ -908,9 +899,6 @@ func planMessage(
 			if err != nil {
 				return messagePlan{}, err
 			}
-			if err := validateOneofPayload(generatedScope, oneof.Name, field.Name, plan.Value); err != nil {
-				return messagePlan{}, err
-			}
 			// A oneof member is only ever set through the union, so it has no
 			// independent presence of its own.
 			alternativeName := planOneofAlternativeName(field.Name)
@@ -978,28 +966,6 @@ func planMessage(
 	}
 	resolve.memberCollisions.addMessage(resolve.sourceName, protoOwnerIdentity, plans, oneofs)
 	return plan, nil
-}
-
-// validateOneofPayload refuses the one payload shape the hoisted union cannot
-// name. The union is emitted at file level, so referring to a type nested in
-// the class that owns the oneof closes a resolution cycle -- the class needs
-// the union to declare its member, and the union needs the class to reach the
-// nested type -- which Foundry cannot break for a class that conforms to a
-// trait, and every message binding does.
-func validateOneofPayload(scope, oneofName, fieldName string, value valuePlan) error {
-	if value.Kind == kindScalar || value.Namespace != "" {
-		return nil
-	}
-	topLevel := scope
-	if cut := strings.Index(scope, "."); cut >= 0 {
-		topLevel = scope[:cut]
-	}
-	if value.TopLevel != topLevel || value.Reference() == topLevel {
-		return nil
-	}
-	return fmt.Errorf(
-		"oneof %s field %s: %s is nested in %s, and a oneof cannot carry a type nested in the message that declares it; move it out of %s",
-		oneofName, fieldName, value.Reference(), topLevel, topLevel)
 }
 
 // Reference is the scoped Foundry Script reference for this value's type.

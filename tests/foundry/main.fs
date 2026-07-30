@@ -136,6 +136,35 @@ func _init() -> void:
 			printerr("FAIL: oneof case did not round trip")
 			failures += 1
 
+	## A oneof payload declared inside the message that declares the oneof: the
+	## hoisted union names it as Player.Badge, through the class it lives in.
+	var chosen: Player.Badge = Player.Badge.new()
+	chosen.code = "champion"
+	var nested_payload: Player = Player.new()
+	nested_payload.payload = PlayerPayloadCase.ChosenBadge(chosen)
+	var (nested_decoded, nested_error) = Player.from_bytes(nested_payload.to_bytes())
+	check(nested_error == ProtobufError.OK, "nested oneof payload decodes")
+	if nested_decoded is Player:
+		match nested_decoded.payload:
+			PlayerPayloadCase.ChosenBadge(var badge_case):
+				check(badge_case.code == "champion", "oneof carries a message nested in its own message")
+			_:
+				printerr("FAIL: nested message oneof case did not round trip")
+				failures += 1
+
+	## The same for an enum nested in the declaring message.
+	var tier_payload: Player = Player.new()
+	tier_payload.payload = PlayerPayloadCase.ChosenTier(Player.Tier.TIER_GOLD)
+	var (tier_decoded, tier_error) = Player.from_bytes(tier_payload.to_bytes())
+	check(tier_error == ProtobufError.OK, "nested enum oneof payload decodes")
+	if tier_decoded is Player:
+		match tier_decoded.payload:
+			PlayerPayloadCase.ChosenTier(var tier_case):
+				check(tier_case == Player.Tier.TIER_GOLD, "oneof carries an enum nested in its own message")
+			_:
+				printerr("FAIL: nested enum oneof case did not round trip")
+				failures += 1
+
 	## An absent optional must stay absent rather than decoding as "".
 	var bare: Player = Player.new()
 	var (bare_decoded, bare_error) = Player.from_bytes(bare.to_bytes())

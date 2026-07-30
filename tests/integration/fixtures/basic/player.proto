@@ -43,6 +43,11 @@ message Player {
   oneof payload {
     string text = 12;
     int32 amount = 13;
+
+    // Payloads declared inside the very message that declares the oneof. The
+    // union is hoisted to file level, so it reaches them through the class.
+    Badge chosen_badge = 23;
+    Tier chosen_tier = 24;
   }
 
   message Badge {
