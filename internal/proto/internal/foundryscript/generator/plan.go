@@ -324,6 +324,10 @@ type resolver struct {
 	// named from another file, so a reference is reported rather than emitted
 	// as an import that breaks the generated file.
 	unnamespaced map[string]bool
+	// referencesWellKnown records whether this file names a well-known type at
+	// all, which is what puts `import foundry.proto.wkt` in its output and so
+	// brings every well-known name into scope.
+	referencesWellKnown bool
 }
 
 func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntry, localNamer typeNamer) *resolver {
@@ -380,11 +384,56 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 			declarations,
 		)
 	}
+	resolve.referencesWellKnown = referencesWellKnown(file, sourceName)
 	declarations := resolve.local.registerFile(file, sourceName, "", localNamer)
 	for _, declaration := range declarations {
 		resolve.collisions.AddLocal(declaration)
 	}
 	return resolve
+}
+
+// referencesWellKnown reports whether any field of file names a type declared
+// in a well-known file. Importing one without referencing it emits no import,
+// so it does not bring the well-known names into scope.
+func referencesWellKnown(file *protoast.ProtoFile, sourceName string) bool {
+	if file == nil {
+		return false
+	}
+	fromWellKnownFile := func(referenced string) bool {
+		return referenced != "" && referenced != sourceName && wellknown.IsWellKnown(referenced)
+	}
+	var messageReferences func(message *protoast.Message) bool
+	messageReferences = func(message *protoast.Message) bool {
+		for _, field := range message.Fields {
+			if fromWellKnownFile(field.SourceFile) {
+				return true
+			}
+		}
+		for _, oneof := range message.Oneofs {
+			for _, field := range oneof.Fields {
+				if fromWellKnownFile(field.SourceFile) {
+					return true
+				}
+			}
+		}
+		for _, mapField := range message.Maps {
+			if fromWellKnownFile(mapField.ValueSourceFile) {
+				return true
+			}
+		}
+		for _, nested := range message.NestedMessages {
+			if messageReferences(nested) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, message := range file.Messages {
+		if messageReferences(message) {
+			return true
+		}
+	}
+	return false
 }
 
 // ambiguous reports whether the short spelling of an imported reference would
@@ -402,9 +451,24 @@ func (r *resolver) ambiguous(scope, reference string) bool {
 		return true
 	}
 	declaring := 0
-	for _, registry := range r.imported {
-		for key := range registry {
-			info := registry[key]
+	// A file that references any well-known type imports the whole runtime
+	// namespace, which exports every well-known name rather than only the one
+	// referenced. So the namespace declares the name whatever this schema
+	// imported: a `common.proto` exporting its own Empty collides with the
+	// runtime's the moment some field names a Duration.
+	if r.referencesWellKnown {
+		if _, exported := wellKnownExports()[head]; exported {
+			declaring++
+		}
+	}
+	for filename := range r.imported {
+		// Already counted above, once for the namespace as a whole rather than
+		// once per well-known file this schema happens to import.
+		if r.namespaces[filename] == wellknown.Namespace {
+			continue
+		}
+		for key := range r.imported[filename] {
+			info := r.imported[filename][key]
 			if strings.Contains(info.ProtoReference, ".") || info.TopLevel != head {
 				continue
 			}

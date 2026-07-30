@@ -1,37 +1,12 @@
 package fsgenerator
 
 import (
-	"regexp"
 	"sort"
 	"testing"
 
 	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
-	"github.com/cafecito-games/foundry-tools/internal/runtime"
 	"github.com/stretchr/testify/require"
 )
-
-// runtimeDeclaration matches the ways foundry.proto introduces an exported
-// type name.
-var runtimeDeclaration = regexp.MustCompile(`(?m)^(?:final\s+)?(?:class_name|tuple_name|enum_name|trait_name)\s+([A-Za-z_][A-Za-z0-9_]*)`)
-
-// runtimeNamespace matches a runtime file's namespace declaration.
-var runtimeNamespace = regexp.MustCompile(`(?m)^namespace\s+([A-Za-z_][A-Za-z0-9_.]*)`)
-
-// exportsOf returns every type name the given runtime namespace declares,
-// mapped to the file that declares it.
-func exportsOf(namespace string) map[string]string {
-	declared := map[string]string{}
-	for path, source := range runtime.Files() {
-		match := runtimeNamespace.FindStringSubmatch(source)
-		if len(match) != 2 || match[1] != namespace {
-			continue
-		}
-		for _, declaration := range runtimeDeclaration.FindAllStringSubmatch(source, -1) {
-			declared[declaration[1]] = path
-		}
-	}
-	return declared
-}
 
 // Every generated file imports foundry.proto, so a schema type sharing a name
 // with something that namespace exports makes the spelling ambiguous and the
@@ -41,7 +16,7 @@ func exportsOf(namespace string) map[string]string {
 // Deriving the expected names from the runtime source means adding a type
 // there fails here rather than at some user's schema.
 func TestRuntimeTypeNamesCoverEveryExportedRuntimeType(t *testing.T) {
-	declared := exportsOf("foundry.proto")
+	declared := runtimeExports("foundry.proto")
 	require.NotEmpty(t, declared, "no runtime types found; the declaration pattern is probably stale")
 
 	var missing []string
@@ -78,7 +53,7 @@ func TestRuntimeTypeNamesCoverEveryExportedRuntimeType(t *testing.T) {
 // Deriving the names from the runtime source means a well-known type added
 // there is covered here rather than at some user's schema.
 func TestWellKnownExportsAreNotEscaped(t *testing.T) {
-	declared := exportsOf(wellknown.Namespace)
+	declared := runtimeExports(wellknown.Namespace)
 	require.NotEmpty(t, declared, "no well-known bindings found; the declaration pattern is probably stale")
 
 	var escaped []string

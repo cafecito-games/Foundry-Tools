@@ -102,6 +102,69 @@ message Reading {
 	require.Contains(t, reading, "var remotes: Dictionary[String, foundry.proto.wkt.Timestamp] = {}")
 }
 
+// The wkt import names a namespace, not a type, so referencing one well-known
+// type brings every well-known name into scope. A type imported from another
+// schema that answers to one of those names has to be qualified even though the
+// two have nothing to do with each other.
+func TestImportedTypeCollidingWithAnUnreferencedWellKnownNameIsQualified(t *testing.T) {
+	files := generateSchema(t, `
+syntax = "proto3";
+
+package cafecito.game.v1;
+
+import "common.proto";
+import "google/protobuf/duration.proto";
+
+message Holder {
+  cafecito.common.v1.Empty local_empty = 1;
+  google.protobuf.Duration timeout = 2;
+}
+`, schemaFile{"common.proto", `
+syntax = "proto3";
+
+package cafecito.common.v1;
+
+message Empty {
+  int32 x = 1;
+}
+`})
+
+	holder := files["cafecito/game/v1/Holder.pb.fs"]
+	require.Contains(t, holder, "import foundry.proto.wkt")
+	require.Contains(t, holder, "var local_empty: cafecito.common.v1.Empty? = null")
+	// The well-known reference itself stays short: nothing else declares it.
+	require.Contains(t, holder, "var timeout: Duration? = null")
+}
+
+// Without a well-known reference the namespace is not imported, so a schema
+// type named like a well-known one still resolves by its short name.
+func TestImportedTypeNamedLikeAWellKnownTypeStaysShortWithoutAReference(t *testing.T) {
+	files := generateSchema(t, `
+syntax = "proto3";
+
+package cafecito.game.v1;
+
+import "common.proto";
+import "google/protobuf/duration.proto";
+
+message Holder {
+  cafecito.common.v1.Empty local_empty = 1;
+}
+`, schemaFile{"common.proto", `
+syntax = "proto3";
+
+package cafecito.common.v1;
+
+message Empty {
+  int32 x = 1;
+}
+`})
+
+	holder := files["cafecito/game/v1/Holder.pb.fs"]
+	require.NotContains(t, holder, "foundry.proto.wkt")
+	require.Contains(t, holder, "var local_empty: Empty? = null")
+}
+
 // Naming an unshipped google/protobuf file is an error rather than a second,
 // incompatible copy of a type the runtime already defines.
 func TestUnsupportedWellKnownFileIsRejected(t *testing.T) {
