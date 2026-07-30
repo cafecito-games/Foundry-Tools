@@ -212,13 +212,25 @@ var reservedFieldNames = map[string]bool{
 	"tuple": true, "var": true, "void": true, "while": true, "yield": true,
 }
 
-// generatedMemberNames are the members every message binding declares. A proto
+// generatedMethodNames are the methods every message binding declares. Keep
+// this ordered inventory shared by naming and collision collection so the two
+// cannot disagree about which method spellings the emitter owns.
+var generatedMethodNames = [...]string{
+	"from_bytes",
+	"to_bytes",
+	"merge_from_bytes",
+}
+
+// generatedMemberNames are all members every message binding declares. A proto
 // field with one of these names would replace the generated member rather than
 // sit beside it, so it is renamed for the same reason a keyword is.
-var generatedMemberNames = map[string]bool{
-	"from_bytes": true, "to_bytes": true, "merge_from_bytes": true,
-	unknownFieldsMember: true,
-}
+var generatedMemberNames = func() map[string]bool {
+	names := map[string]bool{unknownFieldsMember: true}
+	for _, methodName := range generatedMethodNames {
+		names[methodName] = true
+	}
+	return names
+}()
 
 func planNonEngineMemberName(name string) plannedMemberName {
 	switch {

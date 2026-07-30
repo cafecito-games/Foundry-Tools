@@ -36,6 +36,15 @@ func (c *memberCollisionCollector) addMessage(
 	if c == nil {
 		return
 	}
+	for _, methodName := range generatedMethodNames {
+		c.add(memberClaim{
+			SourceName:    sourceName,
+			MessageName:   messageName,
+			Kind:          "generated method",
+			RawName:       methodName,
+			GeneratedName: methodName,
+		})
+	}
 	c.add(memberClaim{
 		SourceName:    sourceName,
 		MessageName:   messageName,

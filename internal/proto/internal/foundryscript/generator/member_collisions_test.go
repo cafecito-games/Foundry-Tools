@@ -158,6 +158,38 @@ func TestMemberCollisionCollectorIncludesGeneratedNamespaceClaims(t *testing.T) 
 	require.Equal(t, 2, strings.Count(diagnostic, "rename one protobuf declaration"))
 }
 
+func TestMemberCollisionCollectorIncludesGeneratedMethodClaims(t *testing.T) {
+	collector := newMemberCollisionCollector()
+	collector.addMessage("members.proto", "cafecito.game.v1.Player", []fieldPlan{{
+		Position: protoast.Position{Line: 7, Column: 3},
+		Kind:     "field",
+		Name:     "to_bytes",
+		RawName:  "wire_value",
+	}}, nil)
+
+	require.EqualError(t, collector.err(), `generated Foundry member names collide:
+  members.proto:7:3: field cafecito.game.v1.Player.wire_value generates Foundry member "to_bytes"
+  members.proto: generated method cafecito.game.v1.Player.to_bytes generates Foundry member "to_bytes"
+  rename one protobuf declaration in cafecito.game.v1.Player`)
+}
+
+func TestGenerateMethodEscapeCollidesOnlyAtEscapedSpelling(t *testing.T) {
+	files, err := Generate(namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{Position: protoast.Position{Line: 5, Column: 3}, FieldType: "bytes", Name: "to_bytes", Number: 1},
+			{Position: protoast.Position{Line: 6, Column: 3}, FieldType: "bytes", Name: "to_bytes_", Number: 2},
+		},
+	}}, nil), "members.proto", nil)
+
+	require.Nil(t, files)
+	require.EqualError(t, err, `generated Foundry member names collide:
+  members.proto:5:3: field cafecito.game.v1.Player.to_bytes generates Foundry member "to_bytes_" after escaping generated member
+  members.proto:6:3: field cafecito.game.v1.Player.to_bytes_ generates Foundry member "to_bytes_"
+  rename one protobuf declaration in cafecito.game.v1.Player`)
+	require.NotContains(t, err.Error(), "generated method")
+}
+
 func TestMemberCollisionCollectorReportsPositionlessClaims(t *testing.T) {
 	collector := newMemberCollisionCollector()
 	collector.addMessage("descriptor.proto", "cafecito.game.v1.Outer.Inner", []fieldPlan{

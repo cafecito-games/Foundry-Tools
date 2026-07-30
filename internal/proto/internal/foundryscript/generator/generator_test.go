@@ -1364,6 +1364,72 @@ func TestGenerateEscapesEngineTypeMessageMembersEverywhere(t *testing.T) {
 	require.NotContains(t, oneofSource, "Image_")
 }
 
+func TestGenerateEscapesEngineNamedEnumAndMessageMembersEverywhere(t *testing.T) {
+	files := generate(t, namespacedFile(
+		[]*protoast.Message{
+			{
+				Name: "Envelope",
+				Fields: []*protoast.Field{
+					{FieldType: "DeliveryState", Name: "String", Number: 1},
+					{FieldType: "Payload", Name: "Node", Number: 2},
+				},
+			},
+			{Name: "Payload"},
+		},
+		[]*protoast.Enum{{
+			Name: "DeliveryState",
+			Values: []*protoast.EnumValue{
+				{Name: "Node", Number: 0},
+				{Name: "READY", Number: 1},
+			},
+		}},
+	))
+	messageSource := files["cafecito/game/v1/Envelope.pb.fs"]
+
+	require.Contains(t, messageSource,
+		"## The String protobuf field.\n"+
+			"var String_: DeliveryState = DeliveryState.Node:\n"+
+			"\tset(_pb_value):\n"+
+			"\t\t_pb_String_unknown = PackedByteArray()\n"+
+			"\t\tString_ = _pb_value\n")
+	require.Contains(t, messageSource,
+		"## Raw bytes of an unrecognized String value, kept so a re-encode is lossless.\n"+
+			"var _pb_String_unknown: PackedByteArray = PackedByteArray()\n")
+	require.Contains(t, messageSource,
+		"\tif _pb_String_unknown.size() > 0:\n"+
+			"\t\t_pb_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_VARINT)))\n"+
+			"\t\t_pb_result.append_array(_pb_String_unknown)\n"+
+			"\telif String_ != DeliveryState.Node:\n"+
+			"\t\t_pb_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_VARINT)))\n"+
+			"\t\t_pb_result.append_array(Wire.encode_varint(String_.to_wire()))\n")
+	require.Contains(t, messageSource,
+		"\t\t\t\tvar _pb_String_case: DeliveryState? = DeliveryState.from_wire(_pb_String_read.value)\n"+
+			"\t\t\t\tif _pb_String_case is DeliveryState:\n"+
+			"\t\t\t\t\tString_ = _pb_String_case\n"+
+			"\t\t\t\telse:\n"+
+			"\t\t\t\t\tString_ = DeliveryState.Node\n"+
+			"\t\t\t\t\t_pb_String_unknown = _pb_data.slice(_pb_offset, _pb_String_read.offset)\n")
+
+	require.Contains(t, messageSource,
+		"## The Node protobuf field.\n"+
+			"var Node_: Payload? = null\n")
+	require.Contains(t, messageSource,
+		"\tif Node_ is Payload:\n"+
+			"\t\tvar _pb_Node_data: PackedByteArray = Node_.to_bytes()\n"+
+			"\t\t_pb_result.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_LENGTH_DELIMITED)))\n")
+	require.Contains(t, messageSource,
+		"\t\t\t\tif not (Node_ is Payload):\n"+
+			"\t\t\t\t\tNode_ = Payload.new()\n"+
+			"\t\t\t\tvar _pb_Node_read: SkipRead = Wire.read_message(_pb_data, _pb_offset, Node_)\n")
+
+	require.NotContains(t, messageSource, "The String_ protobuf field.")
+	require.NotContains(t, messageSource, "The Node_ protobuf field.")
+
+	enumSource := files["cafecito/game/v1/DeliveryState.pb.fs"]
+	require.Contains(t, enumSource, "\tNode = 0\n")
+	require.NotContains(t, enumSource, "\tNode_ = 0\n")
+}
+
 // Every generated file imports foundry.proto, so a schema type sharing a name
 // with one of its exports would make that name ambiguous and break the runtime
 // calls the binding makes through it.
