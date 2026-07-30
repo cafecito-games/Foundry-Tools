@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package probe.scalars.v1;
+
+// Exercises the eight scalars that are not plain varints, at the edges of
+// their ranges. The values here are also encoded by a reference protobuf
+// implementation into scalars_reference.bin, which main.fs checks our bytes
+// against, so this schema and that file move together.
+message ScalarSuite {
+  double double_value = 1;
+  float float_value = 2;
+  fixed32 fixed32_value = 3;
+  fixed64 fixed64_value = 4;
+  sfixed32 sfixed32_value = 5;
+  sfixed64 sfixed64_value = 6;
+  sint32 sint32_value = 7;
+  sint64 sint64_value = 8;
+
+  repeated sint32 sint32_list = 9;
+  repeated double double_list = 10;
+  repeated sfixed32 sfixed32_list = 11;
+
+  map<sfixed64, float> ratios = 12;
+
+  oneof choice {
+    float choice_float = 13;
+    sint64 choice_delta = 14;
+  }
+}

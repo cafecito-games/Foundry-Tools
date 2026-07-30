@@ -12,7 +12,9 @@ import (
 // Protobuf wire types.
 const (
 	wireVarint          = 0
+	wire64Bit           = 1
 	wireLengthDelimited = 2
+	wire32Bit           = 5
 )
 
 type valueKind int
@@ -552,13 +554,16 @@ func TypeReference(protoType string) string {
 	return strings.Join(converted, ".")
 }
 
-// scalarWireType reports the wire type for a proto scalar. Only the varint and
-// length-delimited scalars are supported; validateWireFields rejects the rest
-// before any plan is built.
+// scalarWireType reports the wire type for a proto scalar. The zig-zag types
+// stay varints — zig-zag changes the value, not the framing.
 func scalarWireType(protoType string) int {
 	switch protoType {
 	case "string", "bytes":
 		return wireLengthDelimited
+	case "fixed32", "sfixed32", "float":
+		return wire32Bit
+	case "fixed64", "sfixed64", "double":
+		return wire64Bit
 	default:
 		return wireVarint
 	}
@@ -580,10 +585,73 @@ func scalarZeroValue(protoType string) string {
 }
 
 // isPackable reports whether proto3 packs a repeated field of this value by
-// default. Only fixed-width and varint scalars pack; length-delimited ones
-// are always written one record per element.
+// default. Every numeric scalar packs, fixed-width ones included; only the
+// length-delimited types are always written one record per element.
 func (v valuePlan) isPackable() bool {
-	return v.Kind != kindMessage && v.WireType == wireVarint
+	return v.Kind != kindMessage && v.WireType != wireLengthDelimited
+}
+
+// encodeCall renders the runtime call that frames one value of this type.
+// Each scalar names its own codec, so the generated source states the framing
+// the schema asked for instead of leaving it implied by the tag.
+func (v valuePlan) encodeCall(expression string) string {
+	switch v.ProtoType {
+	case "float":
+		return "Wire.encode_float(" + expression + ")"
+	case "double":
+		return "Wire.encode_double(" + expression + ")"
+	case "fixed32", "sfixed32":
+		return "Wire.encode_fixed32(" + expression + ")"
+	case "fixed64", "sfixed64":
+		return "Wire.encode_fixed64(" + expression + ")"
+	case "sint32":
+		return "Wire.encode_sint32(" + expression + ")"
+	case "sint64":
+		return "Wire.encode_sint64(" + expression + ")"
+	default:
+		return "Wire.encode_varint(" + varintExpression(v, expression) + ")"
+	}
+}
+
+// readCarrier is the tuple a read of this type returns. They differ because
+// the value they carry does: an int for the integral types, a float for the
+// two IEEE-754 ones.
+func (v valuePlan) readCarrier() string {
+	switch v.ProtoType {
+	case "float", "double":
+		return "FloatRead"
+	case "fixed32", "sfixed32", "fixed64", "sfixed64":
+		return "FixedRead"
+	default:
+		return "VarintRead"
+	}
+}
+
+// readFunction is the runtime call that reads one untagged value of this type.
+//
+// fixed64 and sfixed64 share a reader: Foundry's int is signed 64-bit, so both
+// keep every bit and differ only in what the number means. The 32-bit pair
+// cannot share, since fixed32 spans a range that does not fit the sign
+// convention of sfixed32.
+func (v valuePlan) readFunction() string {
+	switch v.ProtoType {
+	case "float":
+		return "Wire.read_float"
+	case "double":
+		return "Wire.read_double"
+	case "fixed32":
+		return "Wire.read_fixed32"
+	case "sfixed32":
+		return "Wire.read_sfixed32"
+	case "fixed64", "sfixed64":
+		return "Wire.read_fixed64"
+	case "sint32":
+		return "Wire.read_sint32"
+	case "sint64":
+		return "Wire.read_sint64"
+	default:
+		return "Wire.decode_varint"
+	}
 }
 
 func scalarValuePlan(protoType string) valuePlan {

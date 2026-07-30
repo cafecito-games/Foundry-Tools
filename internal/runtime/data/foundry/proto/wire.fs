@@ -40,6 +40,141 @@ static func decode_varint(data: PackedByteArray, offset: int) -> VarintRead:
 			return VarintRead(0, cursor, ProtobufError.VARINT_TOO_LONG)
 	return VarintRead(0, cursor, ProtobufError.VARINT_NOT_FOUND)
 
+## Encodes the low four bytes of value, little-endian. fixed32 and sfixed32
+## put the same bytes on the wire and differ only in how a reader interprets
+## the top bit, so both encode through here.
+static func encode_fixed32(value: int) -> PackedByteArray:
+	var result: PackedByteArray = PackedByteArray()
+	result.append(value & 0xFF)
+	result.append((value >> 8) & 0xFF)
+	result.append((value >> 16) & 0xFF)
+	result.append((value >> 24) & 0xFF)
+	return result
+
+## Encodes all eight bytes of value, little-endian. As with the 32-bit pair,
+## fixed64 and sfixed64 share this and differ only on the way back out.
+static func encode_fixed64(value: int) -> PackedByteArray:
+	var result: PackedByteArray = PackedByteArray()
+	var remaining: int = value
+	var index: int = 0
+	while index < 8:
+		result.append(remaining & 0xFF)
+		# Masking each byte makes the arithmetic shift's sign extension moot.
+		remaining = remaining >> 8
+		index += 1
+	return result
+
+## Encodes value as IEEE-754 binary32. Foundry's float is 64-bit, so this
+## narrows: a proto float field cannot hold more precision than binary32, and
+## rounding here rather than at the reader is what every implementation does.
+static func encode_float(value: float) -> PackedByteArray:
+	var result: PackedByteArray = PackedByteArray()
+	result.resize(4)
+	result.encode_float(0, value)
+	return result
+
+## Encodes value as IEEE-754 binary64, which is Foundry's float exactly.
+static func encode_double(value: float) -> PackedByteArray:
+	var result: PackedByteArray = PackedByteArray()
+	result.resize(8)
+	result.encode_double(0, value)
+	return result
+
+## Reports whether value is the default proto3 writes nothing for.
+##
+## For a float that default is +0.0 specifically. -0.0 is a distinct value that
+## protobuf puts on the wire, and `value != 0.0` answers false for both of
+## them, so the sign is recovered from a division: it is the one operation that
+## still tells the two zeroes apart. The division only ever runs for a zero.
+static func is_default_float(value: float) -> bool:
+	if value != 0.0:
+		return false
+	return 1.0 / value > 0.0
+
+## The same question for a proto float, which is binary32 while Foundry's float
+## is binary64. A value too small for binary32 narrows to +0.0 when it is
+## written, so presence has to be decided on what actually goes on the wire;
+## deciding it on the wider value would emit a field protobuf omits.
+static func is_default_float32(value: float) -> bool:
+	if is_default_float(value):
+		return true
+	var narrowed: PackedByteArray = PackedByteArray()
+	narrowed.resize(4)
+	narrowed.encode_float(0, value)
+	return is_default_float(narrowed.decode_float(0))
+
+## Encodes value as a zig-zag varint over 32 bits. Zig-zag maps small negatives
+## onto small unsigned numbers, so -1 costs one byte instead of the ten a plain
+## varint spends sign-extending it.
+static func encode_sint32(value: int) -> PackedByteArray:
+	return encode_varint(zigzag_encode_32(value))
+
+## Encodes value as a zig-zag varint over 64 bits.
+static func encode_sint64(value: int) -> PackedByteArray:
+	return encode_varint(zigzag_encode_64(value))
+
+static func zigzag_encode_32(value: int) -> int:
+	return ((value << 1) ^ (value >> 31)) & 0xFFFFFFFF
+
+static func zigzag_encode_64(value: int) -> int:
+	return (value << 1) ^ (value >> 63)
+
+static func zigzag_decode_32(value: int) -> int:
+	var encoded: int = value & 0xFFFFFFFF
+	return (encoded >> 1) ^ -(encoded & 1)
+
+static func zigzag_decode_64(value: int) -> int:
+	# The mask stands in for a logical shift; Foundry's >> is arithmetic, and
+	# the top bit is a value bit here rather than a sign.
+	return ((value >> 1) & 0x7FFFFFFFFFFFFFFF) ^ -(value & 1)
+
+## Reads four bytes as an unsigned 32-bit value, so fixed32 spans 0 to 2^32-1
+## rather than wrapping negative.
+static func read_fixed32(data: PackedByteArray, offset: int) -> FixedRead:
+	if offset + 4 > data.size():
+		return FixedRead(0, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
+	return FixedRead(data.decode_u32(offset), offset + 4, ProtobufError.OK)
+
+## Reads four bytes as a signed 32-bit value.
+static func read_sfixed32(data: PackedByteArray, offset: int) -> FixedRead:
+	if offset + 4 > data.size():
+		return FixedRead(0, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
+	return FixedRead(data.decode_s32(offset), offset + 4, ProtobufError.OK)
+
+## Reads eight bytes. fixed64 and sfixed64 both land here: Foundry's int is
+## signed 64-bit, so the bits are preserved either way and only the printed
+## value of the top half of the fixed64 range differs from its proto meaning.
+static func read_fixed64(data: PackedByteArray, offset: int) -> FixedRead:
+	if offset + 8 > data.size():
+		return FixedRead(0, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
+	return FixedRead(data.decode_s64(offset), offset + 8, ProtobufError.OK)
+
+## Reads four bytes as IEEE-754 binary32, widened into Foundry's 64-bit float.
+static func read_float(data: PackedByteArray, offset: int) -> FloatRead:
+	if offset + 4 > data.size():
+		return FloatRead(0.0, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
+	return FloatRead(data.decode_float(offset), offset + 4, ProtobufError.OK)
+
+## Reads eight bytes as IEEE-754 binary64.
+static func read_double(data: PackedByteArray, offset: int) -> FloatRead:
+	if offset + 8 > data.size():
+		return FloatRead(0.0, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
+	return FloatRead(data.decode_double(offset), offset + 8, ProtobufError.OK)
+
+## Reads a zig-zag varint over 32 bits.
+static func read_sint32(data: PackedByteArray, offset: int) -> VarintRead:
+	var read: VarintRead = decode_varint(data, offset)
+	if read.error != ProtobufError.OK:
+		return read
+	return VarintRead(zigzag_decode_32(read.value), read.offset, ProtobufError.OK)
+
+## Reads a zig-zag varint over 64 bits.
+static func read_sint64(data: PackedByteArray, offset: int) -> VarintRead:
+	var read: VarintRead = decode_varint(data, offset)
+	if read.error != ProtobufError.OK:
+		return read
+	return VarintRead(zigzag_decode_64(read.value), read.offset, ProtobufError.OK)
+
 static func encode_string(value: String) -> PackedByteArray:
 	return value.to_utf8_buffer()
 

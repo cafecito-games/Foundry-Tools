@@ -109,45 +109,21 @@ func renderOneofUnion(namespace string, oneof *oneofPlan) string {
 // so an unsupported schema fails loudly instead of producing a binding that
 // silently drops the field. It recurses, since a nested message is emitted
 // with the same machinery as its parent.
+//
+// Every proto3 scalar is representable, so what is left here is about shape
+// rather than type: proto3 has no wire form for a repeated oneof member.
 func validateWireFields(message *protoast.Message) error {
-	for _, field := range message.Fields {
-		if err := validateWireType(field.FieldType); err != nil {
-			return err
-		}
-	}
 	for _, oneof := range message.Oneofs {
 		for _, field := range oneof.Fields {
-			if err := validateWireType(field.FieldType); err != nil {
-				return err
-			}
 			if field.Repeated {
 				return fmt.Errorf("oneof %s field %s cannot be repeated", oneof.Name, field.Name)
 			}
-		}
-	}
-	for _, mapField := range message.Maps {
-		if err := validateWireType(mapField.KeyType); err != nil {
-			return err
-		}
-		if err := validateWireType(mapField.ValueType); err != nil {
-			return err
 		}
 	}
 	for _, nested := range message.NestedMessages {
 		if err := validateWireFields(nested); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-// validateWireType rejects the scalars whose wire encoding is not implemented.
-// These need zig-zag or fixed-width framing rather than a plain varint, so
-// emitting them as varints would produce silently wrong bytes.
-func validateWireType(protoType string) error {
-	switch protoType {
-	case "float", "double", "fixed32", "fixed64", "sfixed32", "sfixed64", "sint32", "sint64":
-		return fmt.Errorf("unsupported scalar type %s for wire generation", protoType)
 	}
 	return nil
 }

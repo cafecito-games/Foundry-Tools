@@ -715,50 +715,189 @@ func TestSameFileEnumIsNotTreatedAsMessage(t *testing.T) {
 	require.Contains(t, source, "status.to_wire()")
 }
 
-func TestGenerateUnsupportedWireScalarsReturnsError(t *testing.T) {
-	for _, scalar := range []string{"float", "double", "fixed32", "fixed64", "sfixed32", "sfixed64", "sint32", "sint64"} {
+// Each of the eight non-varint scalars frames its own way. The generated
+// source has to name that framing in the tag and reach for the codec that
+// matches it, or the bytes are wrong in a way only a foreign decoder notices.
+func TestGenerateFixedWidthScalars(t *testing.T) {
+	cases := map[string]struct {
+		declared string
+		wireType string
+		encode   string
+		carrier  string
+		read     string
+	}{
+		"fixed32":  {"var score: int = 0", "Wire.WIRE_32BIT", "Wire.encode_fixed32(score)", "FixedRead", "Wire.read_fixed32"},
+		"sfixed32": {"var score: int = 0", "Wire.WIRE_32BIT", "Wire.encode_fixed32(score)", "FixedRead", "Wire.read_sfixed32"},
+		"float":    {"var score: float = 0.0", "Wire.WIRE_32BIT", "Wire.encode_float(score)", "FloatRead", "Wire.read_float"},
+		"fixed64":  {"var score: int = 0", "Wire.WIRE_64BIT", "Wire.encode_fixed64(score)", "FixedRead", "Wire.read_fixed64"},
+		"sfixed64": {"var score: int = 0", "Wire.WIRE_64BIT", "Wire.encode_fixed64(score)", "FixedRead", "Wire.read_fixed64"},
+		"double":   {"var score: float = 0.0", "Wire.WIRE_64BIT", "Wire.encode_double(score)", "FloatRead", "Wire.read_double"},
+	}
+
+	for scalar, want := range cases {
 		t.Run(scalar, func(t *testing.T) {
-			_, err := Generate(namespacedFile([]*protoast.Message{{
-				Name:   "Player",
-				Fields: []*protoast.Field{{FieldType: scalar, Name: "score", Number: 1}},
-			}}, nil), "player.proto", nil)
-			require.Error(t, err)
-			require.Contains(t, err.Error(), "unsupported scalar type "+scalar+" for wire generation")
+			source := playerSource(t, []*protoast.Field{{FieldType: scalar, Name: "score", Number: 1}})
+
+			require.Contains(t, source, want.declared)
+			require.Contains(t, source, "Wire.make_tag(1, "+want.wireType+")")
+			require.Contains(t, source, "_pb_result.append_array("+want.encode+")")
+			require.Contains(t, source, "if _pb_wire_type != "+want.wireType+":")
+			require.Contains(t, source, "var _pb_score_read: "+want.carrier+" = "+want.read+"(_pb_data, _pb_offset)")
+			require.Contains(t, source, "score = _pb_score_read.value")
+
+			// A fixed-width value is never framed as a varint.
+			require.NotContains(t, source, "Wire.encode_varint(score)")
 		})
 	}
 }
 
-// An unsupported scalar must be rejected wherever it appears, not only as a
-// top-level field, or the binding silently drops it.
-func TestUnsupportedScalarsRejectedInEveryPosition(t *testing.T) {
-	cases := map[string]*protoast.Message{
-		"nested": {
-			Name: "Player",
-			NestedMessages: []*protoast.Message{{
-				Name:   "Inner",
-				Fields: []*protoast.Field{{FieldType: "float", Name: "ratio", Number: 1}},
-			}},
-		},
-		"oneof": {
-			Name: "Player",
-			Oneofs: []*protoast.Oneof{{
-				Name:   "payload",
-				Fields: []*protoast.Field{{FieldType: "double", Name: "ratio", Number: 1}},
-			}},
-		},
-		"map value": {
-			Name: "Player",
-			Maps: []*protoast.MapField{{KeyType: "string", ValueType: "sint32", Name: "ratios", Number: 1}},
-		},
-	}
+// sint32 and sint64 stay varints, but zig-zag first, so a small negative costs
+// one byte rather than ten.
+func TestGenerateZigZagScalars(t *testing.T) {
+	for _, scalar := range []string{"sint32", "sint64"} {
+		t.Run(scalar, func(t *testing.T) {
+			source := playerSource(t, []*protoast.Field{{FieldType: scalar, Name: "score", Number: 1}})
 
-	for name, message := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, err := Generate(namespacedFile([]*protoast.Message{message}, nil), "player.proto", nil)
-			require.Error(t, err)
-			require.Contains(t, err.Error(), "unsupported scalar type")
+			require.Contains(t, source, "var score: int = 0")
+			require.Contains(t, source, "Wire.make_tag(1, Wire.WIRE_VARINT)")
+			require.Contains(t, source, "_pb_result.append_array(Wire.encode_"+scalar+"(score))")
+			require.Contains(t, source, "var _pb_score_read: VarintRead = Wire.read_"+scalar+"(_pb_data, _pb_offset)")
+			require.Contains(t, source, "score = _pb_score_read.value")
+
+			// The plain varint codec would put a negative on the wire as ten bytes.
+			require.NotContains(t, source, "Wire.encode_varint(score)")
 		})
 	}
+}
+
+// proto3 packs every numeric scalar by default, fixed-width ones included, so
+// the tag carries the length-delimited wire type and the elements do not.
+func TestGenerateRepeatedFixedWidthScalarsPack(t *testing.T) {
+	source := playerSource(t, []*protoast.Field{
+		{FieldType: "double", Name: "ratios", Number: 1, Repeated: true},
+		{FieldType: "sint32", Name: "deltas", Number: 2, Repeated: true},
+	})
+
+	require.Contains(t, source, "var ratios: Array[float] = []")
+	require.Contains(t, source, "Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)")
+	require.Contains(t, source, "for _pb_ratios_item: float in ratios:")
+	require.Contains(t, source, "_pb_ratios_data.append_array(Wire.encode_double(_pb_ratios_item))")
+
+	require.Contains(t, source, "var deltas: Array[int] = []")
+	require.Contains(t, source, "_pb_deltas_data.append_array(Wire.encode_sint32(_pb_deltas_item))")
+
+	// A packed field must still decode the unpacked encoding, which for a
+	// fixed-width element arrives under its own wire type rather than a varint.
+	require.Contains(t, source, "elif _pb_wire_type == Wire.WIRE_64BIT:")
+	require.Contains(t, source, "elif _pb_wire_type == Wire.WIRE_VARINT:")
+}
+
+// A packed run declares its length, and an element must not read past it. The
+// element readers bound themselves against the whole buffer, so without a
+// check against the run's own end a payload whose length is not a whole number
+// of elements would take bytes from the field after it and accept the message.
+func TestGeneratePackedRunRejectsElementsCrossingItsEnd(t *testing.T) {
+	for _, scalar := range []string{"sfixed32", "double", "sint64", "int32"} {
+		t.Run(scalar, func(t *testing.T) {
+			source := playerSource(t, []*protoast.Field{
+				{FieldType: scalar, Name: "values", Number: 1, Repeated: true},
+			})
+
+			require.Contains(t, source, "if _pb_values_packed.offset > _pb_values_end:")
+			require.Contains(t, source, "return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH")
+		})
+	}
+}
+
+// proto3 omits an implicit-presence field holding the default, and for a float
+// the default is +0.0 specifically. -0.0 is a distinct value that protobuf puts
+// on the wire, and `!= 0.0` reports the two as equal, so a float cannot use the
+// plain zero comparison the integral types do.
+func TestGenerateFloatPresenceDistinguishesNegativeZero(t *testing.T) {
+	source := playerSource(t, []*protoast.Field{
+		{FieldType: "double", Name: "ratio", Number: 1},
+		{FieldType: "float", Name: "accuracy", Number: 2},
+		{FieldType: "int32", Name: "level", Number: 3},
+	})
+
+	require.Contains(t, source, "if not Wire.is_default_float(ratio):")
+	// A proto float is binary32, so presence is decided on the narrowed value:
+	// a double too small for binary32 becomes the default on the way out.
+	require.Contains(t, source, "if not Wire.is_default_float32(accuracy):")
+	require.NotContains(t, source, "if ratio != 0.0:")
+	// An integer has one zero, so it keeps the direct comparison.
+	require.Contains(t, source, "if level != 0:")
+}
+
+// A map entry is a length-delimited submessage. Its key and value readers bound
+// themselves against the whole buffer, so a truncated entry would otherwise
+// read the field that follows it and report success.
+func TestGenerateMapEntryRejectsReadsCrossingItsEnd(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Maps: []*protoast.MapField{{KeyType: "sfixed64", ValueType: "float", Name: "ratios", Number: 1}},
+	}}, nil))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "if _pb_ratios_key_read.offset > _pb_ratios_end:")
+	require.Contains(t, source, "if _pb_ratios_value_read.offset > _pb_ratios_end:")
+	require.Contains(t, source, "return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH")
+
+	// The entry's own tag and the skip of a field the entry does not recognize
+	// read from the same buffer, so they need the same bound: either one can
+	// otherwise run off the end of the entry and into the next field.
+	require.Contains(t, source, "if _pb_ratios_entry_tag.offset > _pb_ratios_end:")
+	require.Contains(t, source, "if _pb_ratios_skip.offset > _pb_ratios_end:")
+}
+
+// The same framing has to hold where the value is not a plain field: map keys
+// and values carry their own tags inside the entry, and a oneof member carries
+// the tag of the field it stands for.
+func TestGenerateFixedWidthScalarsInMapsAndOneofs(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Maps: []*protoast.MapField{
+			{KeyType: "sfixed64", ValueType: "float", Name: "ratios", Number: 1},
+		},
+		Oneofs: []*protoast.Oneof{{
+			Name: "payload",
+			Fields: []*protoast.Field{
+				{FieldType: "double", Name: "ratio", Number: 2},
+				{FieldType: "sint64", Name: "delta", Number: 3},
+			},
+		}},
+	}}, nil))
+	message := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, message, "var ratios: Dictionary[int, float] = {}")
+	// Inside the entry, key and value carry field numbers 1 and 2 with their
+	// own framing rather than the map field's.
+	require.Contains(t, message, "Wire.encode_fixed64(_pb_ratios_key)")
+	require.Contains(t, message, "Wire.encode_float(ratios[_pb_ratios_key])")
+	require.Contains(t, message, "var _pb_ratios_key_read: FixedRead = Wire.read_fixed64(_pb_data, _pb_offset)")
+	require.Contains(t, message, "var _pb_ratios_value_read: FloatRead = Wire.read_float(_pb_data, _pb_offset)")
+
+	require.Contains(t, message, "Wire.encode_double(_pb_payload_ratio)")
+	require.Contains(t, message, "Wire.encode_sint64(_pb_payload_delta)")
+	require.Contains(t, message, "Wire.make_tag(2, Wire.WIRE_64BIT)")
+	require.Contains(t, message, "Wire.make_tag(3, Wire.WIRE_VARINT)")
+}
+
+// Every proto3 scalar generates; nothing in the schema language is refused for
+// want of a wire encoding any more.
+func TestGenerateAcceptsEveryProto3Scalar(t *testing.T) {
+	scalars := []string{
+		"double", "float", "int32", "int64", "uint32", "uint64",
+		"sint32", "sint64", "fixed32", "fixed64", "sfixed32", "sfixed64",
+		"bool", "string", "bytes",
+	}
+	fields := make([]*protoast.Field, 0, len(scalars))
+	for i, scalar := range scalars {
+		fields = append(fields, &protoast.Field{FieldType: scalar, Name: scalar + "_field", Number: i + 1})
+	}
+
+	_, err := Generate(namespacedFile([]*protoast.Message{{Name: "Player", Fields: fields}}, nil), "player.proto", nil)
+	require.NoError(t, err)
 }
 
 func TestGeneratePrefersSchemaDocs(t *testing.T) {
