@@ -28,6 +28,7 @@ bin/
 # goreleaser output
 dist/
 .cache/
+.worktrees/
 
 # ---- Secrets / local config ----
 .env
