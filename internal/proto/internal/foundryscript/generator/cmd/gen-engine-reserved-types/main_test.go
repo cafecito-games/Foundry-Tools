@@ -276,6 +276,43 @@ func TestRunNormalizesExistingOutputPermissions(t *testing.T) {
 	}
 }
 
+func TestRepositoryTaskDeclaresEngineTypeRefresh(t *testing.T) {
+	root := findRepoRoot(t)
+	taskfile, err := os.ReadFile(filepath.Join(root, "Taskfile.yml"))
+	if err != nil {
+		t.Fatalf("read repository Taskfile: %v", err)
+	}
+
+	source := string(taskfile)
+	for _, want := range []string{"gen-engine-types:", "sync-foundry-engine-types.sh write"} {
+		if !strings.Contains(source, want) {
+			t.Errorf("Taskfile.yml does not contain %q", want)
+		}
+	}
+}
+
+func findRepoRoot(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("stat go.mod in %q: %v", dir, err)
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("repository root containing go.mod not found")
+		}
+		dir = parent
+	}
+}
+
 func writeTestAPI(t *testing.T, dir string) string {
 	t.Helper()
 
