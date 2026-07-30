@@ -43,6 +43,26 @@ func TestDirectCLIReportsEngineTypeCollision(t *testing.T) {
 	require.Empty(t, entries)
 }
 
+func TestDirectCLIGenerationFailureIsAtomic(t *testing.T) {
+	root := repoRoot(t)
+	outDir := t.TempDir()
+
+	output := runFailure(t, root, "go", "run", "./cmd/anvil", "proto", "generate",
+		"-I", "tests/integration/fixtures/collisions",
+		"-o", outDir,
+		"tests/integration/fixtures/collisions/prefixed.proto",
+		"tests/integration/fixtures/collisions/types.proto")
+
+	require.Contains(t, output, `native class "Node"`)
+	require.Contains(t, output, "(foundrytools.type_prefix)")
+
+	require.NoFileExists(t, filepath.Join(outDir, "probe/collisions/v1/GameNode.pb.fs"))
+
+	entries, err := os.ReadDir(outDir)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+}
+
 func TestDirectCLIAppliesTypePrefix(t *testing.T) {
 	root := repoRoot(t)
 	outDir := t.TempDir()
