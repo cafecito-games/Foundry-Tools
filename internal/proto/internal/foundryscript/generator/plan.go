@@ -214,26 +214,42 @@ type typeRegistry map[string]typeInfo
 
 // declarationIndex preserves exact raw protobuf paths independently of the
 // normalized registry used to resolve emitted Foundry names.
-type declarationIndex map[string]declarationInfo
+type declarationIndex struct {
+	byFullName     map[string]declarationInfo
+	byRelativeName map[string]declarationInfo
+}
 
 func newDeclarationIndex(protoPackage string, declarations []declarationInfo) declarationIndex {
-	index := declarationIndex{}
+	index := declarationIndex{
+		byFullName:     map[string]declarationInfo{},
+		byRelativeName: map[string]declarationInfo{},
+	}
 	packagePrefix := strings.TrimPrefix(protoPackage, ".")
 	if packagePrefix != "" {
 		packagePrefix += "."
 	}
 	for _, declaration := range declarations {
 		fullName := strings.TrimPrefix(declaration.ProtoName, ".")
-		index[fullName] = declaration
+		index.byFullName[fullName] = declaration
 		if packagePrefix != "" && strings.HasPrefix(fullName, packagePrefix) {
-			index[strings.TrimPrefix(fullName, packagePrefix)] = declaration
+			index.byRelativeName[strings.TrimPrefix(fullName, packagePrefix)] = declaration
+		} else {
+			index.byRelativeName[fullName] = declaration
 		}
 	}
 	return index
 }
 
-func (i declarationIndex) resolve(reference string) (declarationInfo, bool) {
-	declaration, found := i[strings.TrimPrefix(reference, ".")]
+func (i declarationIndex) resolve(fullPath, relativeReference string) (declarationInfo, bool) {
+	if fullPath != "" {
+		declaration, found := i.byFullName[strings.TrimPrefix(fullPath, ".")]
+		return declaration, found
+	}
+	if strings.HasPrefix(relativeReference, ".") {
+		declaration, found := i.byFullName[strings.TrimPrefix(relativeReference, ".")]
+		return declaration, found
+	}
+	declaration, found := i.byRelativeName[relativeReference]
 	return declaration, found
 }
 
@@ -575,8 +591,9 @@ func scalarValuePlan(protoType string) valuePlan {
 // typeUse is one reference to a named type, with everything the parser already
 // resolved about it.
 type typeUse struct {
-	ProtoType string
-	IsEnum    bool
+	ProtoType     string
+	FullProtoPath string
+	IsEnum        bool
 	// EnumValues is the referenced enum's values when it was declared in
 	// another file; the parser fills this in as part of resolving the import.
 	EnumValues []*protoast.EnumValue
@@ -633,7 +650,10 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 			TopLevel:       topLevel,
 		}
 	} else if use.SourceFile != "" {
-		if declaration, declared := r.importedDeclarations[use.SourceFile].resolve(use.ProtoType); declared {
+		if declaration, declared := r.importedDeclarations[use.SourceFile].resolve(
+			use.FullProtoPath,
+			use.ProtoType,
+		); declared {
 			r.collisions.AddDependency(declaration)
 		}
 	}
@@ -948,10 +968,11 @@ func planField(field *protoast.Field, messageName, scope string, resolve *resolv
 		return fieldPlan{}, err
 	}
 	value, err := resolve.valuePlanFor(typeUse{
-		ProtoType:  field.FieldType,
-		IsEnum:     field.IsEnum,
-		EnumValues: field.EnumValues,
-		SourceFile: field.SourceFile,
+		ProtoType:     field.FieldType,
+		FullProtoPath: field.FullTypePath,
+		IsEnum:        field.IsEnum,
+		EnumValues:    field.EnumValues,
+		SourceFile:    field.SourceFile,
 	}, scope)
 	if err != nil {
 		return fieldPlan{}, fmt.Errorf("field %s.%s: %w", messageName, field.Name, err)
@@ -984,9 +1005,10 @@ func planMapField(mapField *protoast.MapField, messageName, scope string, resolv
 		return fieldPlan{}, fmt.Errorf("field %s.%s: %w", messageName, mapField.Name, err)
 	}
 	value, err := resolve.valuePlanFor(typeUse{
-		ProtoType:  mapField.ValueType,
-		IsEnum:     mapField.ValueIsEnum,
-		SourceFile: mapField.ValueSourceFile,
+		ProtoType:     mapField.ValueType,
+		FullProtoPath: mapField.FullValueTypePath,
+		IsEnum:        mapField.ValueIsEnum,
+		SourceFile:    mapField.ValueSourceFile,
 	}, scope)
 	if err != nil {
 		return fieldPlan{}, fmt.Errorf("field %s.%s: %w", messageName, mapField.Name, err)

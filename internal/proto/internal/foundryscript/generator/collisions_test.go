@@ -219,18 +219,136 @@ func TestDeclarationIndexResolvesExactRelativeAndQualifiedRawPaths(t *testing.T)
 	}
 	index := newDeclarationIndex("cafecito.inventory.v1", []declarationInfo{declaration})
 
+	resolved, found := index.resolve("", "Outer.node")
+	require.True(t, found)
+	require.Equal(t, declaration, resolved)
 	for _, reference := range []string{
-		"Outer.node",
-		".Outer.node",
 		"cafecito.inventory.v1.Outer.node",
 		".cafecito.inventory.v1.Outer.node",
 	} {
-		resolved, found := index.resolve(reference)
+		resolved, found := index.resolve(reference, "ignored.relative.path")
 		require.True(t, found, reference)
 		require.Equal(t, declaration, resolved)
 	}
-	_, found := index.resolve("Outer.Node")
+	resolved, found = index.resolve("", ".cafecito.inventory.v1.Outer.node")
+	require.True(t, found)
+	require.Equal(t, declaration, resolved)
+
+	_, found = index.resolve("", ".Outer.node")
+	require.False(t, found, "leading dot must select only the canonical full-name index")
+	_, found = index.resolve("Outer.node", "cafecito.inventory.v1.Outer.node")
+	require.False(t, found, "a supplied full path must not fall through to the relative index")
+	_, found = index.resolve("", "Outer.Node")
 	require.False(t, found)
+}
+
+func TestReferencedDependencyCollisionPrefersFullPathAcrossPackageAliasOverlap(t *testing.T) {
+	inventory := packageAliasOverlapFile()
+	local := namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{
+				FieldType: "p.Node", FullTypePath: ".p.p.Node",
+				Name: "nested", Number: 1, SourceFile: "inventory.proto",
+			},
+			{
+				FieldType: "Node", FullTypePath: "p.Node",
+				Name: "top", Number: 2, SourceFile: "inventory.proto",
+			},
+		},
+		Maps: []*protoast.MapField{{
+			KeyType: "string", ValueType: "p.Node", FullValueTypePath: "p.p.Node",
+			Name: "nested_map", Number: 3, ValueSourceFile: "inventory.proto",
+		}},
+		Oneofs: []*protoast.Oneof{{
+			Name: "choice",
+			Fields: []*protoast.Field{{
+				FieldType: "Node", FullTypePath: "p.Node",
+				Name: "top_choice", Number: 4, SourceFile: "inventory.proto",
+			}},
+		}},
+	}}, nil)
+
+	files, err := Generate(local, "player.proto", []FileEntry{{
+		File: inventory, Filename: "inventory.proto",
+	}})
+	require.Error(t, err)
+	require.Nil(t, files)
+
+	diagnostic := err.Error()
+	nested := `inventory.proto:5:3: message p.p.Node generates Foundry type "Node"`
+	top := `inventory.proto:8:1: message p.Node generates Foundry type "Node"`
+	require.Equal(t, 1, strings.Count(diagnostic, nested))
+	require.Equal(t, 1, strings.Count(diagnostic, top))
+	require.Less(t, strings.Index(diagnostic, top), strings.Index(diagnostic, nested))
+}
+
+func TestReferencedDependencyCollisionUsesFullPathForEveryFieldShape(t *testing.T) {
+	tests := map[string]func(*protoast.Message){
+		"regular field": func(message *protoast.Message) {
+			message.Fields = []*protoast.Field{{
+				FieldType: "p.Node", FullTypePath: "p.p.Node",
+				Name: "nested", Number: 1, SourceFile: "inventory.proto",
+			}}
+		},
+		"map value": func(message *protoast.Message) {
+			message.Maps = []*protoast.MapField{{
+				KeyType: "string", ValueType: "p.Node", FullValueTypePath: ".p.p.Node",
+				Name: "nested", Number: 1, ValueSourceFile: "inventory.proto",
+			}}
+		},
+		"oneof field": func(message *protoast.Message) {
+			message.Oneofs = []*protoast.Oneof{{
+				Name: "choice",
+				Fields: []*protoast.Field{{
+					FieldType: "p.Node", FullTypePath: ".p.p.Node",
+					Name: "nested", Number: 1, SourceFile: "inventory.proto",
+				}},
+			}}
+		},
+	}
+
+	for name, configure := range tests {
+		t.Run(name, func(t *testing.T) {
+			message := &protoast.Message{Name: "Player"}
+			configure(message)
+
+			files, err := Generate(
+				namespacedFile([]*protoast.Message{message}, nil),
+				"player.proto",
+				[]FileEntry{{File: packageAliasOverlapFile(), Filename: "inventory.proto"}},
+			)
+			require.Error(t, err)
+			require.Nil(t, files)
+
+			diagnostic := err.Error()
+			require.Equal(t, 1, strings.Count(diagnostic,
+				`inventory.proto:5:3: message p.p.Node generates Foundry type "Node"`))
+			require.NotContains(t, diagnostic,
+				`inventory.proto:8:1: message p.Node generates Foundry type "Node"`)
+		})
+	}
+}
+
+func packageAliasOverlapFile() *protoast.ProtoFile {
+	return &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "p",
+		Messages: []*protoast.Message{
+			{
+				Position: protoast.Position{Line: 4, Column: 1},
+				Name:     "p",
+				NestedMessages: []*protoast.Message{{
+					Position: protoast.Position{Line: 5, Column: 3},
+					Name:     "Node",
+				}},
+			},
+			{
+				Position: protoast.Position{Line: 8, Column: 1},
+				Name:     "Node",
+			},
+		},
+	}
 }
 
 func TestReferencedDependencyCollisionsSortAcrossSourceFiles(t *testing.T) {
