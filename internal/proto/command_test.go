@@ -84,4 +84,8 @@ func TestGenerateSkipsWellKnownFiles(t *testing.T) {
 	// The runtime copy still ships, so a project that asked for it gets one.
 	_, err = os.Stat(filepath.Join(outDir, "foundry", "proto", "wkt", "Timestamp.pb.fs"))
 	require.NoError(t, err)
+	// And the rest of the runtime with it: it ships whenever generation ran,
+	// not only when some schema produced a binding of its own.
+	_, err = os.Stat(filepath.Join(outDir, "foundry", "proto", "wire.fs"))
+	require.NoError(t, err)
 }

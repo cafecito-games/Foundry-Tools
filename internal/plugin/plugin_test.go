@@ -215,6 +215,23 @@ func TestRunSkipsWellKnownFileToGenerate(t *testing.T) {
 	}
 }
 
+// A request for nothing but well-known files still has an answer: the runtime
+// bindings the schemas resolve to. Skipping them here would return an empty
+// response with no error, which reads as a silent failure and diverges from
+// what `anvil proto generate` writes for the same input.
+func TestRunShipsRuntimeForAWellKnownOnlyRequest(t *testing.T) {
+	resp := runPlugin(t, wellKnownRequest([]string{"google/protobuf/timestamp.proto"}))
+	require.Empty(t, resp.GetError())
+
+	files := filesByName(resp)
+	require.Contains(t, files, "foundry/proto/wkt/Timestamp.pb.fs")
+	require.Contains(t, files, "foundry/proto/wire.fs")
+	for name := range files {
+		require.NotContains(t, name, "cafecito/",
+			"only the files asked for should generate a binding")
+	}
+}
+
 func TestRunRejectsUnsupportedWellKnownFile(t *testing.T) {
 	req := wellKnownRequest([]string{"google/protobuf/descriptor.proto"})
 	req.ProtoFile = append(req.ProtoFile, &descriptorpb.FileDescriptorProto{

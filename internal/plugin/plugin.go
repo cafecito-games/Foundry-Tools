@@ -51,7 +51,6 @@ func Run(in io.Reader, out io.Writer) error {
 	resp := &pluginpb.CodeGeneratorResponse{
 		SupportedFeatures: proto.Uint64(supportedFeatures),
 	}
-	generatedAny := false
 	for _, name := range req.GetFileToGenerate() {
 		file, ok := filesByName[name]
 		if !ok {
@@ -72,14 +71,13 @@ func Run(in io.Reader, out io.Writer) error {
 		if err != nil {
 			return writeError(out, err.Error())
 		}
-		if len(generated) != 0 {
-			generatedAny = true
-		}
 		appendFiles(resp, generated)
 	}
-	if generatedAny {
-		appendFiles(resp, runtime.Files())
-	}
+	// The runtime ships whenever generation was asked for, even if no schema
+	// produced a binding of its own: it is what generated code compiles
+	// against, and it is the only place the well-known bindings come from, so a
+	// request naming nothing but well-known files is asking for exactly it.
+	appendFiles(resp, runtime.Files())
 
 	return writeResponse(out, resp)
 }
