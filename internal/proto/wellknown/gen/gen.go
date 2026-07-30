@@ -50,6 +50,12 @@ func Generate() (map[string]string, error) {
 		sourceNames[path] = name
 	}
 
+	// Parsing goes through the staging paths deliberately. Both the parser and
+	// the generator skip or reject a file whose name is a google/protobuf one,
+	// and wellknown.Check and wellknown.IsWellKnown match that bare spelling
+	// only, so an absolute staging path slips past them and these files can be
+	// generated at all. Matching on anything looser -- a suffix, say -- would
+	// make this call skip the very files it exists to render.
 	parsedFiles, err := proto.ParseFiles(paths, []string{root})
 	if err != nil {
 		return nil, err

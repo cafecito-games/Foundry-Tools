@@ -210,6 +210,10 @@ message Event {
 `, schemaFile{"google/protobuf/descriptor.proto", descriptor})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not supported")
+	// The reference, not just the unsupported file, so the message says which
+	// field to change.
+	require.Contains(t, err.Error(), "field Event.options")
+	require.Contains(t, err.Error(), "FileOptions is declared in google/protobuf/descriptor.proto")
 }
 
 type schemaFile struct {

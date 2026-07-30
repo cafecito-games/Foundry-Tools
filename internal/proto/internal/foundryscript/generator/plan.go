@@ -831,7 +831,7 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 	// Outside it, the registry's scoped reference is what resolves.
 	if isDependency {
 		if err := r.dependencyErrors[use.SourceFile]; err != nil {
-			return valuePlan{}, err
+			return valuePlan{}, fmt.Errorf("%s is declared in %s: %w", use.ProtoType, use.SourceFile, err)
 		}
 		if r.unnamespaced[use.SourceFile] {
 			return valuePlan{}, fmt.Errorf(
