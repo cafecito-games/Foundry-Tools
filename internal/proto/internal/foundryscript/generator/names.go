@@ -23,9 +23,6 @@ const generatedPrefix = "_pb_"
 // recognize, so re-encoding a message decoded from a newer peer is lossless.
 const unknownFieldsMember = generatedPrefix + "unknown_fields"
 
-// Reserved for later generator stages that apply file-level type prefixes.
-var _ = typePrefixOptionKey
-
 var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // NamespaceFor returns the Foundry Script namespace for a proto file.
@@ -54,8 +51,58 @@ func ValidateNamespace(namespace string) error {
 	return nil
 }
 
+type typeNamer struct {
+	prefix string
+}
+
+func newTypeNamer(file *protoast.ProtoFile, sourceName string) (typeNamer, error) {
+	if file == nil || file.Options == nil {
+		return typeNamer{}, nil
+	}
+
+	raw, ok := file.Options[typePrefixOptionKey]
+	if !ok {
+		return typeNamer{}, nil
+	}
+
+	prefix, isString := raw.(string)
+	if !isString || prefix == "" || !identifierPattern.MatchString(prefix) {
+		message := fmt.Sprintf("must be a non-empty identifier fragment, got %q", raw)
+		return typeNamer{}, optionError(file, sourceName, typePrefixOptionKey, message)
+	}
+
+	return typeNamer{prefix: prefix}, nil
+}
+
+func optionError(file *protoast.ProtoFile, sourceName, optionKey, message string) error {
+	if file != nil {
+		position := file.OptionPositions[optionKey]
+		if position != (protoast.Position{}) {
+			return fmt.Errorf("%s:%d:%d: error: %s %s",
+				sourceName, position.Line, position.Column, optionKey, message)
+		}
+	}
+	return fmt.Errorf("%s: error: %s %s", sourceName, optionKey, message)
+}
+
+func (n typeNamer) Name(name string) string {
+	return escapeIdentifier(n.prefix + normalizeTypeName(name))
+}
+
+func (n typeNamer) Reference(protoType string) string {
+	parts := strings.Split(strings.TrimPrefix(protoType, "."), ".")
+	for i, part := range parts {
+		parts[i] = n.Name(part)
+	}
+	return strings.Join(parts, ".")
+}
+
 // TypeName converts a proto identifier to a Foundry Script type identifier.
 func TypeName(name string) string {
+	return (typeNamer{}).Name(name)
+}
+
+func normalizeTypeName(name string) string {
 	if name == "" {
 		return ""
 	}
@@ -76,7 +123,7 @@ func TypeName(name string) string {
 		}
 	}
 
-	return escapeIdentifier(builder.String())
+	return builder.String()
 }
 
 // runtimeTypeNames are the types foundry.proto exports. Every generated file
