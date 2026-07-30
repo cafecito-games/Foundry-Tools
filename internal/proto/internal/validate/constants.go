@@ -44,7 +44,7 @@ var scalarTypes = map[string]bool{
 }
 
 // reservedKeywords lists protobuf keywords that cannot be used as identifiers.
-// Comparisons against this set are case-insensitive (lookup with lowercased key).
+// Protobuf keywords are case-sensitive, so names must be looked up exactly.
 var reservedKeywords = map[string]bool{
 	"syntax":   true,
 	"message":  true,
