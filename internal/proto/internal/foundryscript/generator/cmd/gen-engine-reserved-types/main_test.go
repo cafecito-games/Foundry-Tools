@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"reflect"
 	"strings"
 	"testing"
@@ -36,6 +37,12 @@ func TestRenderGoIsDeterministicAndRecordsVersion(t *testing.T) {
 		t.Fatalf("renderGo() did not record the source version:\n%s", source)
 	}
 
+	asyncCallableIndex := strings.Index(source, `"AsyncCallable":`)
+	stringIndex := strings.Index(source, `"String":`)
+	if asyncCallableIndex < 0 || stringIndex < 0 || asyncCallableIndex > stringIndex {
+		t.Fatalf("renderGo() did not sort built-in types:\n%s", source)
+	}
+
 	nodeIndex := strings.Index(source, `"Node":`)
 	timerIndex := strings.Index(source, `"Timer":`)
 	if nodeIndex < 0 || timerIndex < 0 || nodeIndex > timerIndex {
@@ -44,6 +51,18 @@ func TestRenderGoIsDeterministicAndRecordsVersion(t *testing.T) {
 
 	if !strings.Contains(source, `"AsyncCallable": {kind: engineTypeBuiltin},`) {
 		t.Fatalf("renderGo() did not emit AsyncCallable as a built-in:\n%s", source)
+	}
+
+	equivalent, err := renderGo(reservedTypes{
+		Version:       "0.1.alpha14.gh.b9a5e66c2",
+		Builtins:      []string{"AsyncCallable", "String"},
+		NativeClasses: []string{"Node", "Timer"},
+	})
+	if err != nil {
+		t.Fatalf("renderGo() with equivalent input error = %v", err)
+	}
+	if !bytes.Equal(got, equivalent) {
+		t.Fatalf("renderGo() output differs for equivalent input order:\nfirst:\n%s\nsecond:\n%s", got, equivalent)
 	}
 }
 
