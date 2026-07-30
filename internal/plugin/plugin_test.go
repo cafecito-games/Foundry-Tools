@@ -74,6 +74,28 @@ func TestRunAppliesTypePrefix(t *testing.T) {
 	require.Contains(t, generated.GetContent(), "class_name GameNode")
 }
 
+func TestRunReportsMemberCollisionWithDescriptorPositions(t *testing.T) {
+	resp := runPlugin(t, memberCollisionRequest(true))
+
+	require.Contains(t, resp.GetError(), "members.proto:5:3:")
+	require.Contains(t, resp.GetError(), "members.proto:6:3:")
+	require.Contains(t, resp.GetError(), "field probe.members.v1.MemberProbe.Node ")
+	require.Contains(t, resp.GetError(), "field probe.members.v1.MemberProbe.Node_ ")
+	require.Contains(t, resp.GetError(), `Foundry member "Node_"`)
+	require.Contains(t, resp.GetError(), `native class "Node"`)
+	require.Empty(t, resp.GetFile())
+}
+
+func TestRunReportsMemberCollisionWithoutDescriptorPositions(t *testing.T) {
+	resp := runPlugin(t, memberCollisionRequest(false))
+
+	require.Contains(t, resp.GetError(), "members.proto:")
+	require.Contains(t, resp.GetError(), "field probe.members.v1.MemberProbe.Node ")
+	require.Contains(t, resp.GetError(), "field probe.members.v1.MemberProbe.Node_ ")
+	require.Contains(t, resp.GetError(), `Foundry member "Node_"`)
+	require.Empty(t, resp.GetFile())
+}
+
 func nodeRequest(options *descriptorpb.FileOptions) *pluginpb.CodeGeneratorRequest {
 	return &pluginpb.CodeGeneratorRequest{
 		FileToGenerate: []string{"node.proto"},
@@ -98,6 +120,43 @@ func nodeRequest(options *descriptorpb.FileOptions) *pluginpb.CodeGeneratorReque
 				}},
 			},
 		}},
+	}
+}
+
+func memberCollisionRequest(withPositions bool) *pluginpb.CodeGeneratorRequest {
+	file := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("members.proto"),
+		Syntax:  proto.String("proto3"),
+		Package: proto.String("probe.members.v1"),
+		MessageType: []*descriptorpb.DescriptorProto{{
+			Name: proto.String("MemberProbe"),
+			Field: []*descriptorpb.FieldDescriptorProto{
+				{
+					Name:   proto.String("Node"),
+					Number: proto.Int32(1),
+					Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+					Type:   descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+				},
+				{
+					Name:   proto.String("Node_"),
+					Number: proto.Int32(2),
+					Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+					Type:   descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+				},
+			},
+		}},
+	}
+	if withPositions {
+		file.SourceCodeInfo = &descriptorpb.SourceCodeInfo{
+			Location: []*descriptorpb.SourceCodeInfo_Location{
+				{Path: []int32{4, 0, 2, 0}, Span: []int32{4, 2, 4, 18}},
+				{Path: []int32{4, 0, 2, 1}, Span: []int32{5, 2, 5, 19}},
+			},
+		}
+	}
+	return &pluginpb.CodeGeneratorRequest{
+		FileToGenerate: []string{"members.proto"},
+		ProtoFile:      []*descriptorpb.FileDescriptorProto{file},
 	}
 }
 

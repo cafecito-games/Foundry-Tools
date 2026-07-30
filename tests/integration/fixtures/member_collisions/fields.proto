@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package probe.members.v1;
+
+message MemberProbe {
+  string Node = 1;
+  optional string String = 2;
+  repeated string Timer = 3;
+  map<string, int32> Resource = 4;
+
+  oneof Object {
+    string Image = 5;
+  }
+}

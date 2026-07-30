@@ -105,3 +105,52 @@ func TestDirectCLIResolvesAbsoluteLocalTypeReferences(t *testing.T) {
 	require.NotContains(t, generated, "GameLocal")
 	require.NotContains(t, generated, "GameV1")
 }
+
+func TestDirectCLIEscapesFoundryMemberCollisions(t *testing.T) {
+	root := repoRoot(t)
+	outDir := t.TempDir()
+
+	run(t, root, "go", "run", "./cmd/anvil", "proto", "generate",
+		"-I", "tests/integration/fixtures/member_collisions",
+		"-o", outDir,
+		"tests/integration/fixtures/member_collisions/fields.proto")
+
+	message, err := os.ReadFile(filepath.Join(outDir, "probe/members/v1/MemberProbe.pb.fs"))
+	require.NoError(t, err)
+	for _, declaration := range []string{
+		`var Node_: String = ""`,
+		"var String_: String? = null",
+		"var Timer_: Array[String] = []",
+		"var Resource_: Dictionary[String, int] = {}",
+		"var Object_: MemberProbeObjectCase? = null",
+	} {
+		require.Contains(t, string(message), declaration)
+	}
+	require.Contains(t, string(message), "Object_ = MemberProbeObjectCase.Image(")
+
+	oneof, err := os.ReadFile(filepath.Join(outDir, "probe/members/v1/MemberProbeObjectCase.pb.fs"))
+	require.NoError(t, err)
+	require.Contains(t, string(oneof), "\tImage(Image: String)")
+	require.NotContains(t, string(oneof), "Image_")
+}
+
+func TestDirectCLIMemberCollisionFailureIsAtomic(t *testing.T) {
+	root := repoRoot(t)
+	outDir := t.TempDir()
+
+	output := runFailure(t, root, "go", "run", "./cmd/anvil", "proto", "generate",
+		"-I", "tests/integration/fixtures/member_collisions",
+		"-o", outDir,
+		"tests/integration/fixtures/member_collisions/fields.proto",
+		"tests/integration/fixtures/member_collisions/secondary.proto")
+
+	require.Contains(t, output, "secondary.proto:6:3:")
+	require.Contains(t, output, "secondary.proto:7:3:")
+	require.Contains(t, output, "field probe.members.v1.SecondaryCollision.Node ")
+	require.Contains(t, output, "field probe.members.v1.SecondaryCollision.Node_ ")
+	require.Contains(t, output, `Foundry member "Node_"`)
+	require.Contains(t, output, `native class "Node"`)
+
+	require.NoFileExists(t, filepath.Join(outDir, "probe/members/v1/MemberProbe.pb.fs"))
+	require.NoDirExists(t, filepath.Join(outDir, "foundry/proto"))
+}
