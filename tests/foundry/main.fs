@@ -6,6 +6,7 @@ import probe.collisions.v1
 import probe.dependency.v1
 import probe.packing.v1
 import probe.scalars.v1
+import probe.wellknown.common.v1
 import probe.wellknown.v1
 
 extends SceneTree
@@ -263,6 +264,7 @@ func _init() -> void:
 	check_scalars()
 	check_packing()
 	check_well_known()
+	check_well_known_name_collision()
 
 	if failures > 0:
 		printerr("round trip failed with ", failures, " error(s)")
@@ -569,3 +571,25 @@ func check_well_known() -> void:
 		_:
 			printerr("FAIL: well-known oneof case did not round trip")
 			failures += 1
+
+## A schema importing a well-known type also has every other well-known name in
+## scope, so an Empty of another schema's must be qualified to resolve at all.
+func check_well_known_name_collision() -> void:
+	var local_empty: probe.wellknown.common.v1.Empty = probe.wellknown.common.v1.Empty.new()
+	local_empty.x = 7
+
+	var timeout: Duration = Duration.new()
+	timeout.seconds = 30
+
+	var holder: Holder = Holder.new()
+	holder.local_empty = local_empty
+	holder.timeout = timeout
+
+	var (decoded, decode_error) = Holder.from_bytes(holder.to_bytes())
+	check(decode_error == ProtobufError.OK, "well-known collision fixture decodes")
+	if not (decoded is Holder):
+		return
+	check(decoded.local_empty is probe.wellknown.common.v1.Empty and decoded.local_empty.x == 7,
+		"an imported type named like a well-known one round trips")
+	check(decoded.timeout is Duration and decoded.timeout.seconds == 30,
+		"the well-known reference that pulled the namespace in round trips")

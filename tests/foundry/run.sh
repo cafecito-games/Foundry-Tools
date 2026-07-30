@@ -36,6 +36,7 @@ mkdir -p "$OUT"
   "$PROJECT/collisions.proto" \
   "$PROJECT/scalars.proto" \
   "$PROJECT/packing.proto" \
+  "$PROJECT/well_known_dependency.proto" \
   "$PROJECT/well_known.proto"
 
 # The runtime ships the well-known bindings, so no project copy may appear.

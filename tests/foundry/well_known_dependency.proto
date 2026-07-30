@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package probe.wellknown.common.v1;
+
+// A shared schema may export a name the well-known namespace also exports,
+// without meaning anything by it. A file importing both has to qualify the
+// reference, so this one exists to be imported from well_known.proto.
+message Empty {
+  int32 x = 1;
+}
