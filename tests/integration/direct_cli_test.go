@@ -25,3 +25,37 @@ func TestDirectCLIGeneratesFoundryScript(t *testing.T) {
 	require.Contains(t, string(data), "import cafecito.inventory.v1")
 	require.Contains(t, string(data), "var rarity: Rarity = Rarity.RARITY_UNSPECIFIED")
 }
+
+func TestDirectCLIReportsEngineTypeCollision(t *testing.T) {
+	root := repoRoot(t)
+	outDir := t.TempDir()
+
+	output := runFailure(t, root, "go", "run", "./cmd/anvil", "proto", "generate",
+		"-I", "tests/integration/fixtures/collisions",
+		"-o", outDir,
+		"tests/integration/fixtures/collisions/types.proto")
+
+	require.Contains(t, output, `native class "Node"`)
+	require.Contains(t, output, "(foundrytools.type_prefix)")
+
+	entries, err := os.ReadDir(outDir)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+}
+
+func TestDirectCLIAppliesTypePrefix(t *testing.T) {
+	root := repoRoot(t)
+	outDir := t.TempDir()
+
+	run(t, root, "go", "run", "./cmd/anvil", "proto", "generate",
+		"-I", "tests/integration/fixtures/collisions",
+		"-o", outDir,
+		"tests/integration/fixtures/collisions/prefixed.proto")
+
+	data, err := os.ReadFile(filepath.Join(outDir, "probe/collisions/v1/GameNode.pb.fs"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "class_name GameNode")
+
+	_, err = os.Stat(filepath.Join(outDir, "probe/collisions/v1/Node.pb.fs"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+}

@@ -33,3 +33,12 @@ func run(t *testing.T, dir string, name string, args ...string) string {
 	require.NoError(t, err, string(out))
 	return string(out)
 }
+
+func runFailure(t *testing.T, dir string, name string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err, "command unexpectedly succeeded:\n%s", out)
+	return string(out)
+}
