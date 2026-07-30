@@ -3,6 +3,7 @@ import cafecito.inventory.v1
 import foundry.proto
 import probe.collisions.v1
 import probe.dependency.v1
+import probe.packing.v1
 import probe.scalars.v1
 
 extends SceneTree
@@ -258,6 +259,7 @@ func _init() -> void:
 	check(merged.primary is Slot and merged.primary.quantity == 4, "split message field merges the second record")
 
 	check_scalars()
+	check_packing()
 
 	if failures > 0:
 		printerr("round trip failed with ", failures, " error(s)")
@@ -446,3 +448,56 @@ func read_reference_bytes() -> PackedByteArray:
 	var data: PackedByteArray = file.get_buffer(file.get_length())
 	file.close()
 	return data
+
+## `[packed = false]` binds the encoder: the field goes out as one tagged
+## record per element even though the same value type packs by default. What it
+## must not change is the decoder, which protobuf requires to take either form
+## for any packable repeated field.
+func check_packing() -> void:
+	var values: Array[int] = [1, 300]
+	var suite: PackingSuite = PackingSuite.new()
+	suite.packed_int32 = values
+	suite.unpacked_int32 = values
+	suite.default_int32 = values
+
+	var expected: PackedByteArray = PackedByteArray()
+	expected.append_array(packed_run(1, values))
+	expected.append_array(unpacked_records(2, values))
+	expected.append_array(packed_run(3, values))
+	check(suite.to_bytes() == expected, "the packed option decides how each field is written")
+
+	var (decoded, decode_error) = PackingSuite.from_bytes(suite.to_bytes())
+	check(decode_error == ProtobufError.OK, "packing fixture decodes")
+	if not (decoded is PackingSuite):
+		return
+	check(decoded.packed_int32 == values, "packed field round trips")
+	check(decoded.unpacked_int32 == values, "unpacked field round trips")
+	check(decoded.default_int32 == values, "default field round trips")
+
+	## Each field fed the encoding the other one writes.
+	var swapped: PackedByteArray = PackedByteArray()
+	swapped.append_array(unpacked_records(1, values))
+	swapped.append_array(packed_run(2, values))
+	var (swapped_decoded, swapped_error) = PackingSuite.from_bytes(swapped)
+	check(swapped_error == ProtobufError.OK, "the opposite encoding decodes")
+	if not (swapped_decoded is PackingSuite):
+		return
+	check(swapped_decoded.packed_int32 == values, "a packed field accepts one record per element")
+	check(swapped_decoded.unpacked_int32 == values, "an unpacked field accepts a packed run")
+
+func packed_run(number: int, values: Array[int]) -> PackedByteArray:
+	var run: PackedByteArray = PackedByteArray()
+	for value: int in values:
+		run.append_array(Wire.encode_varint(value))
+	var record: PackedByteArray = PackedByteArray()
+	record.append_array(Wire.encode_varint(Wire.make_tag(number, Wire.WIRE_LENGTH_DELIMITED)))
+	record.append_array(Wire.encode_varint(run.size()))
+	record.append_array(run)
+	return record
+
+func unpacked_records(number: int, values: Array[int]) -> PackedByteArray:
+	var records: PackedByteArray = PackedByteArray()
+	for value: int in values:
+		records.append_array(Wire.encode_varint(Wire.make_tag(number, Wire.WIRE_VARINT)))
+		records.append_array(Wire.encode_varint(value))
+	return records

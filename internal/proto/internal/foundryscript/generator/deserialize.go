@@ -110,8 +110,8 @@ func deserializeField(plan *fieldPlan) []fsast.Node {
 	switch {
 	case plan.Cardinality == cardinalityMap:
 		return deserializeMap(plan)
-	case plan.Cardinality == cardinalityRepeated && plan.Packed:
-		return deserializePackedRepeated(plan)
+	case plan.Cardinality == cardinalityRepeated && plan.Packable:
+		return deserializePackableRepeated(plan)
 	default:
 		return decodeValue(3, plan.Value, fieldContext(plan))
 	}
@@ -269,10 +269,11 @@ func readEnumValue(depth int, value valuePlan, context readContext, read string)
 	return append(nodes, line(depth, fmt.Sprintf("%s = %s.offset", cursorLocal, read)))
 }
 
-// deserializePackedRepeated accepts both encodings: a packed run and the
+// deserializePackableRepeated accepts both encodings: a packed run and the
 // unpacked one-record-per-element form, which protobuf parsers must tolerate
-// regardless of how the sender chose to write the field.
-func deserializePackedRepeated(plan *fieldPlan) []fsast.Node {
+// regardless of how the sender chose to write the field. That includes a field
+// this schema marked `[packed = false]`: the option binds the encoder alone.
+func deserializePackableRepeated(plan *fieldPlan) []fsast.Node {
 	length := plan.Local("length")
 	end := plan.Local("end")
 	packed := plan.Local("packed")
