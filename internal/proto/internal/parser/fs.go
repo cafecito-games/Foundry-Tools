@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
 )
 
 // FS abstracts file lookup for import resolution.
@@ -66,6 +68,27 @@ func (f *OSFS) locate(path string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// WellKnownFS serves the vendored google/protobuf sources for any import the
+// surrounding filesystem cannot satisfy, so a schema importing a well-known
+// type builds without a protoc include path. A copy the caller supplies wins,
+// since an include path is an explicit statement about which sources to use.
+type WellKnownFS struct {
+	Next FS
+}
+
+// Read returns the import's contents, falling back to the vendored copy.
+func (f WellKnownFS) Read(path string) ([]byte, error) {
+	if !f.Next.Exists(path) && wellknown.IsWellKnown(path) {
+		return wellknown.Source(path)
+	}
+	return f.Next.Read(path)
+}
+
+// Exists reports whether the import resolves, vendored copies included.
+func (f WellKnownFS) Exists(path string) bool {
+	return f.Next.Exists(path) || wellknown.IsWellKnown(path)
 }
 
 func statOK(path string) bool {

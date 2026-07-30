@@ -35,7 +35,14 @@ mkdir -p "$OUT"
   "$PROJECT/collision_dependency.proto" \
   "$PROJECT/collisions.proto" \
   "$PROJECT/scalars.proto" \
-  "$PROJECT/packing.proto"
+  "$PROJECT/packing.proto" \
+  "$PROJECT/well_known.proto"
+
+# The runtime ships the well-known bindings, so no project copy may appear.
+if [ -d "$OUT/google" ]; then
+  echo "a google/protobuf binding was generated into the project"
+  exit 1
+fi
 
 if grep -R -n -E -e '(^|[^_])func [A-Za-z0-9_]+\(.*Variant|-> Variant' "$OUT"; then
   echo "public Variant signature found in generated Foundry Script"

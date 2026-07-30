@@ -7,6 +7,7 @@ import (
 
 	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
 	fstypes "github.com/cafecito-games/foundry-tools/internal/proto/internal/foundryscript/types"
+	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
 )
 
 // Protobuf wire types.
@@ -341,6 +342,14 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 		unnamespaced:         map[string]bool{},
 	}
 	for i := range imports {
+		// A google/protobuf file with no runtime binding has no namespace a
+		// reference could name. Importing one is harmless -- descriptor.proto
+		// arrives with any file that uses custom options -- so this is reported
+		// only if a field actually resolves into it.
+		if err := wellknown.Check(imports[i].Filename); err != nil {
+			resolve.dependencyErrors[imports[i].Filename] = err
+			continue
+		}
 		namer, err := newTypeNamer(imports[i].File, imports[i].Filename)
 		if err != nil {
 			resolve.dependencyErrors[imports[i].Filename] = err
@@ -349,6 +358,12 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 		resolve.dependencyNamers[imports[i].Filename] = namer
 
 		namespace := NamespaceFor(imports[i].File)
+		// The well-known types ship as runtime source, so a reference to one
+		// resolves to the runtime namespace rather than to a per-project
+		// binding generated from google.protobuf.
+		if wellknown.IsWellKnown(imports[i].Filename) {
+			namespace = wellknown.Namespace
+		}
 		// A dependency's namespace is emitted as an import statement, so a
 		// malformed one is a parse error in a file the user did not write.
 		// Treat it as unusable rather than passing it through.

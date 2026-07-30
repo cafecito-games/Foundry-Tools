@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 
 	foundryproto "github.com/cafecito-games/foundry-tools/internal/proto"
+	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
 	"github.com/cafecito-games/foundry-tools/internal/runtime"
 )
 
@@ -55,6 +56,14 @@ func Run(in io.Reader, out io.Writer) error {
 		file, ok := filesByName[name]
 		if !ok {
 			return writeError(out, fmt.Sprintf("file to generate %q not found in request", name))
+		}
+		// The runtime already ships bindings for these, so generating them here
+		// would give this project a second, incompatible copy.
+		if wellknown.IsWellKnown(name) {
+			continue
+		}
+		if err := wellknown.Check(name); err != nil {
+			return writeError(out, err.Error())
 		}
 		if validationErrors := foundryproto.Validate(file, name); len(validationErrors) != 0 {
 			return writeError(out, foundryproto.FormatValidationErrors(validationErrors))

@@ -184,3 +184,104 @@ func runPlugin(t *testing.T, req *pluginpb.CodeGeneratorRequest) *pluginpb.CodeG
 	require.NoError(t, proto.Unmarshal(out.Bytes(), resp))
 	return resp
 }
+
+// protoc hands the well-known descriptors over as ordinary dependencies, so
+// this is the path where a reference to one is most likely to be generated a
+// second time by mistake.
+func TestRunRoutesWellKnownReferenceToRuntimeNamespace(t *testing.T) {
+	resp := runPlugin(t, wellKnownRequest([]string{"event.proto"}))
+	require.Empty(t, resp.GetError())
+
+	files := filesByName(resp)
+	source, ok := files["cafecito/game/v1/Event.pb.fs"]
+	require.True(t, ok)
+	require.Contains(t, source, "import foundry.proto.wkt")
+	require.Contains(t, source, "var occurred_at: Timestamp? = null")
+	for name := range files {
+		require.NotContains(t, name, "google/protobuf/",
+			"well-known types must come from the runtime, not per-project generation")
+	}
+}
+
+func TestRunSkipsWellKnownFileToGenerate(t *testing.T) {
+	resp := runPlugin(t, wellKnownRequest([]string{"google/protobuf/timestamp.proto", "event.proto"}))
+	require.Empty(t, resp.GetError())
+
+	files := filesByName(resp)
+	require.Contains(t, files, "cafecito/game/v1/Event.pb.fs")
+	require.Contains(t, files, "foundry/proto/wkt/Timestamp.pb.fs")
+	for name := range files {
+		require.NotContains(t, name, "google/protobuf/")
+	}
+}
+
+func TestRunRejectsUnsupportedWellKnownFile(t *testing.T) {
+	req := wellKnownRequest([]string{"google/protobuf/descriptor.proto"})
+	req.ProtoFile = append(req.ProtoFile, &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("google/protobuf/descriptor.proto"),
+		Syntax:  proto.String("proto2"),
+		Package: proto.String("google.protobuf"),
+	})
+
+	resp := runPlugin(t, req)
+
+	require.Contains(t, resp.GetError(), "descriptor.proto")
+	require.Contains(t, resp.GetError(), "not supported")
+	require.Empty(t, resp.GetFile())
+}
+
+// wellKnownRequest builds a request whose event.proto carries a
+// google.protobuf.Timestamp, with the well-known descriptor supplied as a
+// dependency the way protoc supplies it.
+func wellKnownRequest(fileToGenerate []string) *pluginpb.CodeGeneratorRequest {
+	timestamp := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("google/protobuf/timestamp.proto"),
+		Syntax:  proto.String("proto3"),
+		Package: proto.String("google.protobuf"),
+		MessageType: []*descriptorpb.DescriptorProto{{
+			Name: proto.String("Timestamp"),
+			Field: []*descriptorpb.FieldDescriptorProto{
+				{
+					Name:   proto.String("seconds"),
+					Number: proto.Int32(1),
+					Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+					Type:   descriptorpb.FieldDescriptorProto_TYPE_INT64.Enum(),
+				},
+				{
+					Name:   proto.String("nanos"),
+					Number: proto.Int32(2),
+					Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+					Type:   descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+				},
+			},
+		}},
+	}
+	event := &descriptorpb.FileDescriptorProto{
+		Name:       proto.String("event.proto"),
+		Syntax:     proto.String("proto3"),
+		Package:    proto.String("cafecito.game.v1"),
+		Dependency: []string{"google/protobuf/timestamp.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{{
+			Name: proto.String("Event"),
+			Field: []*descriptorpb.FieldDescriptorProto{{
+				Name:     proto.String("occurred_at"),
+				Number:   proto.Int32(1),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+				TypeName: proto.String(".google.protobuf.Timestamp"),
+			}},
+		}},
+	}
+	return &pluginpb.CodeGeneratorRequest{
+		FileToGenerate: fileToGenerate,
+		ProtoFile:      []*descriptorpb.FileDescriptorProto{timestamp, event},
+	}
+}
+
+func filesByName(resp *pluginpb.CodeGeneratorResponse) map[string]string {
+	files := make(map[string]string, len(resp.GetFile()))
+	for _, file := range resp.GetFile() {
+		files[file.GetName()] = file.GetContent()
+	}
+	return files
+}

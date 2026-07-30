@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
+	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
 )
 
 // ParsedFile is a parsed protobuf file and the filename used for diagnostics.
@@ -21,6 +22,11 @@ type ParsedFile struct {
 func ParseFiles(filenames, importRoots []string) ([]ParsedFile, error) {
 	out := make([]ParsedFile, 0, len(filenames))
 	for _, filename := range filenames {
+		// A google/protobuf file the runtime does not ship cannot be generated
+		// at all, so say so here rather than after it has been read and parsed.
+		if err := wellknown.Check(filename); err != nil {
+			return nil, err
+		}
 		data, err := os.ReadFile(filename) //nolint:gosec // CLI input path is explicitly user-provided.
 		if err != nil {
 			return nil, err
@@ -33,10 +39,10 @@ func ParseFiles(filenames, importRoots []string) ([]ParsedFile, error) {
 		if err != nil {
 			return nil, err
 		}
-		importFS := &OSFS{
+		importFS := WellKnownFS{Next: &OSFS{
 			BaseDir:      filepath.Dir(filename),
 			IncludePaths: importRoots,
-		}
+		}}
 		imported, err := ResolveExternalWithFiles(file, filename, importFS)
 		if err != nil {
 			return nil, err
