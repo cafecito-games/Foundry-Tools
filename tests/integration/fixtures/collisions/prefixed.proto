@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package probe.collisions.v1;
+
+option (foundrytools.type_prefix) = "Game";
+
+message Node {
+  string label = 1;
+}

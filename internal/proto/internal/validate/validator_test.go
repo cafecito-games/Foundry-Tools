@@ -98,17 +98,17 @@ func TestEnumFirstNotZero(t *testing.T) {
 	}
 }
 
-func TestEnumNameKeyword(t *testing.T) {
-	src := `syntax = "proto3"; enum Message { A = 0; }`
-	errs := validate(t, src)
-	found := false
-	for _, e := range errs {
-		if strings.Contains(e.Message, "reserved keyword") {
-			found = true
-		}
+func TestEnumNameKeywordCaseVariantValid(t *testing.T) {
+	src := `syntax = "proto3"; enum String { VALUE = 0; }`
+	if errs := validate(t, src); len(errs) != 0 {
+		t.Errorf("got %+v", errs)
 	}
-	if !found {
-		t.Errorf("expected reserved-keyword error, got %+v", errs)
+}
+
+func TestEnumValueKeywordCaseVariantValid(t *testing.T) {
+	src := `syntax = "proto3"; enum E { STRING = 0; }`
+	if errs := validate(t, src); len(errs) != 0 {
+		t.Errorf("got %+v", errs)
 	}
 }
 
@@ -165,16 +165,9 @@ func TestDuplicateFieldName(t *testing.T) {
 	}
 }
 
-func TestFieldNameKeyword(t *testing.T) {
+func TestFieldNameKeywordCaseVariantValid(t *testing.T) {
 	src := `syntax = "proto3"; message F { int32 Message = 1; }`
-	errs := validate(t, src)
-	found := false
-	for _, e := range errs {
-		if strings.Contains(e.Message, "reserved keyword") {
-			found = true
-		}
-	}
-	if !found {
+	if errs := validate(t, src); len(errs) != 0 {
 		t.Errorf("got %+v", errs)
 	}
 }
@@ -322,17 +315,59 @@ message Outer {
 	}
 }
 
-func TestMessageNameKeyword(t *testing.T) {
+func TestMessageNameKeywordCaseVariantValid(t *testing.T) {
 	src := `syntax = "proto3"; message Message {}`
-	errs := validate(t, src)
-	found := false
-	for _, e := range errs {
-		if strings.Contains(e.Message, "reserved keyword") {
-			found = true
-		}
-	}
-	if !found {
+	if errs := validate(t, src); len(errs) != 0 {
 		t.Errorf("got %+v", errs)
+	}
+}
+
+func TestExactLowercaseKeywordsRejected(t *testing.T) {
+	tests := map[string]*protoast.ProtoFile{
+		"enum name": {
+			Syntax: "proto3",
+			Enums: []*protoast.Enum{{
+				Name: "string",
+				Values: []*protoast.EnumValue{{
+					Name: "VALUE",
+				}},
+			}},
+		},
+		"enum value": {
+			Syntax: "proto3",
+			Enums: []*protoast.Enum{{
+				Name: "E",
+				Values: []*protoast.EnumValue{{
+					Name: "string",
+				}},
+			}},
+		},
+		"message name": {
+			Syntax: "proto3",
+			Messages: []*protoast.Message{{
+				Name: "message",
+			}},
+		},
+		"field name": {
+			Syntax: "proto3",
+			Messages: []*protoast.Message{{
+				Name: "F",
+				Fields: []*protoast.Field{{
+					FieldType: "int32",
+					Name:      "message",
+					Number:    1,
+				}},
+			}},
+		},
+	}
+
+	for name, file := range tests {
+		t.Run(name, func(t *testing.T) {
+			errs := protovalidate.Validate(file, "test.proto")
+			if len(errs) != 1 || !strings.Contains(errs[0].Message, "reserved keyword") {
+				t.Errorf("got %+v", errs)
+			}
+		})
 	}
 }
 

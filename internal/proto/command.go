@@ -53,19 +53,23 @@ func newGenerateCommand(stdout io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			files := make(map[string]string)
 			for _, parsed := range parsedFiles {
 				if validationErrors := Validate(parsed.File, parsed.Filename); len(validationErrors) != 0 {
 					return validationErrorList(validationErrors)
 				}
-				files, err := Generate(parsed.File, parsed.Filename, ImportsOf(parsed))
+				generatedFiles, err := Generate(parsed.File, parsed.Filename, ImportsOf(parsed))
 				if err != nil {
 					return err
 				}
-				if err := writeFiles(opts.outDir, files); err != nil {
-					return err
+				for name, source := range generatedFiles {
+					files[name] = source
 				}
 			}
-			if err := writeFiles(opts.outDir, runtime.Files()); err != nil {
+			for name, source := range runtime.Files() {
+				files[name] = source
+			}
+			if err := writeFiles(opts.outDir, files); err != nil {
 				return err
 			}
 			_, err = fmt.Fprintf(stdout, "generated Foundry Script for %d proto file(s)\n", len(args))

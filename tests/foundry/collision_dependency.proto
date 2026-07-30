@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package probe.dependency.v1;
+
+option (foundrytools.type_prefix) = "Dependency";
+
+message Timer {
+  string label = 1;
+}

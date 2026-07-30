@@ -2,7 +2,6 @@ package protovalidate
 
 import (
 	"fmt"
-	"strings"
 
 	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
 )
@@ -14,7 +13,7 @@ import (
 // fields all share the same field-number/name space, so a single pair of
 // tracking maps is threaded through their respective validators.
 func (v *validator) validateMessage(message *protoast.Message, scope string) {
-	if reservedKeywords[strings.ToLower(message.Name)] {
+	if reservedKeywords[message.Name] {
 		v.addError(
 			fmt.Sprintf("Message name %q is a reserved keyword", message.Name),
 			message.Line,
@@ -93,7 +92,7 @@ func (v *validator) validateField(
 	}
 	fieldNames[field.Name] = true
 
-	if reservedKeywords[strings.ToLower(field.Name)] {
+	if reservedKeywords[field.Name] {
 		v.addError(
 			fmt.Sprintf("Field name %q is a reserved keyword", field.Name),
 			field.Line,

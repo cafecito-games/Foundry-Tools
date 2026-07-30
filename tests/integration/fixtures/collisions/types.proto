@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package probe.collisions.v1;
+
+message Node {
+  string label = 1;
+}

@@ -2,7 +2,6 @@ package protovalidate
 
 import (
 	"fmt"
-	"strings"
 
 	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
 )
@@ -52,7 +51,7 @@ func (v *validator) validateEnum(enum *protoast.Enum) {
 		)
 	}
 
-	if reservedKeywords[strings.ToLower(enum.Name)] {
+	if reservedKeywords[enum.Name] {
 		v.addError(
 			fmt.Sprintf("Enum name %q is a reserved keyword", enum.Name),
 			enum.Line,
@@ -61,7 +60,7 @@ func (v *validator) validateEnum(enum *protoast.Enum) {
 	}
 
 	for _, value := range enum.Values {
-		if reservedKeywords[strings.ToLower(value.Name)] {
+		if reservedKeywords[value.Name] {
 			v.addError(
 				fmt.Sprintf("Enum value name %q is a reserved keyword", value.Name),
 				value.Line,

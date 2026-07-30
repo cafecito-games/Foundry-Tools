@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 
 	"github.com/cafecito-games/foundry-tools/internal/foundrytoolspb"
+	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
 	"github.com/stretchr/testify/require"
 )
 
@@ -387,6 +388,63 @@ func TestConvertNestedMessageAndEnum(t *testing.T) {
 	if len(outer.NestedEnums) != 1 || outer.NestedEnums[0].Name != "Kind" {
 		t.Errorf("nested enums: %+v", outer.NestedEnums)
 	}
+}
+
+func TestConvertDeclarationPositionsFromSourceCodeInfo(t *testing.T) {
+	fdp := &descriptorpb.FileDescriptorProto{
+		Name:   strPtr("positions.proto"),
+		Syntax: strPtr("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: strPtr("Outer"),
+				NestedType: []*descriptorpb.DescriptorProto{
+					{Name: strPtr("Inner")},
+				},
+				EnumType: []*descriptorpb.EnumDescriptorProto{
+					{Name: strPtr("Kind")},
+				},
+				OneofDecl: []*descriptorpb.OneofDescriptorProto{
+					{Name: strPtr("choice")},
+				},
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:       strPtr("text"),
+						Number:     i32Ptr(1),
+						Type:       typePtr(descriptorpb.FieldDescriptorProto_TYPE_STRING),
+						Label:      labelPtr(descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL),
+						OneofIndex: i32Ptr(0),
+					},
+				},
+			},
+			{Name: strPtr("NoLocation")},
+		},
+		EnumType: []*descriptorpb.EnumDescriptorProto{
+			{Name: strPtr("State")},
+			{Name: strPtr("ShortSpan")},
+		},
+		SourceCodeInfo: &descriptorpb.SourceCodeInfo{
+			Location: []*descriptorpb.SourceCodeInfo_Location{
+				{Path: []int32{4, 0}, Span: []int32{2, 4, 2, 9}},
+				{Path: []int32{4, 0, 3, 0}, Span: []int32{5, 6, 5, 15}},
+				{Path: []int32{4, 0, 4, 0}, Span: []int32{8, 2, 8, 12}},
+				{Path: []int32{4, 0, 8, 0}, Span: []int32{11, 1, 11, 10}},
+				{Path: []int32{5, 0}, Span: []int32{14, 0, 14, 10}},
+				{Path: []int32{5, 1}, Span: []int32{20}},
+			},
+		},
+	}
+
+	got, err := FromFileDescriptorProto(fdp)
+	require.NoError(t, err)
+
+	require.Equal(t, protoast.Position{Line: 3, Column: 5}, got.Messages[0].Position)
+	require.Empty(t, got.Messages[0].Doc, "positions must not depend on comments")
+	require.Equal(t, protoast.Position{Line: 6, Column: 7}, got.Messages[0].NestedMessages[0].Position)
+	require.Equal(t, protoast.Position{Line: 9, Column: 3}, got.Messages[0].NestedEnums[0].Position)
+	require.Equal(t, protoast.Position{Line: 12, Column: 2}, got.Messages[0].Oneofs[0].Position)
+	require.Equal(t, protoast.Position{Line: 15, Column: 1}, got.Enums[0].Position)
+	require.Zero(t, got.Messages[1].Position)
+	require.Zero(t, got.Enums[1].Position)
 }
 
 func TestConvertOneof(t *testing.T) {

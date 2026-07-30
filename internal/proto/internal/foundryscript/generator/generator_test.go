@@ -66,6 +66,12 @@ func namespacedFile(messages []*protoast.Message, enums []*protoast.Enum) *proto
 	}
 }
 
+func prefixedFile(prefix string, messages []*protoast.Message, enums []*protoast.Enum) *protoast.ProtoFile {
+	file := namespacedFile(messages, enums)
+	file.Options = map[string]any{typePrefixOptionKey: prefix}
+	return file
+}
+
 func generate(t *testing.T, file *protoast.ProtoFile) GeneratedFiles {
 	t.Helper()
 	files, err := Generate(file, "player.proto", nil)
@@ -85,6 +91,330 @@ func slotMessage() *protoast.Message {
 		Name:   "Slot",
 		Fields: []*protoast.Field{{FieldType: "string", Name: "label", Number: 1}},
 	}
+}
+
+func TestGeneratePrefixesDeclarationsReferencesAndPaths(t *testing.T) {
+	files := generate(t, prefixedFile("Game", []*protoast.Message{{
+		Name: "Outer",
+		Fields: []*protoast.Field{
+			{FieldType: "Inner", Name: "inner", Number: 1},
+			{FieldType: "Outer.Inner", Name: "qualified_inner", Number: 2},
+			{FieldType: "State", Name: "state", Number: 3},
+			{FieldType: "Kind", Name: "kind", Number: 4},
+		},
+		NestedMessages: []*protoast.Message{{
+			Name: "Inner",
+		}},
+		NestedEnums: []*protoast.Enum{{
+			Name:   "Kind",
+			Values: []*protoast.EnumValue{{Name: "KIND_UNSPECIFIED", Number: 0}},
+		}},
+		Oneofs: []*protoast.Oneof{{
+			Name:   "choice",
+			Fields: []*protoast.Field{{FieldType: "string", Name: "text", Number: 5}},
+		}},
+	}}, []*protoast.Enum{{
+		Name:   "State",
+		Values: []*protoast.EnumValue{{Name: "STATE_UNSPECIFIED", Number: 0}},
+	}}))
+
+	messageSource := files["cafecito/game/v1/GameOuter.pb.fs"]
+	require.Contains(t, messageSource, "class_name GameOuter")
+	require.Contains(t, messageSource, "final class GameInner")
+	require.Contains(t, messageSource, "var inner: GameInner?")
+	require.Contains(t, messageSource, "var qualified_inner: GameOuter.GameInner?")
+	require.Contains(t, messageSource, "var state: GameState = GameState.STATE_UNSPECIFIED")
+	require.Contains(t, messageSource, "enum GameKind:")
+	require.Contains(t, messageSource, "var kind: GameKind = GameKind.KIND_UNSPECIFIED")
+
+	oneofSource := files["cafecito/game/v1/GameOuterChoiceCase.pb.fs"]
+	require.Contains(t, oneofSource, "enum_name GameOuterChoiceCase")
+
+	enumSource := files["cafecito/game/v1/GameState.pb.fs"]
+	require.Contains(t, enumSource, "enum_name GameState")
+
+	require.NotContains(t, files, "cafecito/game/v1/Outer.pb.fs")
+	require.NotContains(t, files, "cafecito/game/v1/OuterChoiceCase.pb.fs")
+	require.NotContains(t, files, "cafecito/game/v1/State.pb.fs")
+}
+
+func TestGenerateCanonicalizesAbsoluteLocalReferencesBeforeApplyingPrefix(t *testing.T) {
+	files := generate(t, prefixedFile("Game", []*protoast.Message{
+		{
+			Name: "Outer",
+			Fields: []*protoast.Field{
+				{FieldType: "Inner", Name: "lexical", Number: 1},
+				{FieldType: "Outer.Inner", Name: "qualified", Number: 2},
+				{
+					FieldType:    "Inner",
+					FullTypePath: "cafecito.game.v1.Outer.Inner",
+					SourceFile:   "player.proto",
+					Name:         "descriptor_lexical",
+					Number:       3,
+				},
+			},
+			NestedMessages: []*protoast.Message{{Name: "Inner"}},
+		},
+		{
+			Name: "Holder",
+			Fields: []*protoast.Field{
+				{
+					FieldType: ".cafecito.game.v1.Outer.Inner",
+					Name:      "absolute",
+					Number:    1,
+				},
+				{
+					FieldType: "cafecito.game.v1.Outer.Inner",
+					Name:      "package_qualified",
+					Number:    2,
+				},
+				{
+					FieldType: "cafecito.game.v1.Node",
+					Name:      "matching_relative",
+					Number:    3,
+				},
+			},
+		},
+		{
+			Name: "cafecito",
+			NestedMessages: []*protoast.Message{{
+				Name: "game",
+				NestedMessages: []*protoast.Message{{
+					Name: "v1",
+					NestedMessages: []*protoast.Message{{
+						Name: "Node",
+					}},
+				}},
+			}},
+		},
+	}, nil))
+
+	outer := files["cafecito/game/v1/GameOuter.pb.fs"]
+	require.Contains(t, outer, "var lexical: GameInner? = null")
+	require.Contains(t, outer, "var qualified: GameOuter.GameInner? = null")
+	require.Contains(t, outer, "var descriptor_lexical: GameInner? = null")
+
+	holder := files["cafecito/game/v1/GameHolder.pb.fs"]
+	require.Contains(t, holder, "var absolute: GameOuter.GameInner? = null")
+	require.Contains(t, holder, "var package_qualified: GameOuter.GameInner? = null")
+	require.Contains(t, holder,
+		"var matching_relative: GameCafecito.GameGame.GameV1.GameNode? = null")
+}
+
+func TestNestedOneofFlattensPrefixedOwnerSegments(t *testing.T) {
+	files := generate(t, prefixedFile("Game", []*protoast.Message{{
+		Name: "Outer",
+		NestedMessages: []*protoast.Message{{
+			Name: "Inner",
+			Oneofs: []*protoast.Oneof{{
+				Name:   "choice",
+				Fields: []*protoast.Field{{FieldType: "string", Name: "text", Number: 1}},
+			}},
+		}},
+	}}, nil))
+
+	source := files["cafecito/game/v1/GameOuterGameInnerChoiceCase.pb.fs"]
+	require.Contains(t, source, "enum_name GameOuterGameInnerChoiceCase")
+	require.NotContains(t, files, "cafecito/game/v1/GameOuterInnerChoiceCase.pb.fs")
+}
+
+func TestSameFileDescriptorEnumResolvesLocally(t *testing.T) {
+	files, err := Generate(namespacedFile(
+		[]*protoast.Message{{
+			Name: "Player",
+			Fields: []*protoast.Field{{
+				Name:         "status",
+				Number:       1,
+				FieldType:    "PlayerStatus",
+				FullTypePath: "cafecito.game.v1.PlayerStatus",
+				SourceFile:   "player.proto",
+				IsEnum:       true,
+			}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	), "player.proto", nil)
+	require.NoError(t, err)
+
+	source := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, source,
+		"var status: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED")
+	require.Contains(t, source, "status.to_wire()")
+}
+
+func TestSameFileDescriptorEnumUsesLocalPrefix(t *testing.T) {
+	files, err := Generate(prefixedFile(
+		"Game",
+		[]*protoast.Message{{
+			Name: "Player",
+			Fields: []*protoast.Field{{
+				Name:         "status",
+				Number:       1,
+				FieldType:    "PlayerStatus",
+				FullTypePath: "cafecito.game.v1.PlayerStatus",
+				SourceFile:   "player.proto",
+				IsEnum:       true,
+			}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	), "player.proto", nil)
+	require.NoError(t, err)
+
+	source := files["cafecito/game/v1/GamePlayer.pb.fs"]
+	require.Contains(t, source,
+		"var status: GamePlayerStatus = GamePlayerStatus.PLAYER_STATUS_UNSPECIFIED")
+	require.Contains(t, files["cafecito/game/v1/GamePlayerStatus.pb.fs"],
+		"enum_name GamePlayerStatus")
+}
+
+func TestSameFileDescriptorMapEnumResolvesLocally(t *testing.T) {
+	files, err := Generate(namespacedFile(
+		[]*protoast.Message{{
+			Name: "Player",
+			Maps: []*protoast.MapField{{
+				Name:              "seen",
+				Number:            1,
+				KeyType:           "string",
+				ValueType:         "PlayerStatus",
+				FullValueTypePath: "cafecito.game.v1.PlayerStatus",
+				ValueSourceFile:   "player.proto",
+				ValueIsEnum:       true,
+			}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	), "player.proto", nil)
+	require.NoError(t, err)
+
+	source := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, source, "var seen: Dictionary[String, PlayerStatus] = {}")
+	require.Contains(t, source,
+		"var _pb_seen_value: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED")
+	require.Contains(t, source,
+		"_pb_seen_entry.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_VARINT)))")
+}
+
+func TestReferenceUsesDeclaringFilesPrefix(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Options: map[string]any{typePrefixOptionKey: "Inventory"},
+		Messages: []*protoast.Message{{
+			Name: "Item",
+			NestedMessages: []*protoast.Message{{
+				Name: "Detail",
+			}},
+			NestedEnums: []*protoast.Enum{{
+				Name:   "Rarity",
+				Values: []*protoast.EnumValue{{Name: "RARITY_UNSPECIFIED", Number: 0}},
+			}},
+		}},
+	}
+	files, err := Generate(namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"},
+			{FieldType: "Item.Detail", Name: "detail", Number: 2, SourceFile: "inventory.proto"},
+			{
+				FieldType: "Item.Rarity", Name: "rarity", Number: 3,
+				IsEnum: true, SourceFile: "inventory.proto",
+			},
+		},
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	require.NoError(t, err)
+
+	source := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, source, "var held: InventoryItem?")
+	require.Contains(t, source, "var detail: InventoryItem.InventoryDetail?")
+	require.Contains(t, source,
+		"var rarity: InventoryItem.InventoryRarity = InventoryItem.InventoryRarity.RARITY_UNSPECIFIED")
+}
+
+func TestMissingImportedDeclarationDoesNotResolveToLocalType(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Options: map[string]any{typePrefixOptionKey: "Inventory"},
+		// Item is intentionally absent. Descriptor-driven generation can know
+		// the field's source and kind without receiving its declaration.
+	}
+	local := namespacedFile(
+		[]*protoast.Message{{
+			Name: "Player",
+			Fields: []*protoast.Field{{
+				FieldType: "Item", Name: "held", Number: 1,
+				SourceFile: "inventory.proto",
+			}},
+			Oneofs: []*protoast.Oneof{{
+				Name: "payload",
+				Fields: []*protoast.Field{{
+					FieldType: "Item", Name: "equipped", Number: 2,
+					SourceFile: "inventory.proto",
+				}},
+			}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "Item",
+			Values: []*protoast.EnumValue{{Name: "LOCAL_ITEM_UNSPECIFIED", Number: 0}},
+		}},
+	)
+
+	files, err := Generate(local, "player.proto", []FileEntry{{
+		File: imported, Filename: "inventory.proto",
+	}})
+	require.NoError(t, err)
+
+	messageSource := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, messageSource, "import cafecito.inventory.v1")
+	require.Contains(t, messageSource, "var held: InventoryItem? = null")
+	require.NotContains(t, messageSource, "LOCAL_ITEM_UNSPECIFIED")
+
+	unionSource := files["cafecito/game/v1/PlayerPayloadCase.pb.fs"]
+	require.Contains(t, unionSource, "import cafecito.inventory.v1")
+	require.Contains(t, unionSource, "Equipped(equipped: InventoryItem)")
+	require.NotContains(t, unionSource, "Equipped(equipped: Item)")
+}
+
+func TestReferencedDependencyReportsInvalidPrefix(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Options: map[string]any{typePrefixOptionKey: "bad-prefix"},
+		Messages: []*protoast.Message{{
+			Name: "Item",
+		}},
+	}
+	_, err := Generate(namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"}},
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "inventory.proto")
+	require.Contains(t, err.Error(), typePrefixOptionKey)
+}
+
+func TestUnreferencedDependencyIgnoresInvalidPrefix(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Options: map[string]any{typePrefixOptionKey: "bad-prefix"},
+		Messages: []*protoast.Message{{
+			Name: "Item",
+		}},
+	}
+	files, err := Generate(namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "string", Name: "name", Number: 1}},
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	require.NoError(t, err)
+	require.Contains(t, files, "cafecito/game/v1/Player.pb.fs")
 }
 
 func TestGenerateMessageAndEnumSkeletons(t *testing.T) {
