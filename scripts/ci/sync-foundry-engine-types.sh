@@ -20,6 +20,8 @@ if [[ -z "$FOUNDRY" || ! -x "$FOUNDRY" ]]; then
   echo "Foundry binary not found on PATH. Install foundry or set FOUNDRY_BIN." >&2
   exit 1
 fi
+FOUNDRY_DIR="$(cd "$(dirname "$FOUNDRY")" && pwd)"
+FOUNDRY="$FOUNDRY_DIR/$(basename "$FOUNDRY")"
 
 TARGET="$ROOT/internal/proto/internal/foundryscript/generator/engine_reserved_types.gen.go"
 SYNC_DIR="$(mktemp -d)"

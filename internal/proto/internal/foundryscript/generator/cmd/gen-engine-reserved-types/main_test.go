@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -288,6 +289,55 @@ func TestRepositoryTaskDeclaresEngineTypeRefresh(t *testing.T) {
 		if !strings.Contains(source, want) {
 			t.Errorf("Taskfile.yml does not contain %q", want)
 		}
+	}
+}
+
+func TestSyncScriptResolvesRelativeFoundryBinary(t *testing.T) {
+	root := findRepoRoot(t)
+	dir, err := os.MkdirTemp(root, ".test-relative-foundry-")
+	if err != nil {
+		t.Fatalf("create repository-local temporary directory: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("remove repository-local temporary directory: %v", err)
+		}
+	})
+	apiPath := writeTestAPI(t, dir)
+	foundryPath := filepath.Join(dir, "foundry")
+	foundry := []byte(`#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--version" ]]; then
+  echo "fake-relative"
+  exit 0
+fi
+if [[ "${1:-}" == "--headless" ]]; then
+  cp "$FAKE_EXTENSION_API" extension_api.json
+  exit 0
+fi
+exit 2
+`)
+	if err := os.WriteFile(foundryPath, foundry, 0o755); err != nil {
+		t.Fatalf("write fake Foundry binary: %v", err)
+	}
+
+	relativeFoundry, err := filepath.Rel(root, foundryPath)
+	if err != nil {
+		t.Fatalf("make Foundry path relative to repository: %v", err)
+	}
+	command := exec.Command("bash", "scripts/ci/sync-foundry-engine-types.sh", "check")
+	command.Dir = root
+	command.Env = append(os.Environ(),
+		"FOUNDRY_BIN="+relativeFoundry,
+		"FAKE_EXTENSION_API="+apiPath,
+	)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		t.Fatal("sync script unexpectedly matched the real generated table")
+	}
+	if !strings.Contains(string(output), "Foundry engine type table is stale for fake-relative.") {
+		t.Fatalf("sync script did not execute the relative Foundry binary after changing directories:\n%s", output)
 	}
 }
 
