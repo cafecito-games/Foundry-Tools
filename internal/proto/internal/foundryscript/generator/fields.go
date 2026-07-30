@@ -98,7 +98,7 @@ func fromBytesFactory(className string) fsast.Func {
 		ReturnType: fstypes.Tuple(fstypes.Nullable(fstypes.Named(className)), fstypes.Named("ProtobufError")),
 		Body: []fsast.Node{
 			line(0, "var "+generatedPrefix+"message: "+className+" = "+className+".new()"),
-			line(0, "var "+generatedPrefix+"error: ProtobufError = "+generatedPrefix+"message.merge_from_bytes("+dataParameter+")"),
+			line(0, "var "+generatedPrefix+"error: ProtobufError = "+generatedPrefix+"message."+mergeFromBytesMethod+"("+dataParameter+")"),
 			line(0, "if "+generatedPrefix+"error != ProtobufError.OK:"),
 			// A bare null does not carry the nullable element type.
 			line(1, "var "+generatedPrefix+"failed: "+className+"? = null"),
