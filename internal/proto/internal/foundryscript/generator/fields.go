@@ -93,7 +93,7 @@ func fromBytesFactory(className string) fsast.Func {
 	return fsast.Func{
 		Doc:        fromBytesDoc(className),
 		Static:     true,
-		Name:       "from_bytes",
+		Name:       fromBytesMethod,
 		Parameters: []fsast.Parameter{{Name: dataParameter, Type: fstypes.Named("PackedByteArray")}},
 		ReturnType: fstypes.Tuple(fstypes.Nullable(fstypes.Named(className)), fstypes.Named("ProtobufError")),
 		Body: []fsast.Node{

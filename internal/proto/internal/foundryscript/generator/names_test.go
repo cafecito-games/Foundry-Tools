@@ -156,6 +156,22 @@ func TestPlanMemberNameKeepsExistingEscapePolicies(t *testing.T) {
 	}
 }
 
+func TestGeneratedMethodNamesAreFreshAndReserved(t *testing.T) {
+	want := []string{"from_bytes", "to_bytes", "merge_from_bytes"}
+	require.Equal(t, "from_bytes", fromBytesMethod)
+	require.Equal(t, "to_bytes", toBytesMethod)
+	require.Equal(t, "merge_from_bytes", mergeFromBytesMethod)
+	require.Equal(t, want, generatedMethodNames())
+
+	mutated := generatedMethodNames()
+	mutated[0] = "changed"
+	require.Equal(t, want, generatedMethodNames())
+
+	for _, methodName := range want {
+		require.True(t, generatedMemberNames[methodName])
+	}
+}
+
 func TestPlanMemberNamePrefersExistingEscapePolicyOverEngineType(t *testing.T) {
 	const name = "var"
 	previous, existed := foundryEngineReservedTypes[name]

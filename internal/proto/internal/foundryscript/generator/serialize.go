@@ -39,7 +39,7 @@ func toBytesFunction(plans []fieldPlan, oneofs []oneofPlan) fsast.Func {
 	)
 	return fsast.Func{
 		Doc:        toBytesDoc(),
-		Name:       "to_bytes",
+		Name:       toBytesMethod,
 		ReturnType: fstypes.Named("PackedByteArray"),
 		Body:       body,
 	}

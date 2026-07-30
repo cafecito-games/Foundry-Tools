@@ -82,7 +82,7 @@ func mergeFromBytesFunction(plans []fieldPlan) fsast.Func {
 	)
 	return fsast.Func{
 		Doc:        mergeFromBytesDoc(),
-		Name:       "merge_from_bytes",
+		Name:       mergeFromBytesMethod,
 		Parameters: []fsast.Parameter{{Name: dataParameter, Type: fstypes.Named("PackedByteArray")}},
 		ReturnType: fstypes.Named("ProtobufError"),
 		Body:       body,

@@ -212,13 +212,22 @@ var reservedFieldNames = map[string]bool{
 	"tuple": true, "var": true, "void": true, "while": true, "yield": true,
 }
 
-// generatedMethodNames are the methods every message binding declares. Keep
-// this ordered inventory shared by naming and collision collection so the two
-// cannot disagree about which method spellings the emitter owns.
-var generatedMethodNames = [...]string{
-	"from_bytes",
-	"to_bytes",
-	"merge_from_bytes",
+// These constants are the source of truth for method spellings emitted and
+// reserved by every message binding.
+const (
+	fromBytesMethod      = "from_bytes"
+	toBytesMethod        = "to_bytes"
+	mergeFromBytesMethod = "merge_from_bytes"
+)
+
+// generatedMethodNames returns a fresh ordered inventory for naming and
+// collision collection.
+func generatedMethodNames() []string {
+	return []string{
+		fromBytesMethod,
+		toBytesMethod,
+		mergeFromBytesMethod,
+	}
 }
 
 // generatedMemberNames are all members every message binding declares. A proto
@@ -226,7 +235,7 @@ var generatedMethodNames = [...]string{
 // sit beside it, so it is renamed for the same reason a keyword is.
 var generatedMemberNames = func() map[string]bool {
 	names := map[string]bool{unknownFieldsMember: true}
-	for _, methodName := range generatedMethodNames {
+	for _, methodName := range generatedMethodNames() {
 		names[methodName] = true
 	}
 	return names
