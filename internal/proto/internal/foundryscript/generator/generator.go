@@ -47,7 +47,13 @@ func Generate(file *protoast.ProtoFile, sourceName string, imports []FileEntry) 
 		if err := validateWireFields(message); err != nil {
 			return nil, err
 		}
-		plan, err := planMessage(message, "", "", resolve)
+		plan, err := planMessage(
+			message,
+			"",
+			"",
+			qualifiedProtoName(file.Package, message.Name),
+			resolve,
+		)
 		if err != nil {
 			return nil, err
 		}

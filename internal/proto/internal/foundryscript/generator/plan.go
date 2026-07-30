@@ -212,6 +212,31 @@ type typeInfo struct {
 // files.
 type typeRegistry map[string]typeInfo
 
+// declarationIndex preserves exact raw protobuf paths independently of the
+// normalized registry used to resolve emitted Foundry names.
+type declarationIndex map[string]declarationInfo
+
+func newDeclarationIndex(protoPackage string, declarations []declarationInfo) declarationIndex {
+	index := declarationIndex{}
+	packagePrefix := strings.TrimPrefix(protoPackage, ".")
+	if packagePrefix != "" {
+		packagePrefix += "."
+	}
+	for _, declaration := range declarations {
+		fullName := strings.TrimPrefix(declaration.ProtoName, ".")
+		index[fullName] = declaration
+		if packagePrefix != "" && strings.HasPrefix(fullName, packagePrefix) {
+			index[strings.TrimPrefix(fullName, packagePrefix)] = declaration
+		}
+	}
+	return index
+}
+
+func (i declarationIndex) resolve(reference string) (declarationInfo, bool) {
+	declaration, found := i[strings.TrimPrefix(reference, ".")]
+	return declaration, found
+}
+
 // resolve looks reference up from the innermost scope outward, matching proto's
 // own name resolution.
 func (r typeRegistry) resolve(scope, reference string) (typeInfo, bool) {
@@ -249,6 +274,9 @@ type resolver struct {
 	collisions *collisionCollector
 	// imported holds each dependency's declarations, keyed by its source file.
 	imported map[string]typeRegistry
+	// importedDeclarations preserves exact raw protobuf declaration identities
+	// separately from the normalized registry used for emitted-name resolution.
+	importedDeclarations map[string]declarationIndex
 	// namespaces maps a proto source filename to the namespace its types are
 	// generated into.
 	namespaces map[string]string
@@ -267,15 +295,16 @@ type resolver struct {
 
 func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntry, localNamer typeNamer) *resolver {
 	resolve := &resolver{
-		local:            typeRegistry{},
-		localNamer:       localNamer,
-		sourceName:       sourceName,
-		collisions:       newCollisionCollector(sourceName),
-		imported:         map[string]typeRegistry{},
-		namespaces:       map[string]string{},
-		dependencyNamers: map[string]typeNamer{},
-		dependencyErrors: map[string]error{},
-		unnamespaced:     map[string]bool{},
+		local:                typeRegistry{},
+		localNamer:           localNamer,
+		sourceName:           sourceName,
+		collisions:           newCollisionCollector(),
+		imported:             map[string]typeRegistry{},
+		importedDeclarations: map[string]declarationIndex{},
+		namespaces:           map[string]string{},
+		dependencyNamers:     map[string]typeNamer{},
+		dependencyErrors:     map[string]error{},
+		unnamespaced:         map[string]bool{},
 	}
 	for i := range imports {
 		namer, err := newTypeNamer(imports[i].File, imports[i].Filename)
@@ -295,13 +324,16 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 		}
 		resolve.namespaces[imports[i].Filename] = namespace
 		registry := typeRegistry{}
-		registry.registerFile(imports[i].File, imports[i].Filename, namespace, namer)
+		declarations := registry.registerFile(imports[i].File, imports[i].Filename, namespace, namer)
 		resolve.imported[imports[i].Filename] = registry
+		resolve.importedDeclarations[imports[i].Filename] = newDeclarationIndex(
+			imports[i].File.Package,
+			declarations,
+		)
 	}
-	resolve.local.registerFile(file, sourceName, "", localNamer)
-	for key := range resolve.local {
-		info := resolve.local[key]
-		resolve.collisions.Add(info.Declaration)
+	declarations := resolve.local.registerFile(file, sourceName, "", localNamer)
+	for _, declaration := range declarations {
+		resolve.collisions.AddLocal(declaration)
 	}
 	return resolve
 }
@@ -364,13 +396,22 @@ func (r typeRegistry) registerFile(
 	file *protoast.ProtoFile,
 	sourceName, namespace string,
 	namer typeNamer,
-) {
+) []declarationInfo {
 	if file == nil {
-		return
+		return nil
 	}
+	declarations := make([]declarationInfo, 0, len(file.Enums)+len(file.Messages))
 	for _, enum := range file.Enums {
 		protoReference := TypeName(enum.Name)
 		reference := namer.Name(enum.Name)
+		declaration := declarationInfo{
+			SourceName:    sourceName,
+			Position:      enum.Position,
+			Kind:          "enum",
+			ProtoName:     qualifiedProtoName(file.Package, enum.Name),
+			GeneratedName: reference,
+		}
+		declarations = append(declarations, declaration)
 		r[protoReference] = typeInfo{
 			ProtoReference: protoReference,
 			Reference:      reference,
@@ -378,13 +419,7 @@ func (r typeRegistry) registerFile(
 			ZeroCase:       zeroValueName(enum),
 			Namespace:      namespace,
 			TopLevel:       reference,
-			Declaration: declarationInfo{
-				SourceName:    sourceName,
-				Position:      enum.Position,
-				Kind:          "enum",
-				ProtoName:     qualifiedProtoName(file.Package, enum.Name),
-				GeneratedName: reference,
-			},
+			Declaration:    declaration,
 		}
 	}
 	for _, message := range file.Messages {
@@ -397,8 +432,10 @@ func (r typeRegistry) registerFile(
 			sourceName,
 			namespace,
 			namer,
+			&declarations,
 		)
 	}
+	return declarations
 }
 
 // registerMessage records a message and every type nested in it. Nested types
@@ -409,27 +446,38 @@ func (r typeRegistry) registerMessage(
 	message *protoast.Message,
 	protoReference, reference, protoPath, protoPackage, sourceName, namespace string,
 	namer typeNamer,
+	declarations *[]declarationInfo,
 ) {
 	topLevel := reference
 	if cut := strings.Index(topLevel, "."); cut >= 0 {
 		topLevel = topLevel[:cut]
 	}
+	declaration := declarationInfo{
+		SourceName:    sourceName,
+		Position:      message.Position,
+		Kind:          "message",
+		ProtoName:     qualifiedProtoName(protoPackage, protoPath),
+		GeneratedName: namer.Name(message.Name),
+	}
+	*declarations = append(*declarations, declaration)
 	r[protoReference] = typeInfo{
 		ProtoReference: protoReference,
 		Reference:      reference,
 		Namespace:      namespace,
 		TopLevel:       topLevel,
-		Declaration: declarationInfo{
-			SourceName:    sourceName,
-			Position:      message.Position,
-			Kind:          "message",
-			ProtoName:     qualifiedProtoName(protoPackage, protoPath),
-			GeneratedName: namer.Name(message.Name),
-		},
+		Declaration:    declaration,
 	}
 	for _, enum := range message.NestedEnums {
 		nestedProtoReference := protoReference + "." + TypeName(enum.Name)
 		nestedReference := reference + "." + namer.Name(enum.Name)
+		declaration := declarationInfo{
+			SourceName:    sourceName,
+			Position:      enum.Position,
+			Kind:          "enum",
+			ProtoName:     qualifiedProtoName(protoPackage, protoPath+"."+enum.Name),
+			GeneratedName: namer.Name(enum.Name),
+		}
+		*declarations = append(*declarations, declaration)
 		r[nestedProtoReference] = typeInfo{
 			ProtoReference: nestedProtoReference,
 			Reference:      nestedReference,
@@ -437,13 +485,7 @@ func (r typeRegistry) registerMessage(
 			ZeroCase:       zeroValueName(enum),
 			Namespace:      namespace,
 			TopLevel:       topLevel,
-			Declaration: declarationInfo{
-				SourceName:    sourceName,
-				Position:      enum.Position,
-				Kind:          "enum",
-				ProtoName:     qualifiedProtoName(protoPackage, protoPath+"."+enum.Name),
-				GeneratedName: namer.Name(enum.Name),
-			},
+			Declaration:    declaration,
 		}
 	}
 	for _, nested := range message.NestedMessages {
@@ -456,6 +498,7 @@ func (r typeRegistry) registerMessage(
 			sourceName,
 			namespace,
 			namer,
+			declarations,
 		)
 	}
 }
@@ -590,7 +633,9 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 			TopLevel:       topLevel,
 		}
 	} else if use.SourceFile != "" {
-		r.collisions.Add(info.Declaration)
+		if declaration, declared := r.importedDeclarations[use.SourceFile].resolve(use.ProtoType); declared {
+			r.collisions.AddDependency(declaration)
+		}
 	}
 	// An imported type is named by the short reference the import makes
 	// available, unless something else would answer to that name too, in which
@@ -724,6 +769,7 @@ func (p *messagePlan) collectNamespaces(seen map[string]bool) {
 func planMessage(
 	message *protoast.Message,
 	protoParentScope, generatedParentScope string,
+	protoOwnerIdentity string,
 	resolve *resolver,
 ) (messagePlan, error) {
 	protoScope := TypeName(message.Name)
@@ -751,12 +797,11 @@ func planMessage(
 			return messagePlan{}, err
 		}
 		caseType := oneofTypeName(generatedScope, oneof)
-		owner := resolve.local[protoScope].Declaration.ProtoName
-		resolve.collisions.Add(declarationInfo{
+		resolve.collisions.AddLocal(declarationInfo{
 			SourceName:    resolve.sourceName,
 			Position:      oneof.Position,
 			Kind:          "oneof enum",
-			ProtoName:     owner + "." + oneof.Name,
+			ProtoName:     protoOwnerIdentity + "." + oneof.Name,
 			GeneratedName: caseType,
 		})
 		members := make([]fieldPlan, 0, len(oneof.Fields))
@@ -804,7 +849,13 @@ func planMessage(
 
 	nested := make([]messagePlan, 0, len(message.NestedMessages))
 	for _, child := range message.NestedMessages {
-		childPlan, err := planMessage(child, protoScope, generatedScope, resolve)
+		childPlan, err := planMessage(
+			child,
+			protoScope,
+			generatedScope,
+			protoOwnerIdentity+"."+child.Name,
+			resolve,
+		)
 		if err != nil {
 			return messagePlan{}, err
 		}

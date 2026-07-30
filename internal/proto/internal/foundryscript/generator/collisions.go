@@ -20,22 +20,43 @@ type typeCollision struct {
 	Declaration declarationInfo
 	EngineName  string
 	EngineKind  engineTypeKind
+	Origin      declarationOrigin
 }
 
 type collisionCollector struct {
 	byDeclaration map[string]typeCollision
-	localSource   string
 }
 
-func newCollisionCollector(localSource string) *collisionCollector {
+type declarationOrigin uint8
+
+const (
+	declarationOriginDependency declarationOrigin = iota
+	declarationOriginLocal
+)
+
+func newCollisionCollector() *collisionCollector {
 	return &collisionCollector{
 		byDeclaration: map[string]typeCollision{},
-		localSource:   localSource,
 	}
 }
 
-// Add records info when its final generated name is reserved by the engine.
+// Add records a local declaration when its final generated name is reserved by
+// the engine. Dependency callers use AddDependency to make origin explicit.
 func (c *collisionCollector) Add(info declarationInfo) {
+	c.add(info, declarationOriginLocal)
+}
+
+// AddLocal records a local declaration independently of its source spelling.
+func (c *collisionCollector) AddLocal(info declarationInfo) {
+	c.add(info, declarationOriginLocal)
+}
+
+// AddDependency records a referenced dependency declaration.
+func (c *collisionCollector) AddDependency(info declarationInfo) {
+	c.add(info, declarationOriginDependency)
+}
+
+func (c *collisionCollector) add(info declarationInfo, origin declarationOrigin) {
 	if c == nil {
 		return
 	}
@@ -51,6 +72,7 @@ func (c *collisionCollector) Add(info declarationInfo) {
 		Declaration: info,
 		EngineName:  info.GeneratedName,
 		EngineKind:  engineType.kind,
+		Origin:      origin,
 	}
 }
 
@@ -77,12 +99,12 @@ func (c *collisionCollector) Err(prefix string) error {
 
 	var diagnostic strings.Builder
 	diagnostic.WriteString("generated Foundry type names conflict with reserved engine types:")
+	localSources := map[string]bool{}
 	dependencySources := map[string]bool{}
-	hasLocalCollision := false
 	for _, collision := range collisions {
 		info := collision.Declaration
-		if info.SourceName == c.localSource {
-			hasLocalCollision = true
+		if collision.Origin == declarationOriginLocal {
+			localSources[info.SourceName] = true
 		} else {
 			dependencySources[info.SourceName] = true
 		}
@@ -92,10 +114,11 @@ func (c *collisionCollector) Err(prefix string) error {
 	}
 
 	diagnostic.WriteString("\n\nRemediation:")
-	if hasLocalCollision {
+	if len(localSources) > 0 {
 		if prefix == "" {
+			sources := sortedSourceNames(localSources)
 			diagnostic.WriteString("\n  For declarations in ")
-			diagnostic.WriteString(c.localSource)
+			diagnostic.WriteString(displaySourceName(sources[0]))
 			diagnostic.WriteString(", set a non-empty file option such as:\n")
 			diagnostic.WriteString(`  option (foundrytools.type_prefix) = "Game";`)
 		} else {
@@ -105,24 +128,39 @@ func (c *collisionCollector) Err(prefix string) error {
 		}
 	}
 
-	sources := make([]string, 0, len(dependencySources))
-	for source := range dependencySources {
-		sources = append(sources, source)
-	}
-	sort.Strings(sources)
-	for _, source := range sources {
+	for _, source := range sortedSourceNames(dependencySources) {
 		fmt.Fprintf(&diagnostic,
 			"\n  For referenced declarations, set or change (foundrytools.type_prefix) in %s.",
-			source)
+			displaySourceName(source))
 	}
 	return fmt.Errorf("%s", diagnostic.String())
 }
 
 func declarationLocation(info declarationInfo) string {
+	sourceName := displaySourceName(info.SourceName)
 	if info.Position.Line > 0 && info.Position.Column > 0 {
-		return fmt.Sprintf("%s:%d:%d", info.SourceName, info.Position.Line, info.Position.Column)
+		return fmt.Sprintf("%s:%d:%d", sourceName, info.Position.Line, info.Position.Column)
 	}
-	return info.SourceName
+	if info.Position.Line > 0 {
+		return fmt.Sprintf("%s:%d", sourceName, info.Position.Line)
+	}
+	return sourceName
+}
+
+func displaySourceName(sourceName string) string {
+	if sourceName == "" {
+		return "<unknown source>"
+	}
+	return sourceName
+}
+
+func sortedSourceNames(seen map[string]bool) []string {
+	sources := make([]string, 0, len(seen))
+	for source := range seen {
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+	return sources
 }
 
 func engineKindDescription(kind engineTypeKind) string {
