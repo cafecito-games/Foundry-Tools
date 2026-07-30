@@ -216,9 +216,11 @@ and are caught by Foundry lint-time checks.
 
 ### Field member collisions
 
-Message fields normally keep their raw protobuf names. An exact,
-case-sensitive match with a Foundry keyword, generator-owned member, built-in
-type, or exposed native class appends one underscore:
+Message fields normally keep their raw protobuf names. The generator appends
+one underscore when an exact, case-sensitive name matches a Foundry keyword, a
+generated message method (`from_bytes`, `to_bytes`, or `merge_from_bytes`), a
+built-in type, or an exposed native class. Names beginning with the
+generator-reserved `_pb_` prefix are rejected instead.
 
 | Protobuf field | Foundry member |
 |---|---|
@@ -228,13 +230,14 @@ type, or exposed native class appends one underscore:
 
 The escaped member is used consistently for reads, writes, serialization, and
 deserialization. Protobuf field numbers and wire encoding do not change. Oneof
-group storage follows the same escaping rule, while oneof alternatives and enum
-values keep their existing names. `type_prefix` changes type declarations, not
-field members.
+group storage follows the same member-escaping rule. Oneof case names and enum
+values retain their existing generated-name rules; matching a built-in type or
+exposed native class does not add an underscore to them. `type_prefix` changes
+type declarations, not field members.
 
 Escaping does not search for a second suffix. A secondary collision such as
-fields named both `Node` and `Node_` fails generation and asks you to rename a
-field.
+fields named both `Node` and `Node_` fails generation with an instruction to
+rename one protobuf declaration.
 
 ## Development
 
