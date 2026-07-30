@@ -3,7 +3,6 @@ package fsgenerator
 import (
 	"regexp"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/cafecito-games/foundry-tools/internal/runtime"
@@ -13,6 +12,11 @@ import (
 // runtimeDeclaration matches the ways foundry.proto introduces an exported
 // type name.
 var runtimeDeclaration = regexp.MustCompile(`(?m)^(?:final\s+)?(?:class_name|tuple_name|enum_name|trait_name)\s+([A-Za-z_][A-Za-z0-9_]*)`)
+
+// runtimeNamespace matches a runtime file's namespace declaration. Only
+// foundry.proto matters here: that is the one namespace every generated file
+// imports, so only its exports can collide with a schema type.
+var runtimeNamespace = regexp.MustCompile(`(?m)^namespace\s+([A-Za-z_][A-Za-z0-9_.]*)`)
 
 // Every generated file imports foundry.proto, so a schema type sharing a name
 // with something that namespace exports makes the spelling ambiguous and the
@@ -24,7 +28,8 @@ var runtimeDeclaration = regexp.MustCompile(`(?m)^(?:final\s+)?(?:class_name|tup
 func TestRuntimeTypeNamesCoverEveryExportedRuntimeType(t *testing.T) {
 	declared := map[string]string{}
 	for path, source := range runtime.Files() {
-		if !strings.HasPrefix(path, "foundry/proto/") {
+		namespace := runtimeNamespace.FindStringSubmatch(source)
+		if len(namespace) != 2 || namespace[1] != "foundry.proto" {
 			continue
 		}
 		for _, match := range runtimeDeclaration.FindAllStringSubmatch(source, -1) {

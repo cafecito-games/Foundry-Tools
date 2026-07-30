@@ -9,7 +9,9 @@ import (
 	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
 )
 
-const namespaceOptionKey = "(foundrytools.namespace)"
+// NamespaceOptionKey is the file option that overrides the namespace a proto
+// file generates into, keyed as it appears in a parsed file's option map.
+const NamespaceOptionKey = "(foundrytools.namespace)"
 const typePrefixOptionKey = "(foundrytools.type_prefix)"
 
 // generatedPrefix marks every name the emitter introduces -- locals, function
@@ -30,7 +32,7 @@ func NamespaceFor(file *protoast.ProtoFile) string {
 	if file == nil {
 		return ""
 	}
-	if raw, ok := file.Options[namespaceOptionKey]; ok {
+	if raw, ok := file.Options[NamespaceOptionKey]; ok {
 		if value, isString := raw.(string); isString && value != "" {
 			return value
 		}

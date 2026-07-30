@@ -14,6 +14,10 @@ import (
 	protovalidate "github.com/cafecito-games/foundry-tools/internal/proto/internal/validate"
 )
 
+// NamespaceOptionKey is the parsed-file option key that overrides the namespace
+// a proto file generates into.
+const NamespaceOptionKey = fsgenerator.NamespaceOptionKey
+
 // File is the internal protobuf AST used by the generator pipeline.
 type File = protoast.ProtoFile
 
