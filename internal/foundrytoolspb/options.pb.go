@@ -53,6 +53,9 @@ var file_foundrytools_options_proto_extTypes = []protoimpl.ExtensionInfo{
 var (
 	// optional string namespace = 52000;
 	E_Namespace = &file_foundrytools_options_proto_extTypes[0]
+	// Literal prefix applied to every generated type in this file.
+	// Use it to avoid Foundry built-in, native-class, or project-name collisions.
+	//
 	// optional string type_prefix = 52001;
 	E_TypePrefix = &file_foundrytools_options_proto_extTypes[1]
 	// optional bool emit_runtime = 52002;

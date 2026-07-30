@@ -179,6 +179,41 @@ option (foundrytools.type_prefix) = "Game";
 option (foundrytools.emit_runtime) = true;
 ```
 
+### Generated Type Prefixes
+
+Use `type_prefix` when generated names would collide:
+
+```protobuf
+option (foundrytools.type_prefix) = "Game";
+```
+
+The value is a literal, non-empty identifier fragment matching
+`[A-Za-z_][A-Za-z0-9_]*`. The generator inserts no separator and performs no
+case normalization, so `Game_` stays literal. It applies the prefix uniformly
+to every generated type declaration in that file and to every nested segment:
+top-level and nested messages and enums, generated oneof-case enums, references
+to those types, and output filenames.
+
+| Protobuf/generated name | With `Game` prefix |
+|---|---|
+| `Node` | `GameNode` |
+| `Outer.Inner` | `GameOuter.GameInner` |
+| `Player.payload` oneof enum | `GamePlayerPayloadCase` |
+| `Node.pb.fs` | `GameNode.pb.fs` |
+
+Prefixing happens after protobuf name normalization but before Foundry
+keyword/runtime escaping. For example, unprefixed `Message` becomes `Message_`,
+while the `Game` prefix produces `GameMessage`. A prefix changes the public
+generated API, so consumers and import references must use the new names.
+
+Final prefixed names are still validated against Foundry built-ins and exposed
+native classes. An unsafe prefix produces an error asking for another prefix.
+Without a prefix, collisions fail with aggregated, actionable diagnostics. A
+collision in a referenced dependency must be resolved by setting or changing
+`type_prefix` in the file that declares that dependency. Project-specific
+extension, global script, and autoload names remain outside static generation
+and are caught by Foundry lint-time checks.
+
 ## Development
 
 ```bash
