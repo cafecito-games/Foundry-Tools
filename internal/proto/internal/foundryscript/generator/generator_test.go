@@ -792,6 +792,23 @@ func TestGenerateRepeatedFixedWidthScalarsPack(t *testing.T) {
 	require.Contains(t, source, "elif _pb_wire_type == Wire.WIRE_VARINT:")
 }
 
+// A packed run declares its length, and an element must not read past it. The
+// element readers bound themselves against the whole buffer, so without a
+// check against the run's own end a payload whose length is not a whole number
+// of elements would take bytes from the field after it and accept the message.
+func TestGeneratePackedRunRejectsElementsCrossingItsEnd(t *testing.T) {
+	for _, scalar := range []string{"sfixed32", "double", "sint64", "int32"} {
+		t.Run(scalar, func(t *testing.T) {
+			source := playerSource(t, []*protoast.Field{
+				{FieldType: scalar, Name: "values", Number: 1, Repeated: true},
+			})
+
+			require.Contains(t, source, "if _pb_values_packed.offset > _pb_values_end:")
+			require.Contains(t, source, "return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH")
+		})
+	}
+}
+
 // The same framing has to hold where the value is not a plain field: map keys
 // and values carry their own tags inside the entry, and a oneof member carries
 // the tag of the field it stands for.

@@ -338,6 +338,26 @@ func check_scalar_edges() -> void:
 	check(is_nan(decoded.float_value), "NaN survives a float round trip")
 	check(decoded.ratios == {min_int64(): 0.5, 7: -1.5}, "sfixed64 keys and float values round trip")
 
+	check_truncated_packed_run()
+
+## A packed run declares a byte length. If that length is not a whole number of
+## elements the message is malformed, and reading the last element would take
+## bytes from whatever follows rather than failing.
+func check_truncated_packed_run() -> void:
+	## Field 11 is repeated sfixed32, so four bytes per element. Six bytes
+	## announces one element and half of another.
+	var truncated: PackedByteArray = PackedByteArray()
+	truncated.append_array(Wire.encode_varint(Wire.make_tag(11, Wire.WIRE_LENGTH_DELIMITED)))
+	truncated.append_array(Wire.encode_varint(6))
+	truncated.append_array(PackedByteArray([1, 0, 0, 0, 2, 0]))
+	## A trailing field the overrun would otherwise eat into.
+	truncated.append_array(Wire.encode_varint(Wire.make_tag(7, Wire.WIRE_VARINT)))
+	truncated.append_array(Wire.encode_sint32(9))
+
+	var (decoded, decode_error) = ScalarSuite.from_bytes(truncated)
+	check(decode_error == ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH, "a packed run that overruns its length is rejected")
+	check(not (decoded is ScalarSuite), "a rejected message yields no value")
+
 func populated_scalar_suite() -> ScalarSuite:
 	var suite: ScalarSuite = ScalarSuite.new()
 	suite.double_value = -2.5

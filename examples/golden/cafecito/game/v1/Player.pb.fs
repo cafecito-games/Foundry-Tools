@@ -340,6 +340,8 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 						var _pb_scores_packed: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
 						if _pb_scores_packed.error != ProtobufError.OK:
 							return _pb_scores_packed.error
+						if _pb_scores_packed.offset > _pb_scores_end:
+							return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH
 						scores.append(_pb_scores_packed.value)
 						_pb_offset = _pb_scores_packed.offset
 				elif _pb_wire_type == Wire.WIRE_VARINT:

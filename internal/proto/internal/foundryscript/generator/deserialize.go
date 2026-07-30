@@ -258,7 +258,7 @@ func deserializePackedRepeated(plan *fieldPlan) []fsast.Node {
 		line(4, fmt.Sprintf("%s = %s.offset", cursorLocal, length)),
 		line(4, fmt.Sprintf("while %s < %s:", cursorLocal, end)),
 	)
-	nodes = append(nodes, readPackedElement(5, plan, context, packed)...)
+	nodes = append(nodes, readPackedElement(5, plan, context, packed, end)...)
 	nodes = append(nodes, line(3, fmt.Sprintf("elif %s == %s:", wireTypeLocal, wireTypeConstant(plan.Value.WireType))))
 	nodes = append(nodes, readValue(4, plan.Value, context)...)
 	return append(nodes,
@@ -269,11 +269,20 @@ func deserializePackedRepeated(plan *fieldPlan) []fsast.Node {
 
 // readPackedElement decodes one element of a packed run, which carries no tag
 // of its own and so cannot reuse the tagged read path.
-func readPackedElement(depth int, plan *fieldPlan, context readContext, packed string) []fsast.Node {
+//
+// The element readers bound themselves against the whole buffer rather than
+// against this run, so the read is followed by a check that it stayed inside
+// it. Without that, a payload whose length is not a whole number of elements
+// would silently consume bytes belonging to the next field and accept a
+// message it should reject — deterministically so for the fixed-width types,
+// where element size is known in advance.
+func readPackedElement(depth int, plan *fieldPlan, context readContext, packed, end string) []fsast.Node {
 	nodes := []fsast.Node{
 		line(depth, fmt.Sprintf("var %s: %s = %s(%s, %s)", packed, plan.Value.readCarrier(), plan.Value.readFunction(), dataParameter, cursorLocal)),
 		line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", packed)),
 		line(depth+1, "return "+packed+".error"),
+		line(depth, fmt.Sprintf("if %s.offset > %s:", packed, end)),
+		line(depth+1, "return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH"),
 	}
 	if plan.Value.Kind == kindEnum {
 		typeName := plan.Value.Type.Render()
