@@ -87,7 +87,9 @@ func presenceCondition(plan *fieldPlan) string {
 	case plan.Value.ProtoType == "bytes":
 		return plan.Name + ".size() > 0"
 	default:
-		return plan.Name + " != 0"
+		// The value's own zero, so a float tests against 0.0 rather than
+		// leaning on int-to-float comparison to mean the same thing.
+		return plan.Name + " != " + plan.Value.ZeroValue
 	}
 }
 
@@ -130,7 +132,7 @@ func serializePackedRepeated(plan *fieldPlan) []fsast.Node {
 		line(0, fmt.Sprintf("if %s.size() > 0:", plan.Name)),
 		line(1, fmt.Sprintf("var %s: PackedByteArray = PackedByteArray()", buffer)),
 		line(1, fmt.Sprintf("for %s: %s in %s:", item, plan.Value.Type.Render(), plan.Name)),
-		line(2, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", buffer, varintExpression(plan.Value, item))),
+		line(2, fmt.Sprintf("%s.append_array(%s)", buffer, plan.Value.encodeCall(item))),
 		line(1, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", resultBuffer, plan.TagExpression())),
 		line(1, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s.size()))", resultBuffer, buffer)),
 		line(1, fmt.Sprintf("%s.append_array(%s)", resultBuffer, buffer)),
@@ -216,7 +218,7 @@ func appendValue(depth int, value valuePlan, expression, local, tag, buffer stri
 	default:
 		return []fsast.Node{
 			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", buffer, tag)),
-			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", buffer, varintExpression(value, expression))),
+			line(depth, fmt.Sprintf("%s.append_array(%s)", buffer, value.encodeCall(expression))),
 		}
 	}
 }

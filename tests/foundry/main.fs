@@ -3,6 +3,7 @@ import cafecito.inventory.v1
 import foundry.proto
 import probe.collisions.v1
 import probe.dependency.v1
+import probe.scalars.v1
 
 extends SceneTree
 
@@ -256,9 +257,117 @@ func _init() -> void:
 	check(merged.primary is Slot and merged.primary.label == "axe", "split message field keeps the first record")
 	check(merged.primary is Slot and merged.primary.quantity == 4, "split message field merges the second record")
 
+	check_scalars()
+
 	if failures > 0:
 		printerr("round trip failed with ", failures, " error(s)")
 		quit(1)
 		return
 	print("round trip ok")
 	quit(0)
+
+## The eight scalars that are not plain varints, checked against bytes a
+## reference protobuf implementation produced for the same values. Lint proves
+## the bindings typecheck; only this proves the framing is right, and comparing
+## against another implementation is what keeps it from proving our encoder
+## agrees with our decoder and nothing more.
+func check_scalars() -> void:
+	var reference: PackedByteArray = read_reference_bytes()
+	if reference.is_empty():
+		return
+
+	var suite: ScalarSuite = populated_scalar_suite()
+	check(suite.to_bytes() == reference, "scalars encode to the reference bytes")
+
+	var (decoded, decode_error) = ScalarSuite.from_bytes(reference)
+	check(decode_error == ProtobufError.OK, "reference bytes decode")
+	if not (decoded is ScalarSuite):
+		return
+
+	## Re-encoding what we decoded is the strongest statement available here: it
+	## covers every bit pattern in the vector at once, sign of zero included,
+	## without depending on how any one value compares.
+	check(decoded.to_bytes() == reference, "decoding and re-encoding is lossless")
+
+	check(decoded.double_value == -2.5, "double round trips")
+	## 0.1 is not representable in binary32, so a proto float narrows on the way
+	## out. Narrowing an already-narrowed value must be a no-op, and the result
+	## must differ from the binary64 original.
+	check(Wire.encode_float(decoded.float_value) == Wire.encode_float(0.1), "float narrowing is idempotent")
+	check(decoded.float_value != 0.1, "float does not keep binary64 precision")
+	check(decoded.fixed32_value == 4294967295, "fixed32 spans the unsigned range")
+	## Foundry's int is signed, so the top half of the fixed64 range arrives as
+	## a negative with the same bits rather than as an unrepresentable positive.
+	check(decoded.fixed64_value == -1, "fixed64 keeps every bit of the unsigned range")
+	check(decoded.sfixed32_value == -2147483648, "sfixed32 holds its minimum")
+	check(decoded.sfixed64_value == min_int64(), "sfixed64 holds its minimum")
+	check(decoded.sint32_value == -2147483648, "sint32 holds its minimum")
+	check(decoded.sint64_value == min_int64(), "sint64 holds its minimum")
+
+	check(decoded.sint32_list == [0, -1, 1, -2147483648, 2147483647], "packed sint32 round trips")
+	check(decoded.sfixed32_list == [-1, 0, 2147483647], "packed sfixed32 round trips")
+	check(decoded.double_list.size() == 4, "packed double keeps every element")
+	if decoded.double_list.size() == 4:
+		check(decoded.double_list[1] == 1.5, "packed double round trips")
+		check(decoded.double_list[2] == INF, "positive infinity round trips")
+		check(decoded.double_list[3] == -INF, "negative infinity round trips")
+
+	match decoded.choice:
+		ScalarSuiteChoiceCase.ChoiceDelta(var delta):
+			check(delta == -4096, "sint64 oneof member round trips")
+		_:
+			printerr("FAIL: scalar oneof case did not round trip")
+			failures += 1
+
+	check_scalar_edges()
+
+## Cases the reference vector deliberately leaves out: NaN, whose bit pattern is
+## not unique enough to compare across implementations, and the map, whose entry
+## order is not fixed.
+func check_scalar_edges() -> void:
+	var suite: ScalarSuite = ScalarSuite.new()
+	suite.double_value = NAN
+	suite.float_value = NAN
+	suite.ratios = {min_int64(): 0.5, 7: -1.5}
+
+	var (decoded, decode_error) = ScalarSuite.from_bytes(suite.to_bytes())
+	check(decode_error == ProtobufError.OK, "NaN and map bytes decode")
+	if not (decoded is ScalarSuite):
+		return
+	check(is_nan(decoded.double_value), "NaN survives a double round trip")
+	check(is_nan(decoded.float_value), "NaN survives a float round trip")
+	check(decoded.ratios == {min_int64(): 0.5, 7: -1.5}, "sfixed64 keys and float values round trip")
+
+func populated_scalar_suite() -> ScalarSuite:
+	var suite: ScalarSuite = ScalarSuite.new()
+	suite.double_value = -2.5
+	suite.float_value = 0.1
+	suite.fixed32_value = 4294967295
+	suite.fixed64_value = -1
+	suite.sfixed32_value = -2147483648
+	suite.sfixed64_value = min_int64()
+	suite.sint32_value = -2147483648
+	suite.sint64_value = min_int64()
+	suite.sint32_list = [0, -1, 1, -2147483648, 2147483647]
+	## No -0.0 here: this engine cannot hold one written as a literal, and a
+	## -0.0 anywhere in the script would take the sign of every 0.0 with it.
+	## See cafecito-games/Foundry#1371.
+	suite.double_list = [0.0, 1.5, INF, -INF]
+	suite.sfixed32_list = [-1, 0, 2147483647]
+	suite.choice = ScalarSuiteChoiceCase.ChoiceDelta(-4096)
+	return suite
+
+## Written as a subtraction because the literal for it does not fit the positive
+## range the parser folds a unary minus over.
+func min_int64() -> int:
+	return -9223372036854775807 - 1
+
+func read_reference_bytes() -> PackedByteArray:
+	var file: FileAccess? = FileAccess.open("res://scalars_reference.bin", FileAccess.READ)
+	if not (file is FileAccess):
+		printerr("FAIL: could not open res://scalars_reference.bin")
+		failures += 1
+		return PackedByteArray()
+	var data: PackedByteArray = file.get_buffer(file.get_length())
+	file.close()
+	return data

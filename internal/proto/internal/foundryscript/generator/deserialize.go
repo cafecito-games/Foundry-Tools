@@ -187,7 +187,7 @@ func readValue(depth int, value valuePlan, context readContext) []fsast.Node {
 		}
 	default:
 		return []fsast.Node{
-			line(depth, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(%s, %s)", read, dataParameter, cursorLocal)),
+			line(depth, fmt.Sprintf("var %s: %s = %s(%s, %s)", read, value.readCarrier(), value.readFunction(), dataParameter, cursorLocal)),
 			line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", read)),
 			line(depth+1, "return "+read+".error"),
 			line(depth, context.assign(varintResultExpression(value, read+".value"))),
@@ -271,7 +271,7 @@ func deserializePackedRepeated(plan *fieldPlan) []fsast.Node {
 // of its own and so cannot reuse the tagged read path.
 func readPackedElement(depth int, plan *fieldPlan, context readContext, packed string) []fsast.Node {
 	nodes := []fsast.Node{
-		line(depth, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(%s, %s)", packed, dataParameter, cursorLocal)),
+		line(depth, fmt.Sprintf("var %s: %s = %s(%s, %s)", packed, plan.Value.readCarrier(), plan.Value.readFunction(), dataParameter, cursorLocal)),
 		line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", packed)),
 		line(depth+1, "return "+packed+".error"),
 	}
@@ -379,8 +379,14 @@ func varintResultExpression(value valuePlan, expression string) string {
 }
 
 func wireTypeConstant(wireType int) string {
-	if wireType == wireLengthDelimited {
+	switch wireType {
+	case wireLengthDelimited:
 		return "Wire.WIRE_LENGTH_DELIMITED"
+	case wire32Bit:
+		return "Wire.WIRE_32BIT"
+	case wire64Bit:
+		return "Wire.WIRE_64BIT"
+	default:
+		return "Wire.WIRE_VARINT"
 	}
-	return "Wire.WIRE_VARINT"
 }

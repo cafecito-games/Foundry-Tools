@@ -124,6 +124,20 @@ var tier: Tier = Tier.TIER_UNSPECIFIED:
 ## The loadout protobuf field.
 var loadout: Dictionary[String, Slot] = {}
 
+## Fixed-width and zig-zag scalars: a float and a double are IEEE-754 rather
+## than varints, fixed64 spends eight bytes to spend the same on every value,
+## and sint32 zig-zags so a negative costs one byte instead of ten.
+var accuracy: float = 0.0
+
+## The play_time_seconds protobuf field.
+var play_time_seconds: float = 0.0
+
+## The session_id protobuf field.
+var session_id: int = 0
+
+## The rating_delta protobuf field.
+var rating_delta: int = 0
+
 ## The payload protobuf oneof; null when no case is set.
 var payload: PlayerPayloadCase? = null
 
@@ -242,6 +256,18 @@ func to_bytes() -> PackedByteArray:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(16, Wire.WIRE_LENGTH_DELIMITED)))
 		_pb_result.append_array(Wire.encode_varint(_pb_loadout_entry.size()))
 		_pb_result.append_array(_pb_loadout_entry)
+	if accuracy != 0.0:
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(17, Wire.WIRE_32BIT)))
+		_pb_result.append_array(Wire.encode_float(accuracy))
+	if play_time_seconds != 0.0:
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(18, Wire.WIRE_64BIT)))
+		_pb_result.append_array(Wire.encode_double(play_time_seconds))
+	if session_id != 0:
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(19, Wire.WIRE_64BIT)))
+		_pb_result.append_array(Wire.encode_fixed64(session_id))
+	if rating_delta != 0:
+		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(20, Wire.WIRE_VARINT)))
+		_pb_result.append_array(Wire.encode_sint32(rating_delta))
 	_pb_result.append_array(_pb_unknown_fields)
 	return _pb_result
 
@@ -470,6 +496,38 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 								return _pb_loadout_skip.error
 							_pb_offset = _pb_loadout_skip.offset
 				loadout[_pb_loadout_key] = _pb_loadout_value
+			17:
+				if _pb_wire_type != Wire.WIRE_32BIT:
+					return ProtobufError.WIRE_TYPE_MISMATCH
+				var _pb_accuracy_read: FloatRead = Wire.read_float(_pb_data, _pb_offset)
+				if _pb_accuracy_read.error != ProtobufError.OK:
+					return _pb_accuracy_read.error
+				accuracy = _pb_accuracy_read.value
+				_pb_offset = _pb_accuracy_read.offset
+			18:
+				if _pb_wire_type != Wire.WIRE_64BIT:
+					return ProtobufError.WIRE_TYPE_MISMATCH
+				var _pb_play_time_seconds_read: FloatRead = Wire.read_double(_pb_data, _pb_offset)
+				if _pb_play_time_seconds_read.error != ProtobufError.OK:
+					return _pb_play_time_seconds_read.error
+				play_time_seconds = _pb_play_time_seconds_read.value
+				_pb_offset = _pb_play_time_seconds_read.offset
+			19:
+				if _pb_wire_type != Wire.WIRE_64BIT:
+					return ProtobufError.WIRE_TYPE_MISMATCH
+				var _pb_session_id_read: FixedRead = Wire.read_fixed64(_pb_data, _pb_offset)
+				if _pb_session_id_read.error != ProtobufError.OK:
+					return _pb_session_id_read.error
+				session_id = _pb_session_id_read.value
+				_pb_offset = _pb_session_id_read.offset
+			20:
+				if _pb_wire_type != Wire.WIRE_VARINT:
+					return ProtobufError.WIRE_TYPE_MISMATCH
+				var _pb_rating_delta_read: VarintRead = Wire.read_sint32(_pb_data, _pb_offset)
+				if _pb_rating_delta_read.error != ProtobufError.OK:
+					return _pb_rating_delta_read.error
+				rating_delta = _pb_rating_delta_read.value
+				_pb_offset = _pb_rating_delta_read.offset
 			_:
 				var _pb_skipped: SkipRead = Wire.capture_field(_pb_data, _pb_offset, _pb_tag.value, _pb_wire_type, _pb_unknown_fields)
 				if _pb_skipped.error != ProtobufError.OK:

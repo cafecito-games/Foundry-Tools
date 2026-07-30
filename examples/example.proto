@@ -52,4 +52,12 @@ message Player {
 
   Badge badge = 14;
   Tier tier = 15;
+
+  // Fixed-width and zig-zag scalars: a float and a double are IEEE-754 rather
+  // than varints, fixed64 spends eight bytes to spend the same on every value,
+  // and sint32 zig-zags so a negative costs one byte instead of ten.
+  float accuracy = 17;
+  double play_time_seconds = 18;
+  fixed64 session_id = 19;
+  sint32 rating_delta = 20;
 }
