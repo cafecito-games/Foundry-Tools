@@ -1,0 +1,331 @@
+# Well-Known Type Semantics Design
+
+**Issue:** [cafecito-games/Foundry-Tools#39](https://github.com/cafecito-games/Foundry-Tools/issues/39)
+
+**Follows from:** [cafecito-games/Foundry-Tools#28](https://github.com/cafecito-games/Foundry-Tools/issues/28)
+
+**Status:** Approved
+
+## Summary
+
+The well-known types currently generate as ordinary messages, which produces a
+correct wire round-trip and nothing else. A schema author reaching for
+`google.protobuf.Struct` gets a hand-assembled tree of `Value` objects; one
+reaching for `google.protobuf.Any` gets a string and a byte blob.
+
+This design gives those types the semantics every other protobuf implementation
+surfaces, and does it by moving them out of the generator entirely.
+
+Every `google/protobuf/*.proto` file ships as hand-written Foundry Script in the
+runtime under the `foundry.proto.wkt` namespace. The plugin stops generating
+output for those files and instead rewrites references onto the runtime
+namespace. Six of the seventeen types gain conversion helpers:
+`Struct`/`Value`/`ListValue` convert to and from `Variant`, `Timestamp` and
+`Duration` convert to and from `float` seconds, and `Any` gains typed
+pack/unpack.
+
+## Decision Context
+
+### Delivery: runtime library, not generator special-casing
+
+Two shapes were considered for where the semantics live.
+
+1. **Ship the well-known types as hand-written `.fs` in the runtime.** The
+   plugin never generates them; references resolve to one canonical set of
+   types.
+2. **Keep generating them and inject extra members** when the generator
+   recognizes the full proto name `google.protobuf.Timestamp`.
+
+The approved choice is option 1.
+
+Option 2 keeps a single code path and no hand-maintained wire code, but every
+project that imports `timestamp.proto` gets its own distinct `Timestamp` class.
+A library and its consumer could not exchange one. That type-identity problem
+exists today, independent of this issue, and option 1 fixes it as a side effect.
+Option 1 also keeps semantic code out of the emitter, where it would otherwise
+live as a table of special cases keyed on proto names.
+
+The cost of option 1 is hand-written wire code for seven files carrying
+seventeen types. Those files have been stable for over a decade.
+
+### Scope: all seven files, not only those with semantics
+
+`Empty`, `FieldMask`, and the nine wrappers gain no helpers. They move to the
+runtime anyway.
+
+The alternative — moving only the files with semantics — leaves
+`field_mask.proto` and `timestamp.proto` behaving differently for a reason no
+schema author can observe, and fixes the type-identity problem only halfway.
+One rule with no exception table is worth eleven trivial classes.
+
+### Wrappers do not become nullable scalars
+
+The issue raised mapping `Int32Value`, `StringValue`, and friends onto nullable
+Foundry scalars, since the wrappers exist to give a scalar explicit presence.
+
+Rejected. Explicit presence is already available through proto3 `optional`
+(#15), so the mapping adds no capability. It breaks the invariant that the
+generated surface mirrors the schema. And it degrades where the wrapper appears
+as a map value, a `repeated` element, or a `oneof` member — all positions where
+the message form is needed regardless, leaving a generated API that is a
+nullable scalar in one place and a message in another for the same schema type.
+
+The wrappers remain ordinary messages in `foundry.proto.wkt`.
+
+## Non-Goals
+
+- **A type-URL registry.** `Any` supports packing and unpacking against a type
+  the caller names. There is no dynamic path that resolves an arbitrary
+  `type_url` to a generated binding. An `Any` holding an unnamed type stays as
+  opaque bytes.
+- **proto3 canonical JSON.** No JSON encoding or decoding is added anywhere.
+  Deferred to a follow-up issue (see below).
+- **`FieldMask` semantics.** Neither camelCase path conversion nor mask
+  union/intersection/application. The first is meaningless without JSON; the
+  second needs runtime reflection over generated messages, which the generator
+  does not emit.
+- **RFC-3339 string conversion for `Timestamp`.** Belongs with JSON, where it
+  has to be done correctly rather than through the engine's second-resolution
+  datetime formatter.
+
+## Architecture
+
+### Runtime layout
+
+```
+internal/runtime/data/foundry/proto/wkt/
+  any.fs
+  duration.fs
+  empty.fs
+  field_mask.fs
+  struct.fs          # Struct, Value, ListValue, NullValue, ValueKindCase
+  timestamp.fs
+  wrappers.fs        # the nine scalar wrappers
+```
+
+All declare `namespace foundry.proto.wkt`.
+
+These are hand-written but must be indistinguishable in shape from generator
+output: same `final class_name X extends RefCounted uses Message` form, same
+file-level tagged union for `Value`'s oneof, same `_unknown_fields` handling,
+same `ProtobufError` returns. A reader should not be able to tell which files
+the generator produced. Where this design and the generator's conventions
+disagree, the generator's conventions win.
+
+### Plugin behavior
+
+When a request includes or imports `google/protobuf/*.proto`:
+
+1. **No output is generated** for that file, whether it arrives as a file to
+   generate or as a dependency.
+2. **References rewrite.** Any field, map value, oneof member, or nested
+   reference whose type resolves to `google.protobuf.Y` emits as
+   `foundry.proto.wkt.Y`.
+3. **The import is emitted.** A file referencing any well-known type gains
+   `import foundry.proto.wkt`, following the existing import handling from #21.
+
+The runtime ships seven of upstream's `google/protobuf` files: `any.proto`,
+`duration.proto`, `empty.proto`, `field_mask.proto`, `struct.proto`,
+`timestamp.proto`, and `wrappers.proto`. Upstream ships others —
+`descriptor.proto`, `api.proto`, `type.proto`, `source_context.proto`,
+`compiler/plugin.proto` — which are compiler and reflection machinery that no
+gameplay schema imports.
+
+A `google/protobuf/*.proto` file the runtime does not ship is a generation
+error with an actionable diagnostic, not a silent fallback to generic
+generation. This keeps the runtime and the plugin from drifting apart silently,
+and it means adding a file later is a deliberate act rather than a behavior
+change nobody notices.
+
+### `Message` trait change
+
+`Any.pack` needs a message's full proto name at runtime. The descriptor has it
+at generation time and currently discards it.
+
+```
+namespace foundry.proto
+
+trait_name Message
+
+abstract func to_bytes() -> PackedByteArray
+
+abstract func merge_from_bytes(_data: PackedByteArray) -> ProtobufError
+
+abstract func type_name() -> String
+```
+
+Every generated message implements `type_name()` returning its fully qualified
+protobuf name — `"cafecito.game.v1.Player"` — as a literal. This is the only
+part of this design that changes existing generated output; all golden files
+regenerate.
+
+The rejected alternative was `Any.pack(message, "cafecito.game.v1.Player")`,
+which puts an unverifiable string at every call site. The trait method also
+serves later work: a JSON `@type` field needs exactly this, and it makes
+logging a value typed only as `Message` possible.
+
+## Components
+
+### `Struct` / `Value` / `ListValue` ↔ `Variant`
+
+The mapping is the one protobuf JSON already defines.
+
+| `Value` case | Foundry |
+|---|---|
+| `null_value` | `null` |
+| `bool_value` | `bool` |
+| `number_value` | `float` |
+| `string_value` | `String` |
+| `struct_value` | `Dictionary[String, Variant]` |
+| `list_value` | `Array[Variant]` |
+
+**Outbound (`Value` → `Variant`) is total.** Every case has a representation;
+the conversion cannot fail.
+
+**Inbound (`Variant` → `Value`) is strict.** It returns a `ProtobufError`:
+
+- `int` is accepted and narrowed to `number_value`. This is what every JSON
+  implementation does. It is lossy past 2⁵³, and an `int` round-trips back as a
+  `float`. Both are documented.
+- A `Dictionary` with any non-`String` key is an error. `Struct` fields are
+  string-keyed and there is no representation to invent.
+- Any other Variant type — `Vector2`, `Color`, `PackedByteArray`, `Object`, and
+  the rest — is an error.
+
+Erroring rather than coercing is deliberate: a `Vector2` silently dropped from a
+payload is a bug that surfaces far from its cause. Two new `ProtobufError` cases
+cover the two failure modes.
+
+Conversion recurses through nested `Dictionary` and `Array` values, and a
+failure anywhere aborts the whole conversion rather than producing a partially
+converted tree.
+
+### `Timestamp` / `Duration` ↔ `float` seconds
+
+Foundry has no dedicated time type. `Time` offers
+`get_unix_time_from_system() -> float`, `get_ticks_usec() -> int`, and
+second-resolution datetime dicts and ISO strings.
+
+Consequently **every** Foundry-native representation loses nanoseconds. A
+`float` of unix seconds is the only one carrying a sub-second component at all,
+and near 1.7×10⁹ seconds a double's mantissa yields roughly 238 ns of
+resolution.
+
+The precision loss is one-directional:
+
+- **Inbound is lossless.** `from_unix_time(float)` represents everything the
+  float held, because seconds-plus-nanos is strictly more precise than a double
+  at that magnitude.
+- **Outbound is lossy.** `to_unix_time() -> float` is where precision is lost.
+
+`seconds` and `nanos` remain plain generated fields and are the source of truth.
+These helpers are conveniences with a documented lossy direction, not the
+supported path for callers who need full precision.
+
+The surface:
+
+- `Timestamp.from_unix_time(seconds: float) -> Timestamp`
+- `Timestamp.now() -> Timestamp`, from `Time.get_unix_time_from_system()`
+- `timestamp.to_unix_time() -> float`
+- `Duration.from_seconds(seconds: float) -> Duration`
+- `duration.to_seconds() -> float`
+
+An `int`-microseconds pair was considered — exact, 1000× finer than float, and a
+match for `get_ticks_usec()`. Rejected as speculative: no reported need, and
+anyone requiring precision past a float already has `seconds` and `nanos`.
+
+### `Any` pack and typed unpack
+
+```
+var packed = Any.pack(player)
+
+var decoded = Player.new()
+if packed.unpack_into(decoded) == ProtobufError.OK:
+    ...
+```
+
+`pack` writes `type.googleapis.com/` followed by `message.type_name()` into
+`type_url`, and `message.to_bytes()` into `value`.
+
+`unpack_into(target: Message) -> ProtobufError` compares `type_url` against
+`target.type_name()` and, on a match, calls `target.merge_from_bytes(value)`. A
+mismatch returns a new `ProtobufError` case and leaves the target untouched.
+`is_type(message: Message) -> bool` answers the same question without decoding.
+
+Taking the destination as a parameter avoids `unpack[T]() -> T?`, which would
+require constructing a `T` inside a generic. That is a Foundry type-system
+question this design does not need to answer.
+
+**The prefix is not part of the identity.** The protobuf spec defines the type
+URL's meaningful portion as the substring after the *last* `/`; the prefix is
+arbitrary. Packing writes `type.googleapis.com/…`, but unpacking compares only
+the trailing name. Comparing the full string would fail to unpack anything
+produced by a peer that used a different prefix, and that failure would only
+appear against a foreign implementation — exactly where it is hardest to
+diagnose.
+
+## Error Handling
+
+New `ProtobufError` cases, appended to preserve existing wire numbers:
+
+| Case | Raised by |
+|---|---|
+| `STRUCT_KEY_NOT_STRING` | `Variant` → `Value` on a `Dictionary` with a non-`String` key |
+| `STRUCT_VALUE_UNREPRESENTABLE` | `Variant` → `Value` on a Variant type with no JSON equivalent |
+| `ANY_TYPE_MISMATCH` | `Any.unpack_into` when `type_url` names a different type |
+
+The existing runtime convention holds: errors are returned, never thrown, and
+`OK = 0`.
+
+## Testing
+
+- **Wire round-trip parity** for all seventeen hand-written types, against the
+  same fixtures the generated path uses. These files are hand-written and get no
+  protection from the generator's test suite, so they need their own.
+- **Lint and load.** Every `wkt/*.fs` file passes Foundry lint and loads in the
+  engine, through the existing `tests/foundry` harness.
+- **`Struct` conversion round-trips** across every `Value` case, including
+  nested `Dictionary` and `Array`, plus the documented `int` → `float` change.
+- **`Struct` conversion rejections** for non-string keys and for a
+  representative unsupported Variant type, asserting no partial tree is
+  produced.
+- **`Timestamp`/`Duration`** inbound-lossless and outbound-lossy behavior,
+  including negative durations and sub-second values.
+- **`Any`** pack/unpack against a matching type, a mismatched type, and a
+  `type_url` bearing a non-`type.googleapis.com` prefix.
+- **A golden example** importing `timestamp.proto`, `struct.proto`, and
+  `any.proto`, locking in that no output is generated for them and that the
+  `foundry.proto.wkt` import and references are emitted correctly.
+- **Mutual recursion.** `Struct`/`Value`/`ListValue` reference each other; a
+  deeply nested fixture confirms the hand-written files resolve.
+
+## Implementation Order
+
+Each lands independently.
+
+1. **Move all seventeen types into the runtime** and rewrite plugin references.
+   No semantics. This is the structural change everything else builds on and
+   carries the type-identity fix on its own.
+2. **Add `type_name()` to the `Message` trait.** Touches all generated output;
+   worth isolating so the golden-file churn is reviewable by itself.
+3. **`Struct`/`Value`/`ListValue` ↔ `Variant`.** The highest-payoff conversion.
+4. **`Timestamp`/`Duration` helpers.** Small.
+5. **`Any` pack and typed unpack.** Depends on step 2.
+
+## Follow-Up
+
+**File one issue: "Decide whether the generator supports proto3 canonical
+JSON."** The well-known types are defined largely by their JSON representation,
+and everything deferred here hangs off that single question — `FieldMask` paths,
+`Timestamp` as RFC-3339, `Any`'s `@type` form, `Struct` as plain JSON. A
+FieldMask-specific issue would be the same question at smaller scope and would
+close as a duplicate.
+
+That issue should note mask application by reflection as a distinct and further
+prerequisite: it needs field-name and traversal metadata the generator does not
+emit today.
+
+This design does not foreclose it. The `Value` ↔ `Variant` mapping specified
+here *is* the protobuf JSON value mapping, so `Struct` JSON support would be
+nearly free, and `Timestamp`'s seconds/nanos conversion is the harder half of
+RFC-3339 already done.
