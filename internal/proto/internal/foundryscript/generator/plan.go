@@ -186,8 +186,12 @@ func (p fieldPlan) clearedMember() string {
 // typeInfo is what the emitter needs to know about a named type it references:
 // where the declaration lives and, for an enum, what its proto default is.
 type typeInfo struct {
+	// ProtoReference is the unprefixed reference used for protobuf lexical
+	// lookup, such as `Player.Badge`.
+	ProtoReference string
 	// Reference is the fully scoped Foundry Script reference, such as
-	// `Player.Badge`, which is what a declaration outside the class must use.
+	// `GamePlayer.GameBadge`, which is what a declaration outside the class
+	// must use.
 	Reference string
 	IsEnum    bool
 	// ZeroCase is the enum's zero-valued case name; empty for a message.
@@ -236,12 +240,19 @@ func (r typeRegistry) resolve(scope, reference string) (typeInfo, bool) {
 // competing for one spelling; only the field's source file says which was
 // meant.
 type resolver struct {
-	local typeRegistry
-	// imported holds each dependency's declarations, keyed by its namespace.
+	local      typeRegistry
+	localNamer typeNamer
+	// imported holds each dependency's declarations, keyed by its source file.
 	imported map[string]typeRegistry
 	// namespaces maps a proto source filename to the namespace its types are
 	// generated into.
 	namespaces map[string]string
+	// dependencyNamers maps a proto source filename to the naming policy of the
+	// file that declares its types.
+	dependencyNamers map[string]typeNamer
+	// dependencyErrors records invalid dependency prefixes without failing the
+	// local generation unless a field actually references that dependency.
+	dependencyErrors map[string]error
 	// unnamespaced records dependencies with no usable namespace, whether they
 	// declare none at all or one that would not parse. Their types cannot be
 	// named from another file, so a reference is reported rather than emitted
@@ -249,14 +260,25 @@ type resolver struct {
 	unnamespaced map[string]bool
 }
 
-func newResolver(file *protoast.ProtoFile, imports []FileEntry) *resolver {
+func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntry, localNamer typeNamer) *resolver {
+	_ = sourceName
 	resolve := &resolver{
-		local:        typeRegistry{},
-		imported:     map[string]typeRegistry{},
-		namespaces:   map[string]string{},
-		unnamespaced: map[string]bool{},
+		local:            typeRegistry{},
+		localNamer:       localNamer,
+		imported:         map[string]typeRegistry{},
+		namespaces:       map[string]string{},
+		dependencyNamers: map[string]typeNamer{},
+		dependencyErrors: map[string]error{},
+		unnamespaced:     map[string]bool{},
 	}
 	for i := range imports {
+		namer, err := newTypeNamer(imports[i].File, imports[i].Filename)
+		if err != nil {
+			resolve.dependencyErrors[imports[i].Filename] = err
+			continue
+		}
+		resolve.dependencyNamers[imports[i].Filename] = namer
+
 		namespace := NamespaceFor(imports[i].File)
 		// A dependency's namespace is emitted as an import statement, so a
 		// malformed one is a parse error in a file the user did not write.
@@ -266,14 +288,11 @@ func newResolver(file *protoast.ProtoFile, imports []FileEntry) *resolver {
 			continue
 		}
 		resolve.namespaces[imports[i].Filename] = namespace
-		registry, seen := resolve.imported[namespace]
-		if !seen {
-			registry = typeRegistry{}
-			resolve.imported[namespace] = registry
-		}
-		registry.registerFile(imports[i].File, namespace)
+		registry := typeRegistry{}
+		registry.registerFile(imports[i].File, namespace, namer)
+		resolve.imported[imports[i].Filename] = registry
 	}
-	resolve.local.registerFile(file, "")
+	resolve.local.registerFile(file, "", localNamer)
 	return resolve
 }
 
@@ -288,34 +307,65 @@ func newResolver(file *protoast.ProtoFile, imports []FileEntry) *resolver {
 // Foundry rejects that outright rather than picking one.
 func (r *resolver) ambiguous(scope, reference string) bool {
 	head, _, _ := strings.Cut(reference, ".")
-	if _, shadowed := r.local.resolve(scope, head); shadowed {
+	if r.local.declaresInScope(scope, head) {
 		return true
 	}
 	declaring := 0
 	for _, registry := range r.imported {
-		if _, declares := registry[head]; declares {
+		for _, info := range registry {
+			if strings.Contains(info.ProtoReference, ".") || info.TopLevel != head {
+				continue
+			}
 			declaring++
 		}
 	}
 	return declaring > 1
 }
 
-func (r typeRegistry) registerFile(file *protoast.ProtoFile, namespace string) {
+func (r typeRegistry) declaresInScope(scope, emittedName string) bool {
+	for prefix := scope; ; {
+		for _, info := range r {
+			parent := ""
+			if cut := strings.LastIndex(info.ProtoReference, "."); cut >= 0 {
+				parent = info.ProtoReference[:cut]
+			}
+			emittedSegment := info.Reference
+			if cut := strings.LastIndex(emittedSegment, "."); cut >= 0 {
+				emittedSegment = emittedSegment[cut+1:]
+			}
+			if parent == prefix && emittedSegment == emittedName {
+				return true
+			}
+		}
+		if prefix == "" {
+			return false
+		}
+		if cut := strings.LastIndex(prefix, "."); cut >= 0 {
+			prefix = prefix[:cut]
+		} else {
+			prefix = ""
+		}
+	}
+}
+
+func (r typeRegistry) registerFile(file *protoast.ProtoFile, namespace string, namer typeNamer) {
 	if file == nil {
 		return
 	}
 	for _, enum := range file.Enums {
-		reference := TypeName(enum.Name)
-		r[reference] = typeInfo{
-			Reference: reference,
-			IsEnum:    true,
-			ZeroCase:  zeroValueName(enum),
-			Namespace: namespace,
-			TopLevel:  reference,
+		protoReference := TypeName(enum.Name)
+		reference := namer.Name(enum.Name)
+		r[protoReference] = typeInfo{
+			ProtoReference: protoReference,
+			Reference:      reference,
+			IsEnum:         true,
+			ZeroCase:       zeroValueName(enum),
+			Namespace:      namespace,
+			TopLevel:       reference,
 		}
 	}
 	for _, message := range file.Messages {
-		r.registerMessage(message, TypeName(message.Name), namespace)
+		r.registerMessage(message, TypeName(message.Name), namer.Name(message.Name), namespace, namer)
 	}
 }
 
@@ -323,28 +373,41 @@ func (r typeRegistry) registerFile(file *protoast.ProtoFile, namespace string) {
 // are keyed by their scoped `Outer.Inner` reference, which is the spelling the
 // parser rewrote cross-file field types to and the one proto scoping implies
 // for local ones.
-func (r typeRegistry) registerMessage(message *protoast.Message, reference, namespace string) {
+func (r typeRegistry) registerMessage(
+	message *protoast.Message,
+	protoReference, reference, namespace string,
+	namer typeNamer,
+) {
 	topLevel := reference
-	if cut := strings.Index(reference, "."); cut >= 0 {
-		topLevel = reference[:cut]
+	if cut := strings.Index(topLevel, "."); cut >= 0 {
+		topLevel = topLevel[:cut]
 	}
-	r[reference] = typeInfo{
-		Reference: reference,
-		Namespace: namespace,
-		TopLevel:  topLevel,
+	r[protoReference] = typeInfo{
+		ProtoReference: protoReference,
+		Reference:      reference,
+		Namespace:      namespace,
+		TopLevel:       topLevel,
 	}
 	for _, enum := range message.NestedEnums {
-		nested := reference + "." + TypeName(enum.Name)
-		r[nested] = typeInfo{
-			Reference: nested,
-			IsEnum:    true,
-			ZeroCase:  zeroValueName(enum),
-			Namespace: namespace,
-			TopLevel:  topLevel,
+		nestedProtoReference := protoReference + "." + TypeName(enum.Name)
+		nestedReference := reference + "." + namer.Name(enum.Name)
+		r[nestedProtoReference] = typeInfo{
+			ProtoReference: nestedProtoReference,
+			Reference:      nestedReference,
+			IsEnum:         true,
+			ZeroCase:       zeroValueName(enum),
+			Namespace:      namespace,
+			TopLevel:       topLevel,
 		}
 	}
 	for _, nested := range message.NestedMessages {
-		r.registerMessage(nested, reference+"."+TypeName(nested.Name), namespace)
+		r.registerMessage(
+			nested,
+			protoReference+"."+TypeName(nested.Name),
+			reference+"."+namer.Name(nested.Name),
+			namespace,
+			namer,
+		)
 	}
 }
 
@@ -427,8 +490,8 @@ type typeUse struct {
 // parser resolved across files is looked up in that file's namespace only;
 // anything else resolves lexically from scope outward, as proto does.
 func (r *resolver) resolve(use typeUse, scope, reference string) (typeInfo, bool) {
-	if namespace := r.namespaces[use.SourceFile]; namespace != "" {
-		if info, found := r.imported[namespace][reference]; found {
+	if use.SourceFile != "" {
+		if info, found := r.imported[use.SourceFile][reference]; found {
 			return info, true
 		}
 	}
@@ -436,6 +499,9 @@ func (r *resolver) resolve(use typeUse, scope, reference string) (typeInfo, bool
 }
 
 func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) {
+	if err := r.dependencyErrors[use.SourceFile]; err != nil {
+		return valuePlan{}, err
+	}
 	// Inside the declaring class the reference is emitted as the schema wrote
 	// it: Foundry resolves inner type names lexically, exactly as proto does.
 	// Outside it, the registry's scoped reference is what resolves.
@@ -444,25 +510,35 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 			"%s is declared in %s, which has no usable namespace: give it a package or a valid (foundrytools.namespace) option",
 			use.ProtoType, use.SourceFile)
 	}
-	reference := TypeReference(use.ProtoType)
-	info, found := r.resolve(use, scope, reference)
+	protoReference := TypeReference(use.ProtoType)
+	namer := r.localNamer
+	if use.SourceFile != "" {
+		namer = r.dependencyNamers[use.SourceFile]
+	}
+	emittedReference := namer.Reference(use.ProtoType)
+	info, found := r.resolve(use, scope, protoReference)
 	if !found {
 		// The descriptor-driven plugin path can hand over a reference whose
 		// declaration is not in the request. The parser still told us whether
 		// it is an enum and what its values are, which is everything the wire
 		// framing needs; only the scoped reference degrades to the lexical one.
+		topLevel := emittedReference
+		if cut := strings.Index(topLevel, "."); cut >= 0 {
+			topLevel = topLevel[:cut]
+		}
 		info = typeInfo{
-			Reference: reference,
-			IsEnum:    use.IsEnum,
-			ZeroCase:  zeroValueNameOf(use.EnumValues),
-			Namespace: r.namespaces[use.SourceFile],
-			TopLevel:  reference,
+			ProtoReference: protoReference,
+			Reference:      emittedReference,
+			IsEnum:         use.IsEnum,
+			ZeroCase:       zeroValueNameOf(use.EnumValues),
+			Namespace:      r.namespaces[use.SourceFile],
+			TopLevel:       topLevel,
 		}
 	}
 	// An imported type is named by the short reference the import makes
 	// available, unless something else would answer to that name too, in which
 	// case only the namespace-qualified spelling picks out the declaration.
-	lexical, qualified := reference, info.Reference
+	lexical, qualified := emittedReference, info.Reference
 	if info.Namespace != "" {
 		lexical = info.Reference
 		if r.ambiguous(scope, info.Reference) {
@@ -512,6 +588,11 @@ type oneofPlan struct {
 	Members []fieldPlan
 }
 
+type enumPlan struct {
+	Name string
+	Enum *protoast.Enum
+}
+
 // RetainingMembers are the oneof's members that keep raw enum bytes.
 func (o *oneofPlan) RetainingMembers() []fieldPlan {
 	retaining := make([]fieldPlan, 0, len(o.Members))
@@ -548,7 +629,7 @@ type messagePlan struct {
 	Scope  string
 	Fields []fieldPlan
 	Oneofs []oneofPlan
-	Enums  []*protoast.Enum
+	Enums  []enumPlan
 	Nested []messagePlan
 }
 
@@ -583,15 +664,24 @@ func (p *messagePlan) collectNamespaces(seen map[string]bool) {
 // planMessage resolves every member of a message into emitter-ready plans. The
 // field list is in field-number order so serialization is deterministic and
 // the emitted match arms read in wire order.
-func planMessage(message *protoast.Message, parentScope string, resolve *resolver) (messagePlan, error) {
-	scope := TypeName(message.Name)
-	if parentScope != "" {
-		scope = parentScope + "." + scope
+func planMessage(
+	message *protoast.Message,
+	protoParentScope, generatedParentScope string,
+	resolve *resolver,
+) (messagePlan, error) {
+	protoScope := TypeName(message.Name)
+	if protoParentScope != "" {
+		protoScope = protoParentScope + "." + protoScope
+	}
+	name := resolve.localNamer.Name(message.Name)
+	generatedScope := name
+	if generatedParentScope != "" {
+		generatedScope = generatedParentScope + "." + generatedScope
 	}
 	plans := make([]fieldPlan, 0, len(message.Fields)+len(message.Maps))
 
 	for _, field := range message.Fields {
-		plan, err := planField(field, message.Name, scope, resolve)
+		plan, err := planField(field, message.Name, protoScope, resolve)
 		if err != nil {
 			return messagePlan{}, err
 		}
@@ -603,14 +693,14 @@ func planMessage(message *protoast.Message, parentScope string, resolve *resolve
 		if err := ValidateMemberName(message.Name, "oneof", oneof.Name); err != nil {
 			return messagePlan{}, err
 		}
-		caseType := oneofTypeName(scope, oneof)
+		caseType := oneofTypeName(generatedScope, oneof)
 		members := make([]fieldPlan, 0, len(oneof.Fields))
 		for _, field := range oneof.Fields {
-			plan, err := planField(field, message.Name, scope, resolve)
+			plan, err := planField(field, message.Name, protoScope, resolve)
 			if err != nil {
 				return messagePlan{}, err
 			}
-			if err := validateOneofPayload(scope, oneof.Name, field.Name, plan.Value); err != nil {
+			if err := validateOneofPayload(generatedScope, oneof.Name, field.Name, plan.Value); err != nil {
 				return messagePlan{}, err
 			}
 			// A oneof member is only ever set through the union, so it has no
@@ -632,16 +722,24 @@ func planMessage(message *protoast.Message, parentScope string, resolve *resolve
 	}
 
 	for _, mapField := range message.Maps {
-		plan, err := planMapField(mapField, message.Name, scope, resolve)
+		plan, err := planMapField(mapField, message.Name, protoScope, resolve)
 		if err != nil {
 			return messagePlan{}, err
 		}
 		plans = append(plans, plan)
 	}
 
+	enums := make([]enumPlan, 0, len(message.NestedEnums))
+	for _, enum := range message.NestedEnums {
+		enums = append(enums, enumPlan{
+			Name: resolve.localNamer.Name(enum.Name),
+			Enum: enum,
+		})
+	}
+
 	nested := make([]messagePlan, 0, len(message.NestedMessages))
 	for _, child := range message.NestedMessages {
-		childPlan, err := planMessage(child, scope, resolve)
+		childPlan, err := planMessage(child, protoScope, generatedScope, resolve)
 		if err != nil {
 			return messagePlan{}, err
 		}
@@ -654,11 +752,11 @@ func planMessage(message *protoast.Message, parentScope string, resolve *resolve
 	}
 	return messagePlan{
 		Doc:    message.Doc,
-		Name:   TypeName(message.Name),
-		Scope:  scope,
+		Name:   name,
+		Scope:  protoScope,
 		Fields: plans,
 		Oneofs: oneofs,
-		Enums:  message.NestedEnums,
+		Enums:  enums,
 		Nested: nested,
 	}, nil
 }

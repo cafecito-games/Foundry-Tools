@@ -18,7 +18,10 @@ type FileEntry struct {
 
 // Generate renders top-level message and enum skeletons for a proto file.
 func Generate(file *protoast.ProtoFile, sourceName string, imports []FileEntry) (GeneratedFiles, error) {
-	_ = sourceName
+	localNamer, err := newTypeNamer(file, sourceName)
+	if err != nil {
+		return nil, err
+	}
 
 	namespace := NamespaceFor(file)
 	if err := ValidateNamespace(namespace); err != nil {
@@ -30,27 +33,39 @@ func Generate(file *protoast.ProtoFile, sourceName string, imports []FileEntry) 
 		return files, nil
 	}
 
-	resolve := newResolver(file, imports)
+	resolve := newResolver(file, sourceName, imports, localNamer)
 
+	enumPlans := make([]enumPlan, 0, len(file.Enums))
 	for _, enum := range file.Enums {
-		typeName := TypeName(enum.Name)
-		files[outputPath(namespace, typeName)] = renderEnum(namespace, typeName, enum)
+		enumPlans = append(enumPlans, enumPlan{
+			Name: localNamer.Name(enum.Name),
+			Enum: enum,
+		})
 	}
+	messagePlans := make([]messagePlan, 0, len(file.Messages))
 	for _, message := range file.Messages {
 		if err := validateWireFields(message); err != nil {
 			return nil, err
 		}
-		plan, err := planMessage(message, "", resolve)
+		plan, err := planMessage(message, "", "", resolve)
 		if err != nil {
 			return nil, err
 		}
-		source := renderMessage(namespace, &plan)
+		messagePlans = append(messagePlans, plan)
+	}
+
+	for i := range enumPlans {
+		files[outputPath(namespace, enumPlans[i].Name)] = renderEnum(namespace, enumPlans[i].Name, enumPlans[i].Enum)
+	}
+	for i := range messagePlans {
+		plan := &messagePlans[i]
+		source := renderMessage(namespace, plan)
 		if err := CheckPublicAPI(source); err != nil {
 			return nil, err
 		}
 		files[outputPath(namespace, plan.Name)] = source
 
-		unions := collectOneofs(&plan)
+		unions := collectOneofs(plan)
 		for i := range unions {
 			files[outputPath(namespace, unions[i].Type)] = renderOneofUnion(namespace, &unions[i])
 		}
@@ -304,7 +319,7 @@ func messageClass(plan *messagePlan, inner bool) fsast.Class {
 
 	// Nested types are declared before the members that reference them.
 	for _, nested := range plan.Enums {
-		members = append(members, enumDeclaration(TypeName(nested.Name), nested, true))
+		members = append(members, enumDeclaration(nested.Name, nested.Enum, true))
 	}
 	for i := range plan.Nested {
 		members = append(members, messageClass(&plan.Nested[i], true))
