@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package probe.collisions.v1;
+
+import "collision_dependency.proto";
+
+option (foundrytools.type_prefix) = "Game";
+
+enum String {
+  STRING_UNSPECIFIED = 0;
+  STRING_READY = 1;
+}
+
+message Node {
+  message Timer {
+    string label = 1;
+  }
+
+  Timer nested = 1;
+  probe.dependency.v1.Timer imported = 2;
+  String state = 3;
+
+  oneof payload {
+    string text = 4;
+    int32 amount = 5;
+  }
+}

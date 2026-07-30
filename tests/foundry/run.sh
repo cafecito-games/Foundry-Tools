@@ -21,11 +21,19 @@ trap cleanup EXIT
 cleanup
 mkdir -p "$OUT"
 
+(
+  cd "$ROOT"
+  FOUNDRY_BIN="$FOUNDRY" bash "$ROOT/scripts/ci/sync-foundry-engine-types.sh" check
+)
+
 "$ROOT/bin/anvil" proto generate \
   -I "$ROOT/tests/integration/fixtures/basic" \
+  -I "$PROJECT" \
   -o "$OUT" \
   "$ROOT/tests/integration/fixtures/basic/player.proto" \
-  "$ROOT/tests/integration/fixtures/basic/inventory.proto"
+  "$ROOT/tests/integration/fixtures/basic/inventory.proto" \
+  "$PROJECT/collision_dependency.proto" \
+  "$PROJECT/collisions.proto"
 
 if grep -R -n -E -e '(^|[^_])func [A-Za-z0-9_]+\(.*Variant|-> Variant' "$OUT"; then
   echo "public Variant signature found in generated Foundry Script"

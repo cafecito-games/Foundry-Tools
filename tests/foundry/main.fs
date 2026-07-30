@@ -1,6 +1,8 @@
 import cafecito.game.v1
 import cafecito.inventory.v1
 import foundry.proto
+import probe.collisions.v1
+import probe.dependency.v1
 
 extends SceneTree
 
@@ -12,6 +14,31 @@ func check(condition: bool, label: String) -> void:
 		failures += 1
 
 func _init() -> void:
+	var collision: GameNode = GameNode.new()
+	var nested_timer: GameNode.GameTimer = GameNode.GameTimer.new()
+	nested_timer.label = "nested"
+	collision.nested = nested_timer
+
+	var dependency_timer: DependencyTimer = DependencyTimer.new()
+	dependency_timer.label = "imported"
+	collision.imported = dependency_timer
+	collision.state = GameString.STRING_READY
+	collision.payload = GameNodePayloadCase.Text("safe")
+
+	var (collision_decoded, collision_error) = GameNode.from_bytes(collision.to_bytes())
+	check(collision_error == ProtobufError.OK, "prefixed collision fixture decodes")
+	check(collision_decoded is GameNode, "prefixed collision fixture has the renamed type")
+	if collision_decoded is GameNode:
+		check(collision_decoded.nested is GameNode.GameTimer, "prefixed nested type")
+		check(collision_decoded.imported is DependencyTimer, "dependency prefix")
+		check(collision_decoded.state == GameString.STRING_READY, "prefixed built-in collision")
+		match collision_decoded.payload:
+			GameNodePayloadCase.Text(var text):
+				check(text == "safe", "prefixed oneof")
+			_:
+				printerr("FAIL: prefixed oneof case did not round trip")
+				failures += 1
+
 	var player: Player = Player.new()
 	player.name = "Ava"
 	player.level = 7
