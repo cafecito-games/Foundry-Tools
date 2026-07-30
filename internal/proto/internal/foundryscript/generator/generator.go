@@ -63,7 +63,7 @@ func Generate(file *protoast.ProtoFile, sourceName string, imports []FileEntry) 
 	if err := resolve.collisions.Err(localNamer.prefix); err != nil {
 		return nil, err
 	}
-	if err := resolve.memberCollisions.Err(); err != nil {
+	if err := resolve.memberCollisions.err(); err != nil {
 		return nil, err
 	}
 

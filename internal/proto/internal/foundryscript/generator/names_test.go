@@ -130,7 +130,7 @@ func TestPlanMemberNameEscapesEngineTypes(t *testing.T) {
 			got := planMemberName(test.raw)
 			require.Equal(t, test.generated, got.Generated)
 			require.Equal(t, test.kind, got.Escape.Kind)
-			require.Equal(t, test.reason, got.Escape.Description())
+			require.Equal(t, test.reason, got.Escape.description())
 			require.Equal(t, test.generated, FieldName(test.raw))
 		})
 	}
@@ -152,7 +152,7 @@ func TestPlanMemberNameKeepsExistingEscapePolicies(t *testing.T) {
 		got := planMemberName(test.raw)
 		require.Equal(t, test.generated, got.Generated)
 		require.Equal(t, test.kind, got.Escape.Kind)
-		require.Equal(t, test.reason, got.Escape.Description())
+		require.Equal(t, test.reason, got.Escape.description())
 	}
 }
 
@@ -171,7 +171,7 @@ func TestPlanMemberNamePrefersExistingEscapePolicyOverEngineType(t *testing.T) {
 	got := planMemberName(name)
 	require.Equal(t, "var_", got.Generated)
 	require.Equal(t, memberEscapeKeyword, got.Escape.Kind)
-	require.Equal(t, "Foundry keyword", got.Escape.Description())
+	require.Equal(t, "Foundry keyword", got.Escape.description())
 }
 
 func TestPlanOneofAlternativeNameSkipsEngineTypes(t *testing.T) {

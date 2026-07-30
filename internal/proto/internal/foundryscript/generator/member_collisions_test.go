@@ -127,7 +127,7 @@ func TestGenerateCollectsNestedMessageMemberCollisions(t *testing.T) {
 
 func TestMemberCollisionCollectorIncludesGeneratedNamespaceClaims(t *testing.T) {
 	collector := newMemberCollisionCollector()
-	collector.AddMessage("members.proto", "cafecito.game.v1.Player", []fieldPlan{
+	collector.addMessage("members.proto", "cafecito.game.v1.Player", []fieldPlan{
 		{
 			Position: protoast.Position{Line: 7, Column: 3},
 			Kind:     "field",
@@ -148,7 +148,7 @@ func TestMemberCollisionCollectorIncludesGeneratedNamespaceClaims(t *testing.T) 
 		},
 	}, nil)
 
-	err := collector.Err()
+	err := collector.err()
 	require.Error(t, err)
 	diagnostic := err.Error()
 	require.Contains(t, diagnostic, "members.proto:7:3")
@@ -160,13 +160,25 @@ func TestMemberCollisionCollectorIncludesGeneratedNamespaceClaims(t *testing.T) 
 
 func TestMemberCollisionCollectorReportsPositionlessClaims(t *testing.T) {
 	collector := newMemberCollisionCollector()
-	collector.AddMessage("descriptor.proto", "cafecito.game.v1.Outer.Inner", []fieldPlan{
+	collector.addMessage("descriptor.proto", "cafecito.game.v1.Outer.Inner", []fieldPlan{
 		{Kind: "field", Name: "Node_", RawName: "Node", Escape: planMemberName("Node").Escape},
 		{Kind: "field", Name: "Node_", RawName: "Node_"},
 	}, nil)
 
-	err := collector.Err()
+	err := collector.err()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "descriptor.proto: field cafecito.game.v1.Outer.Inner.Node")
 	require.Contains(t, err.Error(), "descriptor.proto: field cafecito.game.v1.Outer.Inner.Node_")
+}
+
+func TestFieldPlanUsesSeparateRawIdentityAndLocalStem(t *testing.T) {
+	plan := fieldPlan{
+		RawName:   "kind",
+		LocalStem: "pick_kind",
+	}
+
+	require.Equal(t, "kind", plan.RawName)
+	require.Equal(t, "_pb_pick_kind", plan.Local())
+	require.Equal(t, "_pb_pick_kind_read", plan.Local("read"))
+	require.Equal(t, "_pb_pick_kind_unknown", plan.UnknownMember())
 }

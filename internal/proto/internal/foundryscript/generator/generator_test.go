@@ -1247,8 +1247,15 @@ func TestGenerateRejectsCollidingRetentionMembers(t *testing.T) {
 		}},
 	), "player.proto", nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), `Foundry member "_pb_pick_kind_unknown"`)
-	require.Contains(t, err.Error(), "retained enum companion cafecito.game.v1.Player.pick_kind")
+	diagnostic := err.Error()
+	require.Equal(t, 1, strings.Count(
+		diagnostic,
+		`retained enum companion cafecito.game.v1.Player.pick_kind generates Foundry member "_pb_pick_kind_unknown"`,
+	))
+	require.Equal(t, 1, strings.Count(
+		diagnostic,
+		`retained enum companion cafecito.game.v1.Player.kind generates Foundry member "_pb_pick_kind_unknown"`,
+	))
 }
 
 // Two imported namespaces declaring the same short name make it ambiguous even

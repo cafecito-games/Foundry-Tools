@@ -64,10 +64,12 @@ type fieldPlan struct {
 	// Name is the emitted member name, which is the proto field name unless it
 	// collided with a keyword, generated member, or engine type.
 	Name string
-	// RawName preserves protobuf wire identity for locals, fallback docs, and
-	// collision diagnostics. Oneof alternatives use their established
-	// <oneof>_<field> bookkeeping spelling.
-	RawName     string
+	// RawName is the exact protobuf field name, preserved for fallback docs and
+	// collision diagnostics.
+	RawName string
+	// LocalStem disambiguates emitter-owned locals for a oneof alternative.
+	// Ordinary fields and maps leave it empty and use RawName.
+	LocalStem   string
 	Escape      memberEscape
 	Number      int
 	Cardinality cardinality
@@ -148,7 +150,11 @@ func tagExpression(number, wireType int) string {
 
 // Local names a variable the emitter introduces for this field.
 func (p fieldPlan) Local(parts ...string) string {
-	return localName(append([]string{p.RawName}, parts...)...)
+	stem := p.LocalStem
+	if stem == "" {
+		stem = p.RawName
+	}
+	return localName(append([]string{stem}, parts...)...)
 }
 
 // RetainsUnknownEnum reports whether this field keeps the raw bytes of an
@@ -914,7 +920,7 @@ func planMessage(
 			plan.OneofCaseName = TypeName(field.Name)
 			plan.OneofCase = caseType + "." + plan.OneofCaseName
 			plan.OneofField = groupName.Generated
-			plan.RawName = oneof.Name + "_" + field.Name
+			plan.LocalStem = oneof.Name + "_" + field.Name
 			members = append(members, plan)
 			plans = append(plans, plan)
 		}
@@ -970,7 +976,7 @@ func planMessage(
 		Enums:  enums,
 		Nested: nested,
 	}
-	resolve.memberCollisions.AddMessage(resolve.sourceName, protoOwnerIdentity, plans, oneofs)
+	resolve.memberCollisions.addMessage(resolve.sourceName, protoOwnerIdentity, plans, oneofs)
 	return plan, nil
 }
 

@@ -176,7 +176,7 @@ type memberEscape struct {
 	ReservedName string
 }
 
-func (e memberEscape) Description() string {
+func (e memberEscape) description() string {
 	switch e.Kind {
 	case memberEscapeKeyword:
 		return "Foundry keyword"

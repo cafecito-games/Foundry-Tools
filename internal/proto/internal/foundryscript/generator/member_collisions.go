@@ -28,7 +28,7 @@ func newMemberCollisionCollector() *memberCollisionCollector {
 	}
 }
 
-func (c *memberCollisionCollector) AddMessage(
+func (c *memberCollisionCollector) addMessage(
 	sourceName, messageName string,
 	fields []fieldPlan,
 	oneofs []oneofPlan,
@@ -101,7 +101,7 @@ type memberCollision struct {
 	Claims        []memberClaim
 }
 
-func (c *memberCollisionCollector) Err() error {
+func (c *memberCollisionCollector) err() error {
 	if c == nil {
 		return nil
 	}
@@ -144,7 +144,7 @@ func (c *memberCollisionCollector) Err() error {
 				claim.RawName,
 				claim.GeneratedName,
 			)
-			if description := claim.Escape.Description(); description != "" {
+			if description := claim.Escape.description(); description != "" {
 				fmt.Fprintf(&diagnostic, " after escaping %s", description)
 			}
 		}
