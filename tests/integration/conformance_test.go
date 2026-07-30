@@ -32,20 +32,32 @@ func TestConformanceSchemaGenerates(t *testing.T) {
 	run(t, root, "go", args...)
 
 	// The schema's own declarations, plus the oneof union that carries a type
-	// nested in the message declaring it, and one well-known type whose value
-	// members are recursive.
+	// nested in the message declaring it.
 	for _, name := range []string{
 		"protobuf_test_messages/proto3/TestAllTypesProto3.pb.fs",
 		"protobuf_test_messages/proto3/TestAllTypesProto3OneofFieldCase.pb.fs",
 		"protobuf_test_messages/proto3/ForeignMessage.pb.fs",
 		"protobuf_test_messages/proto3/ForeignEnum.pb.fs",
-		"google/protobuf/Struct.pb.fs",
-		"google/protobuf/Value.pb.fs",
-		"google/protobuf/Any.pb.fs",
 	} {
 		_, err := os.Stat(filepath.Join(outDir, name))
 		require.NoError(t, err, "conformance schema did not produce %s", name)
 	}
+
+	// The fixture vendors its own google/protobuf copies and the invocation
+	// above names them outright, which is how a repo with a vendored tree calls
+	// the generator. They are still the well-known types, so they arrive as the
+	// runtime's single set of bindings -- including the recursive Value -- and
+	// not as a project-local second copy the runtime would not recognize.
+	for _, name := range []string{
+		"foundry/proto/wkt/Struct.pb.fs",
+		"foundry/proto/wkt/Value.pb.fs",
+		"foundry/proto/wkt/Any.pb.fs",
+	} {
+		_, err := os.Stat(filepath.Join(outDir, name))
+		require.NoError(t, err, "the runtime did not ship %s", name)
+	}
+	_, statErr := os.Stat(filepath.Join(outDir, "google"))
+	require.True(t, os.IsNotExist(statErr), "a vendored well-known file must generate no binding of its own")
 
 	suite, err := os.ReadFile(filepath.Join(outDir, "protobuf_test_messages/proto3/TestAllTypesProto3.pb.fs"))
 	require.NoError(t, err)

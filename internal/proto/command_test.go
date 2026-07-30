@@ -89,3 +89,37 @@ func TestGenerateSkipsWellKnownFiles(t *testing.T) {
 	_, err = os.Stat(filepath.Join(outDir, "foundry", "proto", "wire.fs"))
 	require.NoError(t, err)
 }
+
+// A repo that vendors the well-known protos names them by an absolute or
+// vendor-prefixed path, which is the same schema as the bare import spelling.
+// Generating a project-local binding for it would hand the project a second,
+// incompatible Timestamp alongside the runtime's.
+func TestGenerateSkipsWellKnownFilesNamedByVendoredPath(t *testing.T) {
+	root := t.TempDir()
+	name := "google/protobuf/timestamp.proto"
+	vendoredPath := filepath.Join(root, "vendor", filepath.FromSlash(name))
+	require.NoError(t, os.MkdirAll(filepath.Dir(vendoredPath), 0o755))
+	source, err := wellknown.Source(name)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(vendoredPath, source, 0o600))
+	require.True(t, filepath.IsAbs(vendoredPath))
+
+	outDir := t.TempDir()
+	var stdout bytes.Buffer
+	cmd := NewCommand(&stdout)
+	cmd.SetArgs([]string{"generate", "-o", outDir, "-I", filepath.Join(root, "vendor"), vendoredPath})
+
+	require.NoError(t, cmd.Execute())
+	require.Contains(t, stdout.String(), "generated Foundry Script for 0 proto file(s)")
+
+	entries, err := os.ReadDir(outDir)
+	require.NoError(t, err)
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	require.Equal(t, []string{"foundry"}, names, "the runtime is the only thing a vendored well-known file may produce")
+
+	_, err = os.Stat(filepath.Join(outDir, "foundry", "proto", "wkt", "Timestamp.pb.fs"))
+	require.NoError(t, err)
+}

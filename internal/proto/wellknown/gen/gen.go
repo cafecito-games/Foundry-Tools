@@ -50,12 +50,18 @@ func Generate() (map[string]string, error) {
 		sourceNames[path] = name
 	}
 
-	// Parsing goes through the staging paths deliberately. Both the parser and
-	// the generator skip or reject a file whose name is a google/protobuf one,
-	// and wellknown.Check and wellknown.IsWellKnown match that bare spelling
-	// only, so an absolute staging path slips past them and these files can be
-	// generated at all. Matching on anything looser -- a suffix, say -- would
-	// make this call skip the very files it exists to render.
+	// Staging exists only so the parser has bytes to read; it is not a way to
+	// disguise these files. wellknown.IsWellKnown classifies by import-path
+	// suffix, so the staged copies are recognized as well-known exactly like the
+	// bare spelling would be, and sourceNames maps each one back to that
+	// spelling for the generation below.
+	//
+	// What lets this package render files every other caller skips is that it
+	// does not route through a caller that skips them: the well-known check
+	// belongs to the `anvil proto generate` command and the protoc plugin, and
+	// this calls proto.Validate and proto.Generate directly instead. Adding a
+	// classification check to those two would silently empty this output, which
+	// is why TestWellKnownBindingsAreUpToDate regenerates and compares.
 	parsedFiles, err := proto.ParseFiles(paths, []string{root})
 	if err != nil {
 		return nil, err

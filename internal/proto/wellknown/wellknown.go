@@ -32,8 +32,15 @@ var supported = map[string]bool{
 
 // IsWellKnown reports whether filename names a well-known file the runtime
 // ships bindings for.
+//
+// Classification is by import-path suffix, which is how protoc thinks of a
+// file: what identifies it is its path relative to an include root, not where
+// the copy happens to sit on disk. A vendored or absolute path such as
+// vendor/google/protobuf/timestamp.proto is the same schema as the bare import
+// spelling, so generating a project-local binding for it would produce exactly
+// the second, incompatible Timestamp this package exists to prevent.
 func IsWellKnown(filename string) bool {
-	return supported[normalize(filename)]
+	return supported[importPath(filename)]
 }
 
 // Check rejects a google/protobuf file the runtime does not ship. Falling back
@@ -41,8 +48,8 @@ func IsWellKnown(filename string) bool {
 // type the runtime already defines, so an unshipped file is an error rather
 // than a quiet divergence.
 func Check(filename string) error {
-	name := normalize(filename)
-	if !strings.HasPrefix(name, protoPrefix) || supported[name] {
+	name := importPath(filename)
+	if name == "" || supported[name] {
 		return nil
 	}
 	return fmt.Errorf(
@@ -63,11 +70,26 @@ func Files() []string {
 
 // Source returns the vendored text of a supported well-known file.
 func Source(filename string) ([]byte, error) {
-	name := normalize(filename)
+	name := importPath(filename)
 	if !supported[name] {
-		return nil, fmt.Errorf("%s is not a vendored well-known file", name)
+		return nil, fmt.Errorf("%s is not a vendored well-known file", normalize(filename))
 	}
 	return protoFS.ReadFile(path.Join("proto", name))
+}
+
+// importPath reduces filename to the google/protobuf import path it carries, or
+// returns the empty string when it carries none. Both a bare import spelling
+// and a path that merely contains the directory -- a vendored tree, an absolute
+// path -- name the same file to protoc, so both reduce to the same key.
+func importPath(filename string) string {
+	name := normalize(filename)
+	if strings.HasPrefix(name, protoPrefix) {
+		return name
+	}
+	if index := strings.LastIndex(name, "/"+protoPrefix); index >= 0 {
+		return name[index+1:]
+	}
+	return ""
 }
 
 func normalize(filename string) string {
