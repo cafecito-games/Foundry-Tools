@@ -10,6 +10,32 @@
 
 ---
 
+## Status: Reduced Scope After Task 0
+
+**Task 0 rejected the mechanism.** The spike found two gaps in the pinned engine:
+
+- **cafecito-games/Foundry#1376** — `extend`-supplied `static` witnesses are not found by `Type.method()`. This kills every static constructor the design needs: `Timestamp.now()`, `Any.pack()`, `Struct.from_dictionary()`, `Value.from_variant()`, `ListValue.from_array()`.
+- **cafecito-games/Foundry#1377** — a conformance is invisible through a namespace `import`; consumers need an explicit `preload()`. A direct witness call passes the analyzer without it and crashes at runtime. Generated code is wired by namespace import, so this is load-bearing.
+
+Instance witnesses and tuple returns do work. But an API whose constructors are all static cannot be built on instance methods alone.
+
+**In scope now** — the structural half, which depends on none of this:
+
+| Plan task | Status |
+|---|---|
+| Task 0 | Done — mechanism rejected, nothing committed |
+| Task 2 | **In scope** — vendor and generate the bindings |
+| Task 3 | **In scope** — reference routing |
+| Task 7 | **In scope, reduced** — document the move, not the conversions |
+
+**Deferred to [#43](https://github.com/cafecito-games/Foundry-Tools/issues/43):** Tasks 1, 4, 5, and 6 — `Message.type_name()`, `Struct` ↔ `Variant`, `Timestamp`/`Duration`, and `Any`. Their task text below is retained as-is, since the design is settled and only the delivery mechanism is open.
+
+`type_name()` (Task 1) goes with them because `Any.pack` is its only consumer. It is a breaking change to the `Message` trait that regenerates every golden file, so it should land with the work that uses it rather than sitting unused. **Task 2 therefore generates bindings without `type_name()`**; they regenerate via `task gen-wkt` when #43 lands.
+
+The sections below are the plan as written before Task 0 ran, retained unchanged.
+
+---
+
 ## Deviation From The Spec
 
 The approved spec (`docs/superpowers/specs/2026-07-30-well-known-type-semantics-design.md`) says the well-known types are **hand-written** `.fs`, and flags the resulting drift risk: "they must be indistinguishable in shape from generator output … where this design and the generator's conventions disagree, the generator's conventions win."
