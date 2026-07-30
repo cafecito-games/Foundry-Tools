@@ -75,6 +75,9 @@ func run(args []string) error {
 	if err := os.WriteFile(outputPath, source, 0o644); err != nil { //nolint:gosec // Generated Go source should be project-readable.
 		return fmt.Errorf("write generated source %q: %w", outputPath, err)
 	}
+	if err := os.Chmod(outputPath, 0o644); err != nil { //nolint:gosec // Generated Go source should be project-readable.
+		return fmt.Errorf("set generated source permissions %q: %w", outputPath, err)
+	}
 
 	return nil
 }
@@ -108,6 +111,13 @@ func decodeAPI(reader io.Reader) (reservedTypes, error) {
 			return reservedTypes{}, errors.New("extension API contains multiple JSON values")
 		}
 		return reservedTypes{}, fmt.Errorf("decode trailing JSON: %w", err)
+	}
+
+	if api.BuiltinClasses == nil {
+		return reservedTypes{}, errors.New("extension API builtin_classes is missing or null")
+	}
+	if api.Classes == nil {
+		return reservedTypes{}, errors.New("extension API classes is missing or null")
 	}
 
 	builtins := make([]string, 0, len(api.BuiltinClasses)+1)

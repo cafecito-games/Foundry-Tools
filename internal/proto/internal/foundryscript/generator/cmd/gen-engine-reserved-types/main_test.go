@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -74,13 +76,23 @@ func TestLoadReservedTypesRejectsDuplicatesAndMissingNames(t *testing.T) {
 	}{
 		{
 			name:      "duplicate built-in",
-			api:       `{"builtin_classes":[{"name":"String"},{"name":"String"}]}`,
+			api:       `{"builtin_classes":[{"name":"String"},{"name":"String"}],"classes":[]}`,
 			wantError: `duplicate built-in type "String"`,
 		},
 		{
+			name:      "empty built-in",
+			api:       `{"builtin_classes":[{"name":""}],"classes":[]}`,
+			wantError: "built-in type has an empty name",
+		},
+		{
 			name:      "empty native class",
-			api:       `{"classes":[{"name":""}]}`,
+			api:       `{"builtin_classes":[],"classes":[{"name":""}]}`,
 			wantError: "native class has an empty name",
+		},
+		{
+			name:      "duplicate native class",
+			api:       `{"builtin_classes":[],"classes":[{"name":"Node"},{"name":"Node"}]}`,
+			wantError: `duplicate native class "Node"`,
 		},
 		{
 			name:      "cross-category duplicate",
@@ -89,7 +101,7 @@ func TestLoadReservedTypesRejectsDuplicatesAndMissingNames(t *testing.T) {
 		},
 		{
 			name:      "manual built-in conflicts with native class",
-			api:       `{"classes":[{"name":"AsyncCallable"}]}`,
+			api:       `{"builtin_classes":[],"classes":[{"name":"AsyncCallable"}]}`,
 			wantError: `type "AsyncCallable" appears in both categories`,
 		},
 	}
@@ -105,4 +117,172 @@ func TestLoadReservedTypesRejectsDuplicatesAndMissingNames(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDecodeAPIRequiresTypeSections(t *testing.T) {
+	tests := []struct {
+		name      string
+		api       string
+		wantError string
+	}{
+		{
+			name:      "null document",
+			api:       `null`,
+			wantError: "builtin_classes is missing or null",
+		},
+		{
+			name:      "empty object",
+			api:       `{}`,
+			wantError: "builtin_classes is missing or null",
+		},
+		{
+			name:      "schema drift",
+			api:       `{"builtins":[],"native_classes":[]}`,
+			wantError: "builtin_classes is missing or null",
+		},
+		{
+			name:      "missing built-ins",
+			api:       `{"classes":[]}`,
+			wantError: "builtin_classes is missing or null",
+		},
+		{
+			name:      "null built-ins",
+			api:       `{"builtin_classes":null,"classes":[]}`,
+			wantError: "builtin_classes is missing or null",
+		},
+		{
+			name:      "missing native classes",
+			api:       `{"builtin_classes":[]}`,
+			wantError: "classes is missing or null",
+		},
+		{
+			name:      "null native classes",
+			api:       `{"builtin_classes":[],"classes":null}`,
+			wantError: "classes is missing or null",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := decodeAPI(strings.NewReader(test.api))
+			if err == nil {
+				t.Fatal("decodeAPI() error = nil, want an error")
+			}
+			if !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("decodeAPI() error = %q, want substring %q", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestDecodeAPIAcceptsEmptyTypeSections(t *testing.T) {
+	got, err := decodeAPI(strings.NewReader(`{"builtin_classes":[],"classes":[]}`))
+	if err != nil {
+		t.Fatalf("decodeAPI() error = %v", err)
+	}
+
+	want := reservedTypes{Builtins: []string{"AsyncCallable"}, NativeClasses: []string{}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("decodeAPI() = %#v, want %#v", got, want)
+	}
+}
+
+func TestRunRequiresFlags(t *testing.T) {
+	dir := t.TempDir()
+	apiPath := filepath.Join(dir, "extension_api.json")
+	tests := []struct {
+		name      string
+		args      []string
+		wantError string
+	}{
+		{
+			name:      "api",
+			wantError: "--api is required",
+		},
+		{
+			name:      "version",
+			args:      []string{"--api", apiPath},
+			wantError: "--version is required",
+		},
+		{
+			name:      "output",
+			args:      []string{"--api", apiPath, "--version", "test-version"},
+			wantError: "--output is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := run(test.args)
+			if err == nil {
+				t.Fatal("run() error = nil, want an error")
+			}
+			if !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("run() error = %q, want substring %q", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestRunWritesVersionedOutput(t *testing.T) {
+	dir := t.TempDir()
+	apiPath := writeTestAPI(t, dir)
+	outputPath := filepath.Join(dir, "engine_reserved_types.gen.go")
+
+	err := run([]string{
+		"--api", apiPath,
+		"--version", "0.1.test-version",
+		"--output", outputPath,
+	})
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	source, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read generated output: %v", err)
+	}
+	if !bytes.Contains(source, []byte(`const foundryEngineTypeSourceVersion = "0.1.test-version"`)) {
+		t.Fatalf("generated output did not record --version:\n%s", source)
+	}
+	if !bytes.Contains(source, []byte(`"String":`)) || !bytes.Contains(source, []byte(`"Node":`)) {
+		t.Fatalf("generated output did not contain API types:\n%s", source)
+	}
+}
+
+func TestRunNormalizesExistingOutputPermissions(t *testing.T) {
+	dir := t.TempDir()
+	apiPath := writeTestAPI(t, dir)
+	outputPath := filepath.Join(dir, "engine_reserved_types.gen.go")
+	if err := os.WriteFile(outputPath, []byte("stale"), 0o600); err != nil {
+		t.Fatalf("write existing output: %v", err)
+	}
+
+	err := run([]string{
+		"--api", apiPath,
+		"--version", "0.1.test-version",
+		"--output", outputPath,
+	})
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	info, err := os.Stat(outputPath)
+	if err != nil {
+		t.Fatalf("stat generated output: %v", err)
+	}
+	if got, want := info.Mode().Perm(), os.FileMode(0o644); got != want {
+		t.Fatalf("generated output permissions = %04o, want %04o", got, want)
+	}
+}
+
+func writeTestAPI(t *testing.T, dir string) string {
+	t.Helper()
+
+	path := filepath.Join(dir, "extension_api.json")
+	api := []byte(`{"builtin_classes":[{"name":"String"}],"classes":[{"name":"Node"}]}`)
+	if err := os.WriteFile(path, api, 0o644); err != nil {
+		t.Fatalf("write extension API: %v", err)
+	}
+	return path
 }
