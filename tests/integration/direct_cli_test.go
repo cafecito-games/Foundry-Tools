@@ -115,6 +115,12 @@ func TestDirectCLIEscapesFoundryMemberCollisions(t *testing.T) {
 		"-o", outDir,
 		"tests/integration/fixtures/member_collisions/fields.proto")
 
+	requireMemberProbeEscapes(t, outDir)
+}
+
+func requireMemberProbeEscapes(t *testing.T, outDir string) {
+	t.Helper()
+
 	message, err := os.ReadFile(filepath.Join(outDir, "probe/members/v1/MemberProbe.pb.fs"))
 	require.NoError(t, err)
 	for _, declaration := range []string{
@@ -151,6 +157,7 @@ func TestDirectCLIMemberCollisionFailureIsAtomic(t *testing.T) {
 	require.Contains(t, output, `Foundry member "Node_"`)
 	require.Contains(t, output, `native class "Node"`)
 
-	require.NoFileExists(t, filepath.Join(outDir, "probe/members/v1/MemberProbe.pb.fs"))
-	require.NoDirExists(t, filepath.Join(outDir, "foundry/proto"))
+	entries, err := os.ReadDir(outDir)
+	require.NoError(t, err)
+	require.Empty(t, entries)
 }

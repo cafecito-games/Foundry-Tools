@@ -13,10 +13,10 @@ import (
 func TestProtocPluginGeneratesFoundryScript(t *testing.T) {
 	root := repoRoot(t)
 	outDir := t.TempDir()
+	pluginPath := buildProtocPlugin(t, root)
 
-	run(t, root, "go", "build", "-o", "bin/protoc-gen-foundryscript", "./cmd/protoc-gen-foundryscript")
 	run(t, root, "protoc",
-		"--plugin=protoc-gen-foundryscript="+filepath.Join(root, "bin/protoc-gen-foundryscript"),
+		"--plugin=protoc-gen-foundryscript="+pluginPath,
 		"--foundryscript_out="+outDir,
 		"-I", "tests/integration/fixtures/basic",
 		"tests/integration/fixtures/basic/player.proto",
@@ -36,30 +36,22 @@ func TestProtocPluginGeneratesFoundryScript(t *testing.T) {
 func TestProtocPluginEscapesFoundryMemberCollisions(t *testing.T) {
 	root := repoRoot(t)
 	outDir := t.TempDir()
+	pluginPath := buildProtocPlugin(t, root)
 
-	run(t, root, "go", "build", "-o", "bin/protoc-gen-foundryscript", "./cmd/protoc-gen-foundryscript")
 	run(t, root, "protoc",
-		"--plugin=protoc-gen-foundryscript="+filepath.Join(root, "bin/protoc-gen-foundryscript"),
+		"--plugin=protoc-gen-foundryscript="+pluginPath,
 		"--foundryscript_out="+outDir,
 		"-I", "tests/integration/fixtures/member_collisions",
 		"tests/integration/fixtures/member_collisions/fields.proto",
 	)
 
-	message, err := os.ReadFile(filepath.Join(outDir, "probe/members/v1/MemberProbe.pb.fs"))
-	require.NoError(t, err)
-	for _, declaration := range []string{
-		`var Node_: String = ""`,
-		"var String_: String? = null",
-		"var Timer_: Array[String] = []",
-		"var Resource_: Dictionary[String, int] = {}",
-		"var Object_: MemberProbeObjectCase? = null",
-	} {
-		require.Contains(t, string(message), declaration)
-	}
-	require.Contains(t, string(message), "Object_ = MemberProbeObjectCase.Image(")
+	requireMemberProbeEscapes(t, outDir)
+}
 
-	oneof, err := os.ReadFile(filepath.Join(outDir, "probe/members/v1/MemberProbeObjectCase.pb.fs"))
-	require.NoError(t, err)
-	require.Contains(t, string(oneof), "\tImage(Image: String)")
-	require.NotContains(t, string(oneof), "Image_")
+func buildProtocPlugin(t *testing.T, root string) string {
+	t.Helper()
+
+	pluginPath := filepath.Join(t.TempDir(), "protoc-gen-foundryscript")
+	run(t, root, "go", "build", "-o", pluginPath, "./cmd/protoc-gen-foundryscript")
+	return pluginPath
 }
