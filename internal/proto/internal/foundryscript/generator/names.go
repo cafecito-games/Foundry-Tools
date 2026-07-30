@@ -261,8 +261,8 @@ func planOneofAlternativeName(name string) plannedMemberName {
 }
 
 // FieldName converts a proto field name to the member name it is emitted as.
-// Proto field names are otherwise passed through unchanged: they are the
-// binding's public API, and mangling them would break every caller.
+// Foundry keywords, generator-owned members, and engine type names receive
+// exactly one trailing underscore; all other names pass through unchanged.
 func FieldName(name string) string {
 	return planMemberName(name).Generated
 }
