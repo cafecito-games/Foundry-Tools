@@ -24,6 +24,11 @@ func _init() -> void:
 	collision.imported = dependency_timer
 	collision.state = GameString.STRING_READY
 	collision.payload = GameNodePayloadCase.Text("safe")
+	collision.Node_ = "native node"
+	collision.String_ = "built-in string"
+	collision.Timer_ = ["first", "second"]
+	collision.Resource_ = {"ore": 7}
+	collision.Object_ = GameNodeObjectCase.Image("image case")
 
 	var (collision_decoded, collision_error) = GameNode.from_bytes(collision.to_bytes())
 	check(collision_error == ProtobufError.OK, "prefixed collision fixture decodes")
@@ -32,11 +37,21 @@ func _init() -> void:
 		check(collision_decoded.nested is GameNode.GameTimer, "prefixed nested type")
 		check(collision_decoded.imported is DependencyTimer, "dependency prefix")
 		check(collision_decoded.state == GameString.STRING_READY, "prefixed built-in collision")
+		check(collision_decoded.Node_ == "native node", "native class member collision")
+		check(collision_decoded.String_ == "built-in string", "built-in type member collision")
+		check(collision_decoded.Timer_ == ["first", "second"], "repeated native class member collision")
+		check(collision_decoded.Resource_ == {"ore": 7}, "map native class member collision")
 		match collision_decoded.payload:
 			GameNodePayloadCase.Text(var text):
 				check(text == "safe", "prefixed oneof")
 			_:
 				printerr("FAIL: prefixed oneof case did not round trip")
+				failures += 1
+		match collision_decoded.Object_:
+			GameNodeObjectCase.Image(var image):
+				check(image == "image case", "oneof native class member collision")
+			_:
+				printerr("FAIL: escaped oneof case did not round trip")
 				failures += 1
 
 	var player: Player = Player.new()
