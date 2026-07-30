@@ -74,9 +74,14 @@ type fieldPlan struct {
 	Cardinality cardinality
 	Value       valuePlan
 	Key         valuePlan
-	// Packed marks a repeated field that proto3 encodes as a single
-	// length-delimited run of varints.
+	// Packed marks a repeated field this schema asks to be written as a single
+	// length-delimited run. It follows the value's type unless the field
+	// carries an explicit `[packed = ...]`, and it governs the encoder only.
 	Packed bool
+	// Packable marks a repeated field whose value type has a packed form at
+	// all. The decoder works from this rather than from Packed: protobuf
+	// requires both encodings to be accepted whatever the schema declared.
+	Packable bool
 	// OneofCase is the qualified tagged-union case this field is constructed
 	// through when it is a oneof member; empty otherwise.
 	OneofCase string
@@ -1069,13 +1074,37 @@ func planField(field *protoast.Field, messageName, scope string, resolve *resolv
 	switch {
 	case field.Repeated:
 		plan.Cardinality = cardinalityRepeated
-		plan.Packed = value.isPackable()
+		plan.Packable = value.isPackable()
+		plan.Packed, err = packingFor(field, value)
+		if err != nil {
+			return fieldPlan{}, fmt.Errorf("field %s.%s: %w", messageName, field.Name, err)
+		}
 	case field.Optional:
 		plan.Cardinality = cardinalityOptional
 	default:
 		plan.Cardinality = cardinalitySingular
 	}
 	return plan, nil
+}
+
+// packingFor decides how a repeated field is written. proto3 packs every
+// numeric and enum value by default, and `[packed = ...]` overrides that
+// choice for the encoder only — a decoder keeps accepting both encodings.
+// `[packed = true]` on a value that has no packed form is rejected rather
+// than quietly ignored, matching protoc.
+func packingFor(field *protoast.Field, value valuePlan) (bool, error) {
+	packable := value.isPackable()
+	requested, declared := field.Options["packed"].(bool)
+	if !declared {
+		return packable, nil
+	}
+	if requested && !packable {
+		return false, fmt.Errorf(
+			"[packed = true] is only valid on a repeated numeric or enum field, not %s",
+			field.FieldType,
+		)
+	}
+	return requested, nil
 }
 
 func planMapField(mapField *protoast.MapField, messageName, scope string, resolve *resolver) (fieldPlan, error) {

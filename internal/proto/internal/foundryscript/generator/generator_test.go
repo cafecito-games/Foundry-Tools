@@ -809,6 +809,100 @@ func TestGeneratePackedRunRejectsElementsCrossingItsEnd(t *testing.T) {
 	}
 }
 
+// `[packed = false]` asks for one tagged record per element, and the encoder
+// has to honour it: a schema author who writes it is usually encoding for a
+// peer that reads no other form.
+func TestGeneratePackedOptionGovernsTheEncoding(t *testing.T) {
+	source := playerSource(t, []*protoast.Field{
+		{FieldType: "int32", Name: "packed_int32", Number: 1, Repeated: true, Options: map[string]any{"packed": true}},
+		{FieldType: "int32", Name: "unpacked_int32", Number: 2, Repeated: true, Options: map[string]any{"packed": false}},
+		{FieldType: "int32", Name: "default_int32", Number: 3, Repeated: true},
+	})
+
+	require.Contains(t, source, "var _pb_packed_int32_data: PackedByteArray = PackedByteArray()")
+	require.Contains(t, source, "Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)")
+	require.Contains(t, source, "var _pb_default_int32_data: PackedByteArray = PackedByteArray()")
+	require.Contains(t, source, "Wire.make_tag(3, Wire.WIRE_LENGTH_DELIMITED)")
+
+	// The unpacked field writes each element under its own varint tag, with no
+	// run buffer to collect them into.
+	require.Contains(t, source, "for _pb_unpacked_int32_item: int in unpacked_int32:")
+	require.Contains(t, source, "Wire.make_tag(2, Wire.WIRE_VARINT)")
+	require.NotContains(t, source, "var _pb_unpacked_int32_data: PackedByteArray = PackedByteArray()")
+	require.NotContains(t, source, "Wire.make_tag(2, Wire.WIRE_LENGTH_DELIMITED)")
+}
+
+// The option binds the encoder alone. A decoder must take either encoding for
+// any packable repeated field, so `[packed = false]` keeps the permissive read.
+func TestGeneratePackedOptionLeavesDecodingPermissive(t *testing.T) {
+	source := playerSource(t, []*protoast.Field{
+		{FieldType: "int32", Name: "unpacked_int32", Number: 1, Repeated: true, Options: map[string]any{"packed": false}},
+	})
+
+	require.Contains(t, source, "if _pb_wire_type == Wire.WIRE_LENGTH_DELIMITED:")
+	require.Contains(t, source, "if _pb_unpacked_int32_packed.offset > _pb_unpacked_int32_end:")
+	require.Contains(t, source, "elif _pb_wire_type == Wire.WIRE_VARINT:")
+}
+
+// A length-delimited element has no packed form, so `[packed = true]` on one
+// is a schema error rather than something to silently drop.
+func TestGeneratePackedTrueOnUnpackableFieldIsRejected(t *testing.T) {
+	for _, fieldType := range []string{"string", "bytes", "Slot"} {
+		t.Run(fieldType, func(t *testing.T) {
+			_, err := Generate(namespacedFile([]*protoast.Message{
+				{Name: "Player", Fields: []*protoast.Field{{
+					FieldType: fieldType,
+					Name:      "values",
+					Number:    1,
+					Repeated:  true,
+					Options:   map[string]any{"packed": true},
+				}}},
+				slotMessage(),
+			}, nil), "player.proto", nil)
+
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "field Player.values")
+			require.Contains(t, err.Error(), "[packed = true] is only valid on a repeated numeric or enum field")
+		})
+	}
+}
+
+// `[packed = false]` on a length-delimited element only restates what the wire
+// format already requires, so it is accepted and changes nothing.
+func TestGeneratePackedFalseOnUnpackableFieldIsAccepted(t *testing.T) {
+	source := playerSource(t, []*protoast.Field{
+		{FieldType: "string", Name: "tags", Number: 1, Repeated: true, Options: map[string]any{"packed": false}},
+	})
+
+	require.Contains(t, source, "for _pb_tags_item: String in tags:")
+	require.Contains(t, source, "Wire.make_tag(1, Wire.WIRE_LENGTH_DELIMITED)")
+	require.NotContains(t, source, "var _pb_tags_data: PackedByteArray = PackedByteArray()")
+}
+
+// A repeated enum packs like the varint it is, and takes the option the same way.
+func TestGeneratePackedOptionOnRepeatedEnum(t *testing.T) {
+	status := &protoast.Enum{
+		Name: "Status",
+		Values: []*protoast.EnumValue{
+			{Name: "STATUS_UNSPECIFIED", Number: 0},
+			{Name: "STATUS_READY", Number: 1},
+		},
+	}
+	files := generate(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "Status", Name: "history", Number: 1, Repeated: true, IsEnum: true, Options: map[string]any{"packed": false}},
+		},
+	}}, []*protoast.Enum{status}))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "for _pb_history_item: Status in history:")
+	require.Contains(t, source, "Wire.make_tag(1, Wire.WIRE_VARINT)")
+	require.NotContains(t, source, "var _pb_history_data: PackedByteArray = PackedByteArray()")
+	// Decoding still takes the packed run.
+	require.Contains(t, source, "if _pb_history_packed.offset > _pb_history_end:")
+}
+
 // proto3 omits an implicit-presence field holding the default, and for a float
 // the default is +0.0 specifically. -0.0 is a distinct value that protobuf puts
 // on the wire, and `!= 0.0` reports the two as equal, so a float cannot use the

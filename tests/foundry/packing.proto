@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package probe.packing.v1;
+
+// Exercises `[packed = ...]`, which binds the encoder alone. A repeated
+// numeric field the schema marks unpacked has to go on the wire as one tagged
+// record per element, while every one of these fields must still decode both
+// forms.
+message PackingSuite {
+  repeated int32 packed_int32 = 1 [packed = true];
+  repeated int32 unpacked_int32 = 2 [packed = false];
+  repeated int32 default_int32 = 3;
+}
