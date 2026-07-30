@@ -902,24 +902,33 @@ func TestOneofPayloadUsesScopedReference(t *testing.T) {
 	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var _pb_payload_detail_message: Slot.Detail = Slot.Detail.new()")
 }
 
-// The hoisted union cannot name a type nested in the class that owns the oneof:
-// the class needs the union to declare its member and the union needs the class
-// to reach the nested type, and Foundry cannot break that cycle for a class that
-// conforms to a trait. Failing loudly beats emitting a file that will not parse.
-func TestOneofRejectsPayloadNestedInDeclaringMessage(t *testing.T) {
-	_, err := Generate(namespacedFile([]*protoast.Message{{
+// A payload nested in the very message that declares the oneof is ordinary
+// protobuf. The union is hoisted to file level, so it names the payload by its
+// scoped reference through the declaring class.
+func TestOneofCarriesPayloadNestedInDeclaringMessage(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{{
 		Name: "Player",
 		NestedMessages: []*protoast.Message{{
 			Name:   "Badge",
 			Fields: []*protoast.Field{{FieldType: "string", Name: "code", Number: 1}},
 		}},
-		Oneofs: []*protoast.Oneof{{
-			Name:   "payload",
-			Fields: []*protoast.Field{{FieldType: "Badge", Name: "badge", Number: 1}},
+		NestedEnums: []*protoast.Enum{{
+			Name:   "Tier",
+			Values: []*protoast.EnumValue{{Name: "TIER_UNSPECIFIED", Number: 0}},
 		}},
-	}}, nil), "player.proto", nil)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "cannot carry a type nested in the message that declares it")
+		Oneofs: []*protoast.Oneof{{
+			Name: "payload",
+			Fields: []*protoast.Field{
+				{FieldType: "Badge", Name: "badge", Number: 1},
+				{FieldType: "Tier", Name: "tier", Number: 2},
+			},
+		}},
+	}}, nil))
+
+	require.Contains(t, files["cafecito/game/v1/PlayerPayloadCase.pb.fs"], "\tBadge(badge: Player.Badge)\n")
+	require.Contains(t, files["cafecito/game/v1/PlayerPayloadCase.pb.fs"], "\tTier(tier: Player.Tier)\n")
+	// Inside the class the lexical spelling is still what Foundry resolves.
+	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var _pb_payload_badge_message: Badge = Badge.new()")
 }
 
 // A oneof may still carry the top-level message it is declared in; only a type

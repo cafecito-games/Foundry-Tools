@@ -42,11 +42,6 @@ it in the unknown-field buffer would reorder the sequence or flip which record
 wins for a duplicate map key — so an unrecognized value there takes the enum's
 default instead.
 
-A `oneof` cannot carry a type nested inside the message that declares it: the
-union is emitted at file level, so that would close a resolution cycle Foundry
-cannot break for a class that conforms to a trait. Generation fails with an
-explicit error rather than emitting a file that will not parse.
-
 `float`, `double`, `fixed*`, `sfixed*`, and `sint*` need zig-zag or
 fixed-width framing that is not implemented yet; generation fails on them
 rather than emitting varints that would be silently wrong.
