@@ -30,6 +30,7 @@ Supported protobuf constructs and how they map:
 | `oneof` | file-level tagged union, `X? = null` member |
 | nested `message` / `enum` | inner `final class` / `enum`, referenced as `Outer.Inner` |
 | imported type | reference plus an `import` of the dependency's namespace |
+| `google.protobuf.*` | `foundry.proto.wkt.X` from the runtime, never generated |
 | unknown field | kept verbatim in `_unknown_fields` and re-emitted |
 
 proto3 enums are open, so `from_wire` returns `null` for a number the schema
@@ -42,9 +43,40 @@ it in the unknown-field buffer would reorder the sequence or flip which record
 wins for a duplicate map key — so an unrecognized value there takes the enum's
 default instead.
 
-`float`, `double`, `fixed*`, `sfixed*`, and `sint*` need zig-zag or
-fixed-width framing that is not implemented yet; generation fails on them
-rather than emitting varints that would be silently wrong.
+## Well-known types
+
+The `google/protobuf` well-known types ship as Foundry Script in the runtime
+under `foundry.proto.wkt` rather than being generated per project. Generating
+them per project would give every project its own incompatible `Timestamp`, so
+a library and its consumer could not exchange one.
+
+Importing `google/protobuf/timestamp.proto` therefore produces no output of its
+own; the referencing file gets `import foundry.proto.wkt` and refers to
+`Timestamp` directly. The seven supported files are `any`, `duration`, `empty`,
+`field_mask`, `struct`, `timestamp`, and `wrappers`. Any other
+`google/protobuf` file is rejected with a diagnostic rather than generated,
+which would otherwise produce a second copy of a type the runtime already
+defines.
+
+A schema may still declare its own `Timestamp`. The import is emitted only for
+a file that references a well-known type, and a local declaration shadows the
+imported one, so nothing is renamed.
+
+These are plain message bindings today: they round-trip correctly on the wire,
+but carry none of the semantics the types imply. `Struct` will not convert to a
+`Dictionary`, `Timestamp` will not convert to seconds, and `Any` will not pack
+or unpack — those are designed and tracked in #43, blocked on two Foundry
+retroactive-conformance gaps
+([Foundry#1376](https://github.com/cafecito-games/Foundry/issues/1376),
+[Foundry#1377](https://github.com/cafecito-games/Foundry/issues/1377)).
+
+The scalar wrappers are not mapped onto nullable scalars. proto3 `optional`
+already gives a scalar explicit presence, and the message form is needed anyway
+wherever a wrapper appears as a map value, a repeated element, or a `oneof`
+member.
+
+There is no JSON support, so `FieldMask` path conversion and RFC-3339
+`Timestamp` strings are unavailable.
 
 ## Install
 
