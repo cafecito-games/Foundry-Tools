@@ -67,11 +67,18 @@ func newTypeNamer(file *protoast.ProtoFile, sourceName string) (typeNamer, error
 
 	prefix, isString := raw.(string)
 	if !isString || prefix == "" || !identifierPattern.MatchString(prefix) {
-		message := fmt.Sprintf("must be a non-empty identifier fragment, got %q", raw)
+		message := fmt.Sprintf("must be a non-empty identifier fragment, got %s", optionValue(raw))
 		return typeNamer{}, optionError(file, sourceName, typePrefixOptionKey, message)
 	}
 
 	return typeNamer{prefix: prefix}, nil
+}
+
+func optionValue(raw any) string {
+	if value, ok := raw.(string); ok {
+		return fmt.Sprintf("%q", value)
+	}
+	return fmt.Sprintf("%T(%v)", raw, raw)
 }
 
 func optionError(file *protoast.ProtoFile, sourceName, optionKey, message string) error {
@@ -85,16 +92,22 @@ func optionError(file *protoast.ProtoFile, sourceName, optionKey, message string
 	return fmt.Errorf("%s: error: %s %s", sourceName, optionKey, message)
 }
 
+// Name converts a proto identifier to a prefixed Foundry Script type identifier.
 func (n typeNamer) Name(name string) string {
 	return escapeIdentifier(n.prefix + normalizeTypeName(name))
 }
 
+// Reference converts a possibly-dotted proto type path to a prefixed Foundry Script reference.
 func (n typeNamer) Reference(protoType string) string {
 	parts := strings.Split(strings.TrimPrefix(protoType, "."), ".")
-	for i, part := range parts {
-		parts[i] = n.Name(part)
+	converted := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		converted = append(converted, n.Name(part))
 	}
-	return strings.Join(parts, ".")
+	return strings.Join(converted, ".")
 }
 
 // TypeName converts a proto identifier to a Foundry Script type identifier.

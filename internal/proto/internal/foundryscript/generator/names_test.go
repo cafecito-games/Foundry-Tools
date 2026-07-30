@@ -18,14 +18,26 @@ func TestNewTypeNamerValidatesLiteralPrefix(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Game_Node", namer.Name("node"))
 
-	for _, raw := range []any{"", "game-tools", "game tools", "game.tools", "2D", int64(3)} {
-		t.Run("invalid", func(t *testing.T) {
-			file.Options[typePrefixOptionKey] = raw
+	tests := []struct {
+		name string
+		raw  any
+		got  string
+	}{
+		{name: "empty", raw: "", got: `got ""`},
+		{name: "hyphen", raw: "game-tools", got: `got "game-tools"`},
+		{name: "space", raw: "game tools", got: `got "game tools"`},
+		{name: "dot", raw: "game.tools", got: `got "game.tools"`},
+		{name: "leading digit", raw: "2D", got: `got "2D"`},
+		{name: "non-string integer", raw: int64(3), got: "got int64(3)"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file.Options[typePrefixOptionKey] = test.raw
 
 			_, err := newTypeNamer(file, "types.proto")
-			require.Error(t, err)
-			require.ErrorContains(t, err, "types.proto:4:1")
-			require.ErrorContains(t, err, typePrefixOptionKey)
+			require.EqualError(t, err,
+				"types.proto:4:1: error: "+typePrefixOptionKey+
+					" must be a non-empty identifier fragment, "+test.got)
 		})
 	}
 }
@@ -56,9 +68,9 @@ func TestNewTypeNamerOmitsUnknownOptionPosition(t *testing.T) {
 	}
 
 	_, err := newTypeNamer(file, "types.proto")
-	require.Error(t, err)
-	require.ErrorContains(t, err, "types.proto: error: "+typePrefixOptionKey)
-	require.NotContains(t, err.Error(), ":0:0")
+	require.EqualError(t, err,
+		`types.proto: error: `+typePrefixOptionKey+
+			` must be a non-empty identifier fragment, got ""`)
 }
 
 func TestTypeNamerPrefixesBeforeEscaping(t *testing.T) {
@@ -70,4 +82,29 @@ func TestTypeNamerPrefixesBeforeEscaping(t *testing.T) {
 	require.Equal(t, "GameOuter.GameInner", namer.Reference(".outer.inner"))
 	require.Equal(t, "Class_", TypeName("class"))
 	require.Equal(t, "Message_", TypeName("message"))
+}
+
+func TestTypeNamerReferenceFiltersEmptySegments(t *testing.T) {
+	namer := typeNamer{prefix: "Game"}
+
+	tests := map[string]string{
+		"":              "",
+		".":             "",
+		"outer..inner":  "GameOuter.GameInner",
+		"..outer.inner": "GameOuter.GameInner",
+	}
+	for protoType, want := range tests {
+		require.Equal(t, want, namer.Reference(protoType))
+	}
+}
+
+func TestTypeNamerZeroValueMatchesLegacyHelpers(t *testing.T) {
+	var namer typeNamer
+
+	for _, name := range []string{"", "class", "message", "player_state", "outer-inner"} {
+		require.Equal(t, TypeName(name), namer.Name(name))
+	}
+	for _, reference := range []string{"", ".", ".outer.inner", "outer..inner", "..outer.inner"} {
+		require.Equal(t, TypeReference(reference), namer.Reference(reference))
+	}
 }
