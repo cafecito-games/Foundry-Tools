@@ -86,10 +86,14 @@ func presenceCondition(plan *fieldPlan) string {
 		return plan.Name + ` != ""`
 	case plan.Value.ProtoType == "bytes":
 		return plan.Name + ".size() > 0"
-	case plan.Value.ProtoType == "float", plan.Value.ProtoType == "double":
+	case plan.Value.ProtoType == "double":
 		// A float has two zeroes and protobuf only treats one of them as the
 		// default, which a plain comparison cannot express.
 		return "not Wire.is_default_float(" + plan.Name + ")"
+	case plan.Value.ProtoType == "float":
+		// Same, on the binary32 value that will be written rather than on the
+		// binary64 one the member holds.
+		return "not Wire.is_default_float32(" + plan.Name + ")"
 	default:
 		// The value's own zero, so a float tests against 0.0 rather than
 		// leaning on int-to-float comparison to mean the same thing.

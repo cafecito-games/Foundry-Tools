@@ -256,7 +256,7 @@ func to_bytes() -> PackedByteArray:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(16, Wire.WIRE_LENGTH_DELIMITED)))
 		_pb_result.append_array(Wire.encode_varint(_pb_loadout_entry.size()))
 		_pb_result.append_array(_pb_loadout_entry)
-	if not Wire.is_default_float(accuracy):
+	if not Wire.is_default_float32(accuracy):
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(17, Wire.WIRE_32BIT)))
 		_pb_result.append_array(Wire.encode_float(accuracy))
 	if not Wire.is_default_float(play_time_seconds):

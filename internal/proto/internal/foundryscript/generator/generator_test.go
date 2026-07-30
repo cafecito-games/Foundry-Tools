@@ -821,7 +821,9 @@ func TestGenerateFloatPresenceDistinguishesNegativeZero(t *testing.T) {
 	})
 
 	require.Contains(t, source, "if not Wire.is_default_float(ratio):")
-	require.Contains(t, source, "if not Wire.is_default_float(accuracy):")
+	// A proto float is binary32, so presence is decided on the narrowed value:
+	// a double too small for binary32 becomes the default on the way out.
+	require.Contains(t, source, "if not Wire.is_default_float32(accuracy):")
 	require.NotContains(t, source, "if ratio != 0.0:")
 	// An integer has one zero, so it keeps the direct comparison.
 	require.Contains(t, source, "if level != 0:")

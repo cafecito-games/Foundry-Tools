@@ -402,6 +402,17 @@ func check_negative_zero_presence() -> void:
 	positive.double_value = 0.0
 	check(positive.to_bytes().is_empty(), "positive zero is omitted as the default")
 
+	## A proto float is binary32. A double too small to survive that narrowing
+	## is the default once written, so it is omitted the way protobuf omits it,
+	## rather than written as four bytes of zero.
+	var underflowing: ScalarSuite = ScalarSuite.new()
+	underflowing.float_value = 1e-60
+	check(underflowing.to_bytes().is_empty(), "a float that underflows binary32 is omitted")
+	## The same magnitude in a double survives, so it is still written.
+	var representable: ScalarSuite = ScalarSuite.new()
+	representable.double_value = 1e-60
+	check(not representable.to_bytes().is_empty(), "a double of the same magnitude is written")
+
 func populated_scalar_suite() -> ScalarSuite:
 	var suite: ScalarSuite = ScalarSuite.new()
 	suite.double_value = -2.5

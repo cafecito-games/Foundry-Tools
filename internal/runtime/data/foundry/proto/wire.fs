@@ -91,6 +91,18 @@ static func is_default_float(value: float) -> bool:
 		return false
 	return 1.0 / value > 0.0
 
+## The same question for a proto float, which is binary32 while Foundry's float
+## is binary64. A value too small for binary32 narrows to +0.0 when it is
+## written, so presence has to be decided on what actually goes on the wire;
+## deciding it on the wider value would emit a field protobuf omits.
+static func is_default_float32(value: float) -> bool:
+	if is_default_float(value):
+		return true
+	var narrowed: PackedByteArray = PackedByteArray()
+	narrowed.resize(4)
+	narrowed.encode_float(0, value)
+	return is_default_float(narrowed.decode_float(0))
+
 ## Encodes value as a zig-zag varint over 32 bits. Zig-zag maps small negatives
 ## onto small unsigned numbers, so -1 costs one byte instead of the ten a plain
 ## varint spends sign-extending it.
