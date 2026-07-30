@@ -39,7 +39,7 @@ func toBytesFunction(plans []fieldPlan, oneofs []oneofPlan) fsast.Func {
 	)
 	return fsast.Func{
 		Doc:        toBytesDoc(),
-		Name:       "to_bytes",
+		Name:       toBytesMethod,
 		ReturnType: fstypes.Named("PackedByteArray"),
 		Body:       body,
 	}
@@ -194,7 +194,7 @@ func appendValue(depth int, value valuePlan, expression, local, tag, buffer stri
 	case value.Kind == kindMessage:
 		data := local + "_data"
 		return []fsast.Node{
-			line(depth, fmt.Sprintf("var %s: PackedByteArray = %s.to_bytes()", data, expression)),
+			line(depth, fmt.Sprintf("var %s: PackedByteArray = %s.%s()", data, expression, toBytesMethod)),
 			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s))", buffer, tag)),
 			line(depth, fmt.Sprintf("%s.append_array(Wire.encode_varint(%s.size()))", buffer, data)),
 			line(depth, fmt.Sprintf("%s.append_array(%s)", buffer, data)),

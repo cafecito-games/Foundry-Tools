@@ -19,7 +19,7 @@ func fieldMember(plan *fieldPlan) fsast.Node {
 		member.Setter = discardRetained([]string{plan.UnknownMember()}, plan.Name)
 	}
 	return fsast.Doc{
-		Lines: docOrFallback(plan.Doc, fieldDoc(plan.Name)),
+		Lines: docOrFallback(plan.Doc, fieldDoc(plan.RawName)),
 		Node:  member,
 	}
 }
@@ -40,7 +40,7 @@ func oneofMember(oneof *oneofPlan) fsast.Node {
 		member.Setter = discardRetained(buffers, oneof.Field)
 	}
 	return fsast.Doc{
-		Lines: docOrFallback(oneof.Doc, oneofDoc(oneof.Field)),
+		Lines: docOrFallback(oneof.Doc, oneofDoc(oneof.RawField)),
 		Node:  member,
 	}
 }
@@ -83,7 +83,7 @@ func oneofUnion(oneof *oneofPlan) fsast.Enum {
 		})
 	}
 	return fsast.Enum{
-		Doc:    oneofUnionDoc(oneof.Field),
+		Doc:    oneofUnionDoc(oneof.RawField),
 		Name:   oneof.Type,
 		Values: values,
 	}
@@ -93,12 +93,12 @@ func fromBytesFactory(className string) fsast.Func {
 	return fsast.Func{
 		Doc:        fromBytesDoc(className),
 		Static:     true,
-		Name:       "from_bytes",
+		Name:       fromBytesMethod,
 		Parameters: []fsast.Parameter{{Name: dataParameter, Type: fstypes.Named("PackedByteArray")}},
 		ReturnType: fstypes.Tuple(fstypes.Nullable(fstypes.Named(className)), fstypes.Named("ProtobufError")),
 		Body: []fsast.Node{
 			line(0, "var "+generatedPrefix+"message: "+className+" = "+className+".new()"),
-			line(0, "var "+generatedPrefix+"error: ProtobufError = "+generatedPrefix+"message.merge_from_bytes("+dataParameter+")"),
+			line(0, "var "+generatedPrefix+"error: ProtobufError = "+generatedPrefix+"message."+mergeFromBytesMethod+"("+dataParameter+")"),
 			line(0, "if "+generatedPrefix+"error != ProtobufError.OK:"),
 			// A bare null does not carry the nullable element type.
 			line(1, "var "+generatedPrefix+"failed: "+className+"? = null"),

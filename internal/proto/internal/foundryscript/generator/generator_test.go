@@ -1091,7 +1091,9 @@ func TestGenerateRejectsCollidingMemberNames(t *testing.T) {
 		},
 	}}, nil), "player.proto", nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "both map to the member var_")
+	require.Contains(t, err.Error(), "generated Foundry member names collide:")
+	require.Contains(t, err.Error(), `Foundry member "var_"`)
+	require.Contains(t, err.Error(), "rename one protobuf declaration")
 }
 
 // A oneof member and a plain field can collide the same way.
@@ -1105,7 +1107,9 @@ func TestGenerateRejectsOneofCollidingWithAField(t *testing.T) {
 		}},
 	}}, nil), "player.proto", nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "both map to the member payload")
+	require.Contains(t, err.Error(), `Foundry member "payload"`)
+	require.Contains(t, err.Error(), "field cafecito.game.v1.Player.payload")
+	require.Contains(t, err.Error(), "oneof cafecito.game.v1.Player.payload")
 }
 
 // Every record in the shared buffer carries a field number this schema has no
@@ -1243,7 +1247,15 @@ func TestGenerateRejectsCollidingRetentionMembers(t *testing.T) {
 		}},
 	), "player.proto", nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "both map to the member _pb_pick_kind_unknown")
+	diagnostic := err.Error()
+	require.Equal(t, 1, strings.Count(
+		diagnostic,
+		`retained enum companion cafecito.game.v1.Player.pick_kind generates Foundry member "_pb_pick_kind_unknown"`,
+	))
+	require.Equal(t, 1, strings.Count(
+		diagnostic,
+		`retained enum companion cafecito.game.v1.Player.kind generates Foundry member "_pb_pick_kind_unknown"`,
+	))
 }
 
 // Two imported namespaces declaring the same short name make it ambiguous even
@@ -1283,6 +1295,139 @@ func TestSameNameFromTwoImportedNamespacesIsQualified(t *testing.T) {
 	require.Contains(t, source, "var listed: cafecito.catalog.v1.Item? = null")
 	require.Contains(t, source, "import cafecito.catalog.v1")
 	require.Contains(t, source, "import cafecito.inventory.v1")
+}
+
+func TestGenerateEscapesEngineTypeMessageMembersEverywhere(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "int32", Name: "Node", Number: 1},
+			{FieldType: "string", Name: "String", Number: 2, Optional: true},
+			{FieldType: "int32", Name: "Timer", Number: 3, Repeated: true},
+		},
+		Maps: []*protoast.MapField{{
+			KeyType: "string", ValueType: "string", Name: "Resource", Number: 4,
+		}},
+		Oneofs: []*protoast.Oneof{{
+			Name: "Object",
+			Fields: []*protoast.Field{{
+				FieldType: "string", Name: "Image", Number: 5,
+			}},
+		}},
+		NestedMessages: []*protoast.Message{{
+			Name: "Child",
+			Fields: []*protoast.Field{{
+				FieldType: "int32", Name: "Node", Number: 1,
+			}},
+		}},
+	}}, nil))
+
+	messageSource := files["cafecito/game/v1/Player.pb.fs"]
+	for _, declaration := range []string{
+		"var Node_: int = 0",
+		"var String_: String? = null",
+		"var Timer_: Array[int] = []",
+		"var Resource_: Dictionary[String, String] = {}",
+		"var Object_: PlayerObjectCase? = null",
+	} {
+		require.Contains(t, messageSource, declaration)
+	}
+	require.Equal(t, 2, strings.Count(messageSource, "var Node_: int = 0"))
+
+	for _, expression := range []string{
+		"if Node_ != 0:",
+		"Wire.encode_varint(Node_)",
+		"if String_ is String:",
+		"Wire.encode_string(String_)",
+		"if Timer_.size() > 0:",
+		"for _pb_Timer_item: int in Timer_:",
+		"for _pb_Resource_key: String in Resource_:",
+		"Resource_[_pb_Resource_key]",
+		"match Object_:",
+		"Node_ = _pb_Node_read.value",
+		"String_ = _pb_String_read.value",
+		"Timer_.append(_pb_Timer_read.value)",
+		"Resource_[_pb_Resource_key] = _pb_Resource_value",
+		"Object_ = PlayerObjectCase.Image(_pb_Object_Image_read.value)",
+	} {
+		require.Contains(t, messageSource, expression)
+	}
+
+	require.Contains(t, messageSource, "## The Node protobuf field.")
+	require.Contains(t, messageSource, "## The Object protobuf oneof; null when no case is set.")
+	require.NotContains(t, messageSource, "The Node_ protobuf field.")
+	require.NotContains(t, messageSource, "The Object_ protobuf oneof")
+
+	oneofSource := files["cafecito/game/v1/PlayerObjectCase.pb.fs"]
+	require.Contains(t, oneofSource, "## Cases of the Object protobuf oneof.")
+	require.Contains(t, oneofSource, "\tImage(Image: String)")
+	require.NotContains(t, oneofSource, "Image_")
+}
+
+func TestGenerateEscapesEngineNamedEnumAndMessageMembersEverywhere(t *testing.T) {
+	files := generate(t, namespacedFile(
+		[]*protoast.Message{
+			{
+				Name: "Envelope",
+				Fields: []*protoast.Field{
+					{FieldType: "DeliveryState", Name: "String", Number: 1},
+					{FieldType: "Payload", Name: "Node", Number: 2},
+				},
+			},
+			{Name: "Payload"},
+		},
+		[]*protoast.Enum{{
+			Name: "DeliveryState",
+			Values: []*protoast.EnumValue{
+				{Name: "Node", Number: 0},
+				{Name: "READY", Number: 1},
+			},
+		}},
+	))
+	messageSource := files["cafecito/game/v1/Envelope.pb.fs"]
+
+	require.Contains(t, messageSource,
+		"## The String protobuf field.\n"+
+			"var String_: DeliveryState = DeliveryState.Node:\n"+
+			"\tset(_pb_value):\n"+
+			"\t\t_pb_String_unknown = PackedByteArray()\n"+
+			"\t\tString_ = _pb_value\n")
+	require.Contains(t, messageSource,
+		"## Raw bytes of an unrecognized String value, kept so a re-encode is lossless.\n"+
+			"var _pb_String_unknown: PackedByteArray = PackedByteArray()\n")
+	require.Contains(t, messageSource,
+		"\tif _pb_String_unknown.size() > 0:\n"+
+			"\t\t_pb_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_VARINT)))\n"+
+			"\t\t_pb_result.append_array(_pb_String_unknown)\n"+
+			"\telif String_ != DeliveryState.Node:\n"+
+			"\t\t_pb_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_VARINT)))\n"+
+			"\t\t_pb_result.append_array(Wire.encode_varint(String_.to_wire()))\n")
+	require.Contains(t, messageSource,
+		"\t\t\t\tvar _pb_String_case: DeliveryState? = DeliveryState.from_wire(_pb_String_read.value)\n"+
+			"\t\t\t\tif _pb_String_case is DeliveryState:\n"+
+			"\t\t\t\t\tString_ = _pb_String_case\n"+
+			"\t\t\t\telse:\n"+
+			"\t\t\t\t\tString_ = DeliveryState.Node\n"+
+			"\t\t\t\t\t_pb_String_unknown = _pb_data.slice(_pb_offset, _pb_String_read.offset)\n")
+
+	require.Contains(t, messageSource,
+		"## The Node protobuf field.\n"+
+			"var Node_: Payload? = null\n")
+	require.Contains(t, messageSource,
+		"\tif Node_ is Payload:\n"+
+			"\t\tvar _pb_Node_data: PackedByteArray = Node_.to_bytes()\n"+
+			"\t\t_pb_result.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_LENGTH_DELIMITED)))\n")
+	require.Contains(t, messageSource,
+		"\t\t\t\tif not (Node_ is Payload):\n"+
+			"\t\t\t\t\tNode_ = Payload.new()\n"+
+			"\t\t\t\tvar _pb_Node_read: SkipRead = Wire.read_message(_pb_data, _pb_offset, Node_)\n")
+
+	require.NotContains(t, messageSource, "The String_ protobuf field.")
+	require.NotContains(t, messageSource, "The Node_ protobuf field.")
+
+	enumSource := files["cafecito/game/v1/DeliveryState.pb.fs"]
+	require.Contains(t, enumSource, "\tNode = 0\n")
+	require.NotContains(t, enumSource, "\tNode_ = 0\n")
 }
 
 // Every generated file imports foundry.proto, so a schema type sharing a name

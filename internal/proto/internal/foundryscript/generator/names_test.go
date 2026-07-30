@@ -108,3 +108,93 @@ func TestTypeNamerZeroValueMatchesLegacyHelpers(t *testing.T) {
 		require.Equal(t, TypeReference(reference), namer.Reference(reference))
 	}
 }
+
+func TestPlanMemberNameEscapesEngineTypes(t *testing.T) {
+	tests := []struct {
+		raw       string
+		generated string
+		kind      memberEscapeKind
+		reason    string
+	}{
+		{raw: "String", generated: "String_", kind: memberEscapeEngineBuiltin, reason: `built-in type "String"`},
+		{raw: "AsyncCallable", generated: "AsyncCallable_", kind: memberEscapeEngineBuiltin, reason: `built-in type "AsyncCallable"`},
+		{raw: "Node", generated: "Node_", kind: memberEscapeEngineNative, reason: `native class "Node"`},
+		{raw: "Timer", generated: "Timer_", kind: memberEscapeEngineNative, reason: `native class "Timer"`},
+		{raw: "node", generated: "node", kind: memberEscapeNone},
+		{raw: "string", generated: "string", kind: memberEscapeNone},
+		{raw: "Node_", generated: "Node_", kind: memberEscapeNone},
+	}
+
+	for _, test := range tests {
+		t.Run(test.raw, func(t *testing.T) {
+			got := planMemberName(test.raw)
+			require.Equal(t, test.generated, got.Generated)
+			require.Equal(t, test.kind, got.Escape.Kind)
+			require.Equal(t, test.reason, got.Escape.description())
+			require.Equal(t, test.generated, FieldName(test.raw))
+		})
+	}
+}
+
+func TestPlanMemberNameKeepsExistingEscapePolicies(t *testing.T) {
+	tests := []struct {
+		raw       string
+		generated string
+		kind      memberEscapeKind
+		reason    string
+	}{
+		{raw: "var", generated: "var_", kind: memberEscapeKeyword, reason: "Foundry keyword"},
+		{raw: "to_bytes", generated: "to_bytes_", kind: memberEscapeGenerated, reason: "generated member"},
+		{raw: "merge_from_bytes", generated: "merge_from_bytes_", kind: memberEscapeGenerated, reason: "generated member"},
+		{raw: "plain", generated: "plain", kind: memberEscapeNone},
+	}
+	for _, test := range tests {
+		got := planMemberName(test.raw)
+		require.Equal(t, test.generated, got.Generated)
+		require.Equal(t, test.kind, got.Escape.Kind)
+		require.Equal(t, test.reason, got.Escape.description())
+	}
+}
+
+func TestGeneratedMethodNamesAreFreshAndReserved(t *testing.T) {
+	want := []string{"from_bytes", "to_bytes", "merge_from_bytes"}
+	require.Equal(t, "from_bytes", fromBytesMethod)
+	require.Equal(t, "to_bytes", toBytesMethod)
+	require.Equal(t, "merge_from_bytes", mergeFromBytesMethod)
+	require.Equal(t, want, generatedMethodNames())
+
+	mutated := generatedMethodNames()
+	mutated[0] = "changed"
+	require.Equal(t, want, generatedMethodNames())
+
+	for _, methodName := range want {
+		require.True(t, generatedMemberNames[methodName])
+	}
+}
+
+func TestPlanMemberNamePrefersExistingEscapePolicyOverEngineType(t *testing.T) {
+	const name = "var"
+	previous, existed := foundryEngineReservedTypes[name]
+	foundryEngineReservedTypes[name] = engineTypeEntry{kind: engineTypeBuiltin}
+	t.Cleanup(func() {
+		if existed {
+			foundryEngineReservedTypes[name] = previous
+		} else {
+			delete(foundryEngineReservedTypes, name)
+		}
+	})
+
+	got := planMemberName(name)
+	require.Equal(t, "var_", got.Generated)
+	require.Equal(t, memberEscapeKeyword, got.Escape.Kind)
+	require.Equal(t, "Foundry keyword", got.Escape.description())
+}
+
+func TestPlanOneofAlternativeNameSkipsEngineTypes(t *testing.T) {
+	require.Equal(t, "Image", planOneofAlternativeName("Image").Generated)
+	require.Equal(t, memberEscapeNone, planOneofAlternativeName("Image").Escape.Kind)
+	require.Equal(t, "var_", planOneofAlternativeName("var").Generated)
+	require.Equal(t, memberEscapeKeyword, planOneofAlternativeName("var").Escape.Kind)
+	require.Equal(t, "to_bytes_", planOneofAlternativeName("to_bytes").Generated)
+	require.Equal(t, memberEscapeGenerated, planOneofAlternativeName("to_bytes").Escape.Kind)
+}

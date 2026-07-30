@@ -63,6 +63,9 @@ func Generate(file *protoast.ProtoFile, sourceName string, imports []FileEntry) 
 	if err := resolve.collisions.Err(localNamer.prefix); err != nil {
 		return nil, err
 	}
+	if err := resolve.memberCollisions.err(); err != nil {
+		return nil, err
+	}
 
 	for i := range enumPlans {
 		files[outputPath(namespace, enumPlans[i].Name)] = renderEnum(namespace, enumPlans[i].Name, enumPlans[i].Enum)

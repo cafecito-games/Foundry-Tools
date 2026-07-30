@@ -13,10 +13,10 @@ import (
 func TestProtocPluginGeneratesFoundryScript(t *testing.T) {
 	root := repoRoot(t)
 	outDir := t.TempDir()
+	pluginPath := buildProtocPlugin(t, root)
 
-	run(t, root, "go", "build", "-o", "bin/protoc-gen-foundryscript", "./cmd/protoc-gen-foundryscript")
 	run(t, root, "protoc",
-		"--plugin=protoc-gen-foundryscript="+filepath.Join(root, "bin/protoc-gen-foundryscript"),
+		"--plugin=protoc-gen-foundryscript="+pluginPath,
 		"--foundryscript_out="+outDir,
 		"-I", "tests/integration/fixtures/basic",
 		"tests/integration/fixtures/basic/player.proto",
@@ -31,4 +31,27 @@ func TestProtocPluginGeneratesFoundryScript(t *testing.T) {
 	// which is the only way the plugin path can learn its namespace and default.
 	require.Contains(t, string(data), "import cafecito.inventory.v1")
 	require.Contains(t, string(data), "var rarity: Rarity = Rarity.RARITY_UNSPECIFIED")
+}
+
+func TestProtocPluginEscapesFoundryMemberCollisions(t *testing.T) {
+	root := repoRoot(t)
+	outDir := t.TempDir()
+	pluginPath := buildProtocPlugin(t, root)
+
+	run(t, root, "protoc",
+		"--plugin=protoc-gen-foundryscript="+pluginPath,
+		"--foundryscript_out="+outDir,
+		"-I", "tests/integration/fixtures/member_collisions",
+		"tests/integration/fixtures/member_collisions/fields.proto",
+	)
+
+	requireMemberProbeEscapes(t, outDir)
+}
+
+func buildProtocPlugin(t *testing.T, root string) string {
+	t.Helper()
+
+	pluginPath := filepath.Join(t.TempDir(), "protoc-gen-foundryscript")
+	run(t, root, "go", "build", "-o", pluginPath, "./cmd/protoc-gen-foundryscript")
+	return pluginPath
 }

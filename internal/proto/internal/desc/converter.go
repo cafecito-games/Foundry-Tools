@@ -303,12 +303,14 @@ func (c *converter) convertMessage(
 	var mapFields []*protoast.MapField
 
 	for i, f := range d.GetField() {
-		fieldDoc := source.doc(pathAppend(path, 2, int32(i)))
+		fieldPath := pathAppend(path, 2, int32(i))
+		fieldDoc := source.doc(fieldPath)
+		fieldPosition := source.position(fieldPath)
 		if f.GetLabel() == descriptorpb.FieldDescriptorProto_LABEL_REPEATED &&
 			f.GetType() == descriptorpb.FieldDescriptorProto_TYPE_MESSAGE {
 			short := lastSegment(f.GetTypeName())
 			if entry, ok := mapEntries[short]; ok {
-				mf, err := c.convertMapField(f, entry, sourceFile, relativeScope, fieldDoc)
+				mf, err := c.convertMapField(f, entry, sourceFile, relativeScope, fieldPosition, fieldDoc)
 				if err != nil {
 					return nil, err
 				}
@@ -317,7 +319,7 @@ func (c *converter) convertMessage(
 			}
 		}
 
-		field := c.convertField(f, sourceFile, relativeScope, fieldDoc)
+		field := c.convertField(f, sourceFile, relativeScope, fieldPosition, fieldDoc)
 		if f.OneofIndex != nil {
 			idx := int(f.GetOneofIndex())
 			if idx >= 0 && idx < len(oneofNames) {
@@ -406,9 +408,11 @@ func (c *converter) convertField(
 	f *descriptorpb.FieldDescriptorProto,
 	sourceFile string,
 	relativeScope string,
+	position protoast.Position,
 	doc []string,
 ) *protoast.Field {
 	field := &protoast.Field{
+		Position: position,
 		Name:     f.GetName(),
 		Doc:      doc,
 		Number:   int(f.GetNumber()),
@@ -473,6 +477,7 @@ func (c *converter) convertMapField(
 	entry *descriptorpb.DescriptorProto,
 	sourceFile string,
 	relativeScope string,
+	position protoast.Position,
 	doc []string,
 ) (*protoast.MapField, error) {
 	if len(entry.GetField()) != 2 {
@@ -494,10 +499,11 @@ func (c *converter) convertMapField(
 	}
 
 	mf := &protoast.MapField{
-		Name:    f.GetName(),
-		Doc:     doc,
-		Number:  int(f.GetNumber()),
-		Options: map[string]any{},
+		Position: position,
+		Name:     f.GetName(),
+		Doc:      doc,
+		Number:   int(f.GetNumber()),
+		Options:  map[string]any{},
 	}
 
 	if name, ok := scalarTypeNames[keyDescriptor.GetType()]; ok {

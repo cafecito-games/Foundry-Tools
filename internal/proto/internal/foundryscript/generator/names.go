@@ -161,6 +161,41 @@ func escapeIdentifier(name string) string {
 	return name
 }
 
+type memberEscapeKind uint8
+
+const (
+	memberEscapeNone memberEscapeKind = iota
+	memberEscapeKeyword
+	memberEscapeGenerated
+	memberEscapeEngineBuiltin
+	memberEscapeEngineNative
+)
+
+type memberEscape struct {
+	Kind         memberEscapeKind
+	ReservedName string
+}
+
+func (e memberEscape) description() string {
+	switch e.Kind {
+	case memberEscapeKeyword:
+		return "Foundry keyword"
+	case memberEscapeGenerated:
+		return "generated member"
+	case memberEscapeEngineBuiltin:
+		return fmt.Sprintf("built-in type %q", e.ReservedName)
+	case memberEscapeEngineNative:
+		return fmt.Sprintf("native class %q", e.ReservedName)
+	default:
+		return ""
+	}
+}
+
+type plannedMemberName struct {
+	Generated string
+	Escape    memberEscape
+}
+
 // reservedFieldNames are the Foundry Script keywords that cannot appear after
 // `var`, so a proto field carrying one of these names has to be renamed rather
 // than emitted verbatim. Verified against the analyzer one word at a time;
@@ -177,22 +212,80 @@ var reservedFieldNames = map[string]bool{
 	"tuple": true, "var": true, "void": true, "while": true, "yield": true,
 }
 
-// generatedMemberNames are the members every message binding declares. A proto
+// These constants are the source of truth for method spellings emitted and
+// reserved by every message binding.
+const (
+	fromBytesMethod      = "from_bytes"
+	toBytesMethod        = "to_bytes"
+	mergeFromBytesMethod = "merge_from_bytes"
+)
+
+// generatedMethodNames returns a fresh ordered inventory for naming and
+// collision collection.
+func generatedMethodNames() []string {
+	return []string{
+		fromBytesMethod,
+		toBytesMethod,
+		mergeFromBytesMethod,
+	}
+}
+
+// generatedMemberNames are all members every message binding declares. A proto
 // field with one of these names would replace the generated member rather than
 // sit beside it, so it is renamed for the same reason a keyword is.
-var generatedMemberNames = map[string]bool{
-	"from_bytes": true, "to_bytes": true, "merge_from_bytes": true,
-	unknownFieldsMember: true,
+var generatedMemberNames = func() map[string]bool {
+	names := map[string]bool{unknownFieldsMember: true}
+	for _, methodName := range generatedMethodNames() {
+		names[methodName] = true
+	}
+	return names
+}()
+
+func planNonEngineMemberName(name string) plannedMemberName {
+	switch {
+	case reservedFieldNames[name]:
+		return plannedMemberName{
+			Generated: name + "_",
+			Escape:    memberEscape{Kind: memberEscapeKeyword, ReservedName: name},
+		}
+	case generatedMemberNames[name]:
+		return plannedMemberName{
+			Generated: name + "_",
+			Escape:    memberEscape{Kind: memberEscapeGenerated, ReservedName: name},
+		}
+	}
+
+	return plannedMemberName{Generated: name}
+}
+
+func planMemberName(name string) plannedMemberName {
+	if planned := planNonEngineMemberName(name); planned.Escape.Kind != memberEscapeNone {
+		return planned
+	}
+
+	if engineType, reserved := foundryEngineReservedTypes[name]; reserved {
+		kind := memberEscapeEngineNative
+		if engineType.kind == engineTypeBuiltin {
+			kind = memberEscapeEngineBuiltin
+		}
+		return plannedMemberName{
+			Generated: name + "_",
+			Escape:    memberEscape{Kind: kind, ReservedName: name},
+		}
+	}
+
+	return plannedMemberName{Generated: name}
+}
+
+func planOneofAlternativeName(name string) plannedMemberName {
+	return planNonEngineMemberName(name)
 }
 
 // FieldName converts a proto field name to the member name it is emitted as.
-// Proto field names are otherwise passed through unchanged: they are the
-// binding's public API, and mangling them would break every caller.
+// Foundry keywords, generator-owned members, and engine type names receive
+// exactly one trailing underscore; all other names pass through unchanged.
 func FieldName(name string) string {
-	if reservedFieldNames[name] || generatedMemberNames[name] {
-		return name + "_"
-	}
-	return name
+	return planMemberName(name).Generated
 }
 
 // localName is the name of a variable the emitter introduces inside a generated

@@ -24,4 +24,14 @@ message Node {
     string text = 4;
     int32 amount = 5;
   }
+
+  string Node = 6;
+  string String = 7;
+  repeated string Timer = 8;
+  map<string, int32> Resource = 9;
+
+  oneof Object {
+    string Image = 10;
+    int32 count = 11;
+  }
 }

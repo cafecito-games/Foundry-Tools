@@ -58,13 +58,19 @@ type valuePlan struct {
 
 // fieldPlan is a fully resolved message field.
 type fieldPlan struct {
-	Doc []string
+	Doc      []string
+	Position protoast.Position
+	Kind     string
 	// Name is the emitted member name, which is the proto field name unless it
-	// collided with a keyword or a generated member.
+	// collided with a keyword, generated member, or engine type.
 	Name string
-	// RawName is the proto field name, used only to derive local variable names
-	// so that escaping a member does not change the code around it.
-	RawName     string
+	// RawName is the exact protobuf field name, preserved for fallback docs and
+	// collision diagnostics.
+	RawName string
+	// LocalStem disambiguates emitter-owned locals for a oneof alternative.
+	// Ordinary fields and maps leave it empty and use RawName.
+	LocalStem   string
+	Escape      memberEscape
 	Number      int
 	Cardinality cardinality
 	Value       valuePlan
@@ -144,7 +150,11 @@ func tagExpression(number, wireType int) string {
 
 // Local names a variable the emitter introduces for this field.
 func (p fieldPlan) Local(parts ...string) string {
-	return localName(append([]string{p.RawName}, parts...)...)
+	stem := p.LocalStem
+	if stem == "" {
+		stem = p.RawName
+	}
+	return localName(append([]string{stem}, parts...)...)
 }
 
 // RetainsUnknownEnum reports whether this field keeps the raw bytes of an
@@ -284,11 +294,12 @@ func (r typeRegistry) resolve(scope, reference string) (typeInfo, bool) {
 // competing for one spelling; only the field's source file says which was
 // meant.
 type resolver struct {
-	local        typeRegistry
-	localNamer   typeNamer
-	sourceName   string
-	protoPackage string
-	collisions   *collisionCollector
+	local            typeRegistry
+	localNamer       typeNamer
+	sourceName       string
+	protoPackage     string
+	collisions       *collisionCollector
+	memberCollisions *memberCollisionCollector
 	// imported holds each dependency's declarations, keyed by its source file.
 	imported map[string]typeRegistry
 	// importedDeclarations preserves exact raw protobuf declaration identities
@@ -317,6 +328,7 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 		sourceName:           sourceName,
 		protoPackage:         file.Package,
 		collisions:           newCollisionCollector(),
+		memberCollisions:     newMemberCollisionCollector(),
 		imported:             map[string]typeRegistry{},
 		importedDeclarations: map[string]declarationIndex{},
 		namespaces:           map[string]string{},
@@ -766,10 +778,13 @@ func (r *resolver) valuePlanFor(use typeUse, scope string) (valuePlan, error) {
 
 // oneofPlan is one proto oneof, emitted as a nullable tagged-union member.
 type oneofPlan struct {
-	Doc     []string
-	Field   string
-	Type    string
-	Members []fieldPlan
+	Doc      []string
+	Position protoast.Position
+	Field    string
+	RawField string
+	Escape   memberEscape
+	Type     string
+	Members  []fieldPlan
 }
 
 type enumPlan struct {
@@ -886,6 +901,7 @@ func planMessage(
 			ProtoName:     protoOwnerIdentity + "." + oneof.Name,
 			GeneratedName: caseType,
 		})
+		groupName := planMemberName(oneof.Name)
 		members := make([]fieldPlan, 0, len(oneof.Fields))
 		for _, field := range oneof.Fields {
 			plan, err := planField(field, message.Name, protoScope, resolve)
@@ -897,19 +913,25 @@ func planMessage(
 			}
 			// A oneof member is only ever set through the union, so it has no
 			// independent presence of its own.
+			alternativeName := planOneofAlternativeName(field.Name)
+			plan.Name = alternativeName.Generated
+			plan.Escape = alternativeName.Escape
 			plan.Cardinality = cardinalitySingular
 			plan.OneofCaseName = TypeName(field.Name)
 			plan.OneofCase = caseType + "." + plan.OneofCaseName
-			plan.OneofField = FieldName(oneof.Name)
-			plan.RawName = oneof.Name + "_" + field.Name
+			plan.OneofField = groupName.Generated
+			plan.LocalStem = oneof.Name + "_" + field.Name
 			members = append(members, plan)
 			plans = append(plans, plan)
 		}
 		oneofs = append(oneofs, oneofPlan{
-			Doc:     oneof.Doc,
-			Field:   FieldName(oneof.Name),
-			Type:    caseType,
-			Members: members,
+			Doc:      oneof.Doc,
+			Position: oneof.Position,
+			Field:    groupName.Generated,
+			RawField: oneof.Name,
+			Escape:   groupName.Escape,
+			Type:     caseType,
+			Members:  members,
 		})
 	}
 
@@ -945,10 +967,7 @@ func planMessage(
 	}
 
 	sortPlansByNumber(plans)
-	if err := validateMemberNames(message.Name, plans, oneofs); err != nil {
-		return messagePlan{}, err
-	}
-	return messagePlan{
+	plan := messagePlan{
 		Doc:    message.Doc,
 		Name:   name,
 		Scope:  protoScope,
@@ -956,46 +975,9 @@ func planMessage(
 		Oneofs: oneofs,
 		Enums:  enums,
 		Nested: nested,
-	}, nil
-}
-
-// validateMemberNames refuses a message whose fields do not map onto distinct
-// members. Escaping a keyword appends an underscore, so a schema declaring both
-// `var` and `var_` would otherwise emit the member twice and conflate two
-// distinct protobuf fields.
-func validateMemberNames(messageName string, plans []fieldPlan, oneofs []oneofPlan) error {
-	declaredBy := map[string]string{unknownFieldsMember: "the generated unknown-field buffer"}
-	claim := func(member, source string) error {
-		if previous, taken := declaredBy[member]; taken {
-			return fmt.Errorf(
-				"message %s: %s and %s both map to the member %s; rename one of them",
-				messageName, previous, source, member)
-		}
-		declaredBy[member] = source
-		return nil
 	}
-	for i := range plans {
-		// A retained-value companion is a member too, and its name is derived
-		// by joining names with underscores, so a field `a_b` and a oneof `a`
-		// with a member `b` reach the same spelling from different directions.
-		if plans[i].RetainsUnknownEnum() {
-			if err := claim(plans[i].UnknownMember(), "the retained value of "+plans[i].RawName); err != nil {
-				return err
-			}
-		}
-		if plans[i].OneofCase != "" {
-			continue
-		}
-		if err := claim(plans[i].Name, "field "+plans[i].RawName); err != nil {
-			return err
-		}
-	}
-	for i := range oneofs {
-		if err := claim(oneofs[i].Field, "oneof "+oneofs[i].Field); err != nil {
-			return err
-		}
-	}
-	return nil
+	resolve.memberCollisions.addMessage(resolve.sourceName, protoOwnerIdentity, plans, oneofs)
+	return plan, nil
 }
 
 // validateOneofPayload refuses the one payload shape the hoisted union cannot
@@ -1039,12 +1021,16 @@ func planField(field *protoast.Field, messageName, scope string, resolve *resolv
 	if err != nil {
 		return fieldPlan{}, fmt.Errorf("field %s.%s: %w", messageName, field.Name, err)
 	}
+	memberName := planMemberName(field.Name)
 	plan := fieldPlan{
-		Doc:     field.Doc,
-		Name:    FieldName(field.Name),
-		RawName: field.Name,
-		Number:  field.Number,
-		Value:   value,
+		Doc:      field.Doc,
+		Position: field.Position,
+		Kind:     "field",
+		Name:     memberName.Generated,
+		RawName:  field.Name,
+		Escape:   memberName.Escape,
+		Number:   field.Number,
+		Value:    value,
 	}
 	switch {
 	case field.Repeated:
@@ -1075,10 +1061,14 @@ func planMapField(mapField *protoast.MapField, messageName, scope string, resolv
 	if err != nil {
 		return fieldPlan{}, fmt.Errorf("field %s.%s: %w", messageName, mapField.Name, err)
 	}
+	memberName := planMemberName(mapField.Name)
 	return fieldPlan{
 		Doc:         mapField.Doc,
-		Name:        FieldName(mapField.Name),
+		Position:    mapField.Position,
+		Kind:        "map field",
+		Name:        memberName.Generated,
 		RawName:     mapField.Name,
+		Escape:      memberName.Escape,
 		Number:      mapField.Number,
 		Cardinality: cardinalityMap,
 		Key:         key,

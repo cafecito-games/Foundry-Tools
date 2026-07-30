@@ -399,6 +399,24 @@ func TestConvertDeclarationPositionsFromSourceCodeInfo(t *testing.T) {
 				Name: strPtr("Outer"),
 				NestedType: []*descriptorpb.DescriptorProto{
 					{Name: strPtr("Inner")},
+					{
+						Name: strPtr("LabelsEntry"),
+						Field: []*descriptorpb.FieldDescriptorProto{
+							{
+								Name:   strPtr("key"),
+								Number: i32Ptr(1),
+								Type:   typePtr(descriptorpb.FieldDescriptorProto_TYPE_STRING),
+								Label:  labelPtr(descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL),
+							},
+							{
+								Name:   strPtr("value"),
+								Number: i32Ptr(2),
+								Type:   typePtr(descriptorpb.FieldDescriptorProto_TYPE_INT32),
+								Label:  labelPtr(descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL),
+							},
+						},
+						Options: &descriptorpb.MessageOptions{MapEntry: boolPtr(true)},
+					},
 				},
 				EnumType: []*descriptorpb.EnumDescriptorProto{
 					{Name: strPtr("Kind")},
@@ -414,6 +432,13 @@ func TestConvertDeclarationPositionsFromSourceCodeInfo(t *testing.T) {
 						Label:      labelPtr(descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL),
 						OneofIndex: i32Ptr(0),
 					},
+					{
+						Name:     strPtr("labels"),
+						Number:   i32Ptr(2),
+						Type:     typePtr(descriptorpb.FieldDescriptorProto_TYPE_MESSAGE),
+						TypeName: strPtr(".Outer.LabelsEntry"),
+						Label:    labelPtr(descriptorpb.FieldDescriptorProto_LABEL_REPEATED),
+					},
 				},
 			},
 			{Name: strPtr("NoLocation")},
@@ -428,6 +453,8 @@ func TestConvertDeclarationPositionsFromSourceCodeInfo(t *testing.T) {
 				{Path: []int32{4, 0, 3, 0}, Span: []int32{5, 6, 5, 15}},
 				{Path: []int32{4, 0, 4, 0}, Span: []int32{8, 2, 8, 12}},
 				{Path: []int32{4, 0, 8, 0}, Span: []int32{11, 1, 11, 10}},
+				{Path: []int32{4, 0, 2, 0}, Span: []int32{12, 3, 12, 18}},
+				{Path: []int32{4, 0, 2, 1}, Span: []int32{13, 3, 13, 24}},
 				{Path: []int32{5, 0}, Span: []int32{14, 0, 14, 10}},
 				{Path: []int32{5, 1}, Span: []int32{20}},
 			},
@@ -442,6 +469,8 @@ func TestConvertDeclarationPositionsFromSourceCodeInfo(t *testing.T) {
 	require.Equal(t, protoast.Position{Line: 6, Column: 7}, got.Messages[0].NestedMessages[0].Position)
 	require.Equal(t, protoast.Position{Line: 9, Column: 3}, got.Messages[0].NestedEnums[0].Position)
 	require.Equal(t, protoast.Position{Line: 12, Column: 2}, got.Messages[0].Oneofs[0].Position)
+	require.Equal(t, protoast.Position{Line: 13, Column: 4}, got.Messages[0].Oneofs[0].Fields[0].Position)
+	require.Equal(t, protoast.Position{Line: 14, Column: 4}, got.Messages[0].Maps[0].Position)
 	require.Equal(t, protoast.Position{Line: 15, Column: 1}, got.Enums[0].Position)
 	require.Zero(t, got.Messages[1].Position)
 	require.Zero(t, got.Enums[1].Position)
