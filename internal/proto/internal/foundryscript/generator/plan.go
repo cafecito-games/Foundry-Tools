@@ -491,9 +491,8 @@ type typeUse struct {
 // anything else resolves lexically from scope outward, as proto does.
 func (r *resolver) resolve(use typeUse, scope, reference string) (typeInfo, bool) {
 	if use.SourceFile != "" {
-		if info, found := r.imported[use.SourceFile][reference]; found {
-			return info, true
-		}
+		info, found := r.imported[use.SourceFile][reference]
+		return info, found
 	}
 	return r.local.resolve(scope, reference)
 }

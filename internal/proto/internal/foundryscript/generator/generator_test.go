@@ -162,15 +162,78 @@ func TestReferenceUsesDeclaringFilesPrefix(t *testing.T) {
 		Options: map[string]any{typePrefixOptionKey: "Inventory"},
 		Messages: []*protoast.Message{{
 			Name: "Item",
+			NestedMessages: []*protoast.Message{{
+				Name: "Detail",
+			}},
+			NestedEnums: []*protoast.Enum{{
+				Name:   "Rarity",
+				Values: []*protoast.EnumValue{{Name: "RARITY_UNSPECIFIED", Number: 0}},
+			}},
 		}},
 	}
 	files, err := Generate(namespacedFile([]*protoast.Message{{
-		Name:   "Player",
-		Fields: []*protoast.Field{{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"}},
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"},
+			{FieldType: "Item.Detail", Name: "detail", Number: 2, SourceFile: "inventory.proto"},
+			{
+				FieldType: "Item.Rarity", Name: "rarity", Number: 3,
+				IsEnum: true, SourceFile: "inventory.proto",
+			},
+		},
 	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
 	require.NoError(t, err)
 
-	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var held: InventoryItem?")
+	source := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, source, "var held: InventoryItem?")
+	require.Contains(t, source, "var detail: InventoryItem.InventoryDetail?")
+	require.Contains(t, source,
+		"var rarity: InventoryItem.InventoryRarity = InventoryItem.InventoryRarity.RARITY_UNSPECIFIED")
+}
+
+func TestMissingImportedDeclarationDoesNotResolveToLocalType(t *testing.T) {
+	imported := &protoast.ProtoFile{
+		Syntax:  "proto3",
+		Package: "cafecito.inventory.v1",
+		Options: map[string]any{typePrefixOptionKey: "Inventory"},
+		// Item is intentionally absent. Descriptor-driven generation can know
+		// the field's source and kind without receiving its declaration.
+	}
+	local := namespacedFile(
+		[]*protoast.Message{{
+			Name: "Player",
+			Fields: []*protoast.Field{{
+				FieldType: "Item", Name: "held", Number: 1,
+				SourceFile: "inventory.proto",
+			}},
+			Oneofs: []*protoast.Oneof{{
+				Name: "payload",
+				Fields: []*protoast.Field{{
+					FieldType: "Item", Name: "equipped", Number: 2,
+					SourceFile: "inventory.proto",
+				}},
+			}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "Item",
+			Values: []*protoast.EnumValue{{Name: "LOCAL_ITEM_UNSPECIFIED", Number: 0}},
+		}},
+	)
+
+	files, err := Generate(local, "player.proto", []FileEntry{{
+		File: imported, Filename: "inventory.proto",
+	}})
+	require.NoError(t, err)
+
+	messageSource := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, messageSource, "import cafecito.inventory.v1")
+	require.Contains(t, messageSource, "var held: InventoryItem? = null")
+	require.NotContains(t, messageSource, "LOCAL_ITEM_UNSPECIFIED")
+
+	unionSource := files["cafecito/game/v1/PlayerPayloadCase.pb.fs"]
+	require.Contains(t, unionSource, "import cafecito.inventory.v1")
+	require.Contains(t, unionSource, "Equipped(equipped: InventoryItem)")
+	require.NotContains(t, unionSource, "Equipped(equipped: Item)")
 }
 
 func TestReferencedDependencyReportsInvalidPrefix(t *testing.T) {
