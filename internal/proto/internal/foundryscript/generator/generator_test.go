@@ -1091,7 +1091,9 @@ func TestGenerateRejectsCollidingMemberNames(t *testing.T) {
 		},
 	}}, nil), "player.proto", nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "both map to the member var_")
+	require.Contains(t, err.Error(), "generated Foundry member names collide:")
+	require.Contains(t, err.Error(), `Foundry member "var_"`)
+	require.Contains(t, err.Error(), "rename one protobuf declaration")
 }
 
 // A oneof member and a plain field can collide the same way.
@@ -1105,7 +1107,9 @@ func TestGenerateRejectsOneofCollidingWithAField(t *testing.T) {
 		}},
 	}}, nil), "player.proto", nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "both map to the member payload")
+	require.Contains(t, err.Error(), `Foundry member "payload"`)
+	require.Contains(t, err.Error(), "field cafecito.game.v1.Player.payload")
+	require.Contains(t, err.Error(), "oneof cafecito.game.v1.Player.payload")
 }
 
 // Every record in the shared buffer carries a field number this schema has no
@@ -1243,7 +1247,8 @@ func TestGenerateRejectsCollidingRetentionMembers(t *testing.T) {
 		}},
 	), "player.proto", nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "both map to the member _pb_pick_kind_unknown")
+	require.Contains(t, err.Error(), `Foundry member "_pb_pick_kind_unknown"`)
+	require.Contains(t, err.Error(), "retained enum companion cafecito.game.v1.Player.pick_kind")
 }
 
 // Two imported namespaces declaring the same short name make it ambiguous even
@@ -1283,6 +1288,73 @@ func TestSameNameFromTwoImportedNamespacesIsQualified(t *testing.T) {
 	require.Contains(t, source, "var listed: cafecito.catalog.v1.Item? = null")
 	require.Contains(t, source, "import cafecito.catalog.v1")
 	require.Contains(t, source, "import cafecito.inventory.v1")
+}
+
+func TestGenerateEscapesEngineTypeMessageMembersEverywhere(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "int32", Name: "Node", Number: 1},
+			{FieldType: "string", Name: "String", Number: 2, Optional: true},
+			{FieldType: "int32", Name: "Timer", Number: 3, Repeated: true},
+		},
+		Maps: []*protoast.MapField{{
+			KeyType: "string", ValueType: "string", Name: "Resource", Number: 4,
+		}},
+		Oneofs: []*protoast.Oneof{{
+			Name: "Object",
+			Fields: []*protoast.Field{{
+				FieldType: "string", Name: "Image", Number: 5,
+			}},
+		}},
+		NestedMessages: []*protoast.Message{{
+			Name: "Child",
+			Fields: []*protoast.Field{{
+				FieldType: "int32", Name: "Node", Number: 1,
+			}},
+		}},
+	}}, nil))
+
+	messageSource := files["cafecito/game/v1/Player.pb.fs"]
+	for _, declaration := range []string{
+		"var Node_: int = 0",
+		"var String_: String? = null",
+		"var Timer_: Array[int] = []",
+		"var Resource_: Dictionary[String, String] = {}",
+		"var Object_: PlayerObjectCase? = null",
+	} {
+		require.Contains(t, messageSource, declaration)
+	}
+	require.Equal(t, 2, strings.Count(messageSource, "var Node_: int = 0"))
+
+	for _, expression := range []string{
+		"if Node_ != 0:",
+		"Wire.encode_varint(Node_)",
+		"if String_ is String:",
+		"Wire.encode_string(String_)",
+		"if Timer_.size() > 0:",
+		"for _pb_Timer_item: int in Timer_:",
+		"for _pb_Resource_key: String in Resource_:",
+		"Resource_[_pb_Resource_key]",
+		"match Object_:",
+		"Node_ = _pb_Node_read.value",
+		"String_ = _pb_String_read.value",
+		"Timer_.append(_pb_Timer_read.value)",
+		"Resource_[_pb_Resource_key] = _pb_Resource_value",
+		"Object_ = PlayerObjectCase.Image(_pb_Object_Image_read.value)",
+	} {
+		require.Contains(t, messageSource, expression)
+	}
+
+	require.Contains(t, messageSource, "## The Node protobuf field.")
+	require.Contains(t, messageSource, "## The Object protobuf oneof; null when no case is set.")
+	require.NotContains(t, messageSource, "The Node_ protobuf field.")
+	require.NotContains(t, messageSource, "The Object_ protobuf oneof")
+
+	oneofSource := files["cafecito/game/v1/PlayerObjectCase.pb.fs"]
+	require.Contains(t, oneofSource, "## Cases of the Object protobuf oneof.")
+	require.Contains(t, oneofSource, "\tImage(Image: String)")
+	require.NotContains(t, oneofSource, "Image_")
 }
 
 // Every generated file imports foundry.proto, so a schema type sharing a name

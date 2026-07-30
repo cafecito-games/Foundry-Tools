@@ -19,7 +19,7 @@ func fieldMember(plan *fieldPlan) fsast.Node {
 		member.Setter = discardRetained([]string{plan.UnknownMember()}, plan.Name)
 	}
 	return fsast.Doc{
-		Lines: docOrFallback(plan.Doc, fieldDoc(plan.Name)),
+		Lines: docOrFallback(plan.Doc, fieldDoc(plan.RawName)),
 		Node:  member,
 	}
 }
@@ -40,7 +40,7 @@ func oneofMember(oneof *oneofPlan) fsast.Node {
 		member.Setter = discardRetained(buffers, oneof.Field)
 	}
 	return fsast.Doc{
-		Lines: docOrFallback(oneof.Doc, oneofDoc(oneof.Field)),
+		Lines: docOrFallback(oneof.Doc, oneofDoc(oneof.RawField)),
 		Node:  member,
 	}
 }
@@ -83,7 +83,7 @@ func oneofUnion(oneof *oneofPlan) fsast.Enum {
 		})
 	}
 	return fsast.Enum{
-		Doc:    oneofUnionDoc(oneof.Field),
+		Doc:    oneofUnionDoc(oneof.RawField),
 		Name:   oneof.Type,
 		Values: values,
 	}
