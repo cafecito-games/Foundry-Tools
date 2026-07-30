@@ -1,0 +1,5 @@
+{
+  "header": {"version_full_name": "Foundry v0.1.alpha14.gh"},
+  "builtin_classes": [{"name": "String"}, {"name": "Array"}],
+  "classes": [{"name": "Timer"}, {"name": "Node"}]
+}
