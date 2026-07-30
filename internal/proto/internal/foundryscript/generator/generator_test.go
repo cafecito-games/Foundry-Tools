@@ -809,6 +809,39 @@ func TestGeneratePackedRunRejectsElementsCrossingItsEnd(t *testing.T) {
 	}
 }
 
+// proto3 omits an implicit-presence field holding the default, and for a float
+// the default is +0.0 specifically. -0.0 is a distinct value that protobuf puts
+// on the wire, and `!= 0.0` reports the two as equal, so a float cannot use the
+// plain zero comparison the integral types do.
+func TestGenerateFloatPresenceDistinguishesNegativeZero(t *testing.T) {
+	source := playerSource(t, []*protoast.Field{
+		{FieldType: "double", Name: "ratio", Number: 1},
+		{FieldType: "float", Name: "accuracy", Number: 2},
+		{FieldType: "int32", Name: "level", Number: 3},
+	})
+
+	require.Contains(t, source, "if not Wire.is_default_float(ratio):")
+	require.Contains(t, source, "if not Wire.is_default_float(accuracy):")
+	require.NotContains(t, source, "if ratio != 0.0:")
+	// An integer has one zero, so it keeps the direct comparison.
+	require.Contains(t, source, "if level != 0:")
+}
+
+// A map entry is a length-delimited submessage. Its key and value readers bound
+// themselves against the whole buffer, so a truncated entry would otherwise
+// read the field that follows it and report success.
+func TestGenerateMapEntryRejectsReadsCrossingItsEnd(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Maps: []*protoast.MapField{{KeyType: "sfixed64", ValueType: "float", Name: "ratios", Number: 1}},
+	}}, nil))
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "if _pb_ratios_key_read.offset > _pb_ratios_end:")
+	require.Contains(t, source, "if _pb_ratios_value_read.offset > _pb_ratios_end:")
+	require.Contains(t, source, "return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH")
+}
+
 // The same framing has to hold where the value is not a plain field: map keys
 // and values carry their own tags inside the entry, and a oneof member carries
 // the tag of the field it stands for.

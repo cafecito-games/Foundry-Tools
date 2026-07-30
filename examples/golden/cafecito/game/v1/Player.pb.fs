@@ -256,10 +256,10 @@ func to_bytes() -> PackedByteArray:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(16, Wire.WIRE_LENGTH_DELIMITED)))
 		_pb_result.append_array(Wire.encode_varint(_pb_loadout_entry.size()))
 		_pb_result.append_array(_pb_loadout_entry)
-	if accuracy != 0.0:
+	if not Wire.is_default_float(accuracy):
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(17, Wire.WIRE_32BIT)))
 		_pb_result.append_array(Wire.encode_float(accuracy))
-	if play_time_seconds != 0.0:
+	if not Wire.is_default_float(play_time_seconds):
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(18, Wire.WIRE_64BIT)))
 		_pb_result.append_array(Wire.encode_double(play_time_seconds))
 	if session_id != 0:
@@ -406,6 +406,8 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 							var _pb_counts_key_read: StringRead = Wire.read_string(_pb_data, _pb_offset)
 							if _pb_counts_key_read.error != ProtobufError.OK:
 								return _pb_counts_key_read.error
+							if _pb_counts_key_read.offset > _pb_counts_end:
+								return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH
 							_pb_counts_key = _pb_counts_key_read.value
 							_pb_offset = _pb_counts_key_read.offset
 						2:
@@ -414,6 +416,8 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 							var _pb_counts_value_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
 							if _pb_counts_value_read.error != ProtobufError.OK:
 								return _pb_counts_value_read.error
+							if _pb_counts_value_read.offset > _pb_counts_end:
+								return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH
 							_pb_counts_value = _pb_counts_value_read.value
 							_pb_offset = _pb_counts_value_read.offset
 						_:
@@ -483,6 +487,8 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 							var _pb_loadout_key_read: StringRead = Wire.read_string(_pb_data, _pb_offset)
 							if _pb_loadout_key_read.error != ProtobufError.OK:
 								return _pb_loadout_key_read.error
+							if _pb_loadout_key_read.offset > _pb_loadout_end:
+								return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH
 							_pb_loadout_key = _pb_loadout_key_read.value
 							_pb_offset = _pb_loadout_key_read.offset
 						2:
@@ -491,6 +497,8 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 							var _pb_loadout_value_read: SkipRead = Wire.read_message(_pb_data, _pb_offset, _pb_loadout_value)
 							if _pb_loadout_value_read.error != ProtobufError.OK:
 								return _pb_loadout_value_read.error
+							if _pb_loadout_value_read.offset > _pb_loadout_end:
+								return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH
 							_pb_offset = _pb_loadout_value_read.offset
 						_:
 							var _pb_loadout_skip: SkipRead = Wire.skip_field(_pb_data, _pb_offset, _pb_loadout_entry_wire_type)

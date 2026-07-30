@@ -80,6 +80,17 @@ static func encode_double(value: float) -> PackedByteArray:
 	result.encode_double(0, value)
 	return result
 
+## Reports whether value is the default proto3 writes nothing for.
+##
+## For a float that default is +0.0 specifically. -0.0 is a distinct value that
+## protobuf puts on the wire, and `value != 0.0` answers false for both of
+## them, so the sign is recovered from a division: it is the one operation that
+## still tells the two zeroes apart. The division only ever runs for a zero.
+static func is_default_float(value: float) -> bool:
+	if value != 0.0:
+		return false
+	return 1.0 / value > 0.0
+
 ## Encodes value as a zig-zag varint over 32 bits. Zig-zag maps small negatives
 ## onto small unsigned numbers, so -1 costs one byte instead of the ten a plain
 ## varint spends sign-extending it.

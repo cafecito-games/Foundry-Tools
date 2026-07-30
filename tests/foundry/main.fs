@@ -358,6 +358,50 @@ func check_truncated_packed_run() -> void:
 	check(decode_error == ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH, "a packed run that overruns its length is rejected")
 	check(not (decoded is ScalarSuite), "a rejected message yields no value")
 
+	check_truncated_map_entry()
+	check_negative_zero_presence()
+
+## A map entry is length-delimited too, and a value that reads past the entry
+## would take bytes from the field after it.
+func check_truncated_map_entry() -> void:
+	## Field 12 is map<sfixed64, float>. The entry announces six bytes but holds
+	## a key tag plus only two of the key's eight.
+	var entry: PackedByteArray = PackedByteArray()
+	entry.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_64BIT)))
+	entry.append_array(PackedByteArray([1, 0]))
+
+	var truncated: PackedByteArray = PackedByteArray()
+	truncated.append_array(Wire.encode_varint(Wire.make_tag(12, Wire.WIRE_LENGTH_DELIMITED)))
+	truncated.append_array(Wire.encode_varint(entry.size()))
+	truncated.append_array(entry)
+	truncated.append_array(Wire.encode_varint(Wire.make_tag(7, Wire.WIRE_VARINT)))
+	truncated.append_array(Wire.encode_sint32(9))
+
+	var (decoded, decode_error) = ScalarSuite.from_bytes(truncated)
+	check(decode_error == ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH, "a map entry that overruns its length is rejected")
+	check(not (decoded is ScalarSuite), "a rejected map entry yields no value")
+
+## proto3 omits a float field holding the default, and the default is +0.0.
+## -0.0 is a distinct value protobuf writes, so it has to survive a decode and
+## re-encode rather than being folded onto the default and dropped.
+func check_negative_zero_presence() -> void:
+	## Built from bytes: a -0.0 written as a literal cannot be relied on here.
+	## See cafecito-games/Foundry#1371.
+	var negative_zero: PackedByteArray = PackedByteArray()
+	negative_zero.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_64BIT)))
+	negative_zero.append_array(PackedByteArray([0, 0, 0, 0, 0, 0, 0, 128]))
+
+	var (decoded, decode_error) = ScalarSuite.from_bytes(negative_zero)
+	check(decode_error == ProtobufError.OK, "negative zero decodes")
+	if decoded is ScalarSuite:
+		check(decoded.double_value == 0.0, "negative zero compares equal to zero")
+		check(decoded.to_bytes() == negative_zero, "negative zero is written rather than treated as the default")
+
+	## Positive zero is the default and stays off the wire.
+	var positive: ScalarSuite = ScalarSuite.new()
+	positive.double_value = 0.0
+	check(positive.to_bytes().is_empty(), "positive zero is omitted as the default")
+
 func populated_scalar_suite() -> ScalarSuite:
 	var suite: ScalarSuite = ScalarSuite.new()
 	suite.double_value = -2.5

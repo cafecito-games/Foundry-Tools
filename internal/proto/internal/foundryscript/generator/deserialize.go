@@ -50,6 +50,23 @@ type readContext struct {
 	// retainUnknownEnum emits the statements that preserve an unrecognized enum
 	// value spanning data[from:to].
 	retainUnknownEnum func(depth int, from, to string) []fsast.Node
+	// boundary names the local holding the end of the enclosing length-delimited
+	// region, when there is one. The runtime readers bound themselves against
+	// the whole buffer, so reading inside a map entry has to be checked against
+	// the entry as well or a truncated one consumes the field after it.
+	boundary string
+}
+
+// boundaryGuard rejects a read that finished past the enclosing region. It
+// emits nothing when the read is not inside one.
+func (c readContext) boundaryGuard(depth int, read string) []fsast.Node {
+	if c.boundary == "" {
+		return nil
+	}
+	return []fsast.Node{
+		line(depth, fmt.Sprintf("if %s.offset > %s:", read, c.boundary)),
+		line(depth+1, "return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH"),
+	}
 }
 
 func mergeFromBytesFunction(plans []fieldPlan) fsast.Func {
@@ -178,21 +195,27 @@ func readValue(depth int, value valuePlan, context readContext) []fsast.Node {
 		if value.ProtoType == "bytes" {
 			carrier, reader = "BytesRead", "read_bytes"
 		}
-		return []fsast.Node{
+		nodes := []fsast.Node{
 			line(depth, fmt.Sprintf("var %s: %s = Wire.%s(%s, %s)", read, carrier, reader, dataParameter, cursorLocal)),
 			line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", read)),
 			line(depth+1, "return "+read+".error"),
+		}
+		nodes = append(nodes, context.boundaryGuard(depth, read)...)
+		return append(nodes,
 			line(depth, context.assign(read+".value")),
 			line(depth, fmt.Sprintf("%s = %s.offset", cursorLocal, read)),
-		}
+		)
 	default:
-		return []fsast.Node{
+		nodes := []fsast.Node{
 			line(depth, fmt.Sprintf("var %s: %s = %s(%s, %s)", read, value.readCarrier(), value.readFunction(), dataParameter, cursorLocal)),
 			line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", read)),
 			line(depth+1, "return "+read+".error"),
+		}
+		nodes = append(nodes, context.boundaryGuard(depth, read)...)
+		return append(nodes,
 			line(depth, context.assign(varintResultExpression(value, read+".value"))),
 			line(depth, fmt.Sprintf("%s = %s.offset", cursorLocal, read)),
-		}
+		)
 	}
 }
 
@@ -217,6 +240,7 @@ func readMessageValue(depth int, value valuePlan, context readContext, read stri
 		line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", read)),
 		line(depth+1, "return "+read+".error"),
 	)
+	nodes = append(nodes, context.boundaryGuard(depth, read)...)
 	if context.mode == mergeFresh {
 		nodes = append(nodes, line(depth, context.assign(target)))
 	}
@@ -233,11 +257,14 @@ func readEnumValue(depth int, value valuePlan, context readContext, read string)
 		line(depth, fmt.Sprintf("var %s: VarintRead = Wire.decode_varint(%s, %s)", read, dataParameter, cursorLocal)),
 		line(depth, fmt.Sprintf("if %s.error != ProtobufError.OK:", read)),
 		line(depth+1, "return "+read+".error"),
+	}
+	nodes = append(nodes, context.boundaryGuard(depth, read)...)
+	nodes = append(nodes,
 		line(depth, fmt.Sprintf("var %s: %s? = %s.from_wire(%s.value)", decoded, typeName, typeName, read)),
 		line(depth, fmt.Sprintf("if %s is %s:", decoded, typeName)),
 		line(depth+1, context.assign(decoded)),
 		line(depth, "else:"),
-	}
+	)
 	nodes = append(nodes, context.retainUnknownEnum(depth+1, cursorLocal, read+".offset")...)
 	return append(nodes, line(depth, fmt.Sprintf("%s = %s.offset", cursorLocal, read)))
 }
@@ -330,8 +357,9 @@ func deserializeMap(plan *fieldPlan) []fsast.Node {
 		line(7, "return ProtobufError.WIRE_TYPE_MISMATCH"),
 	)
 	nodes = append(nodes, readValue(6, plan.Key, readContext{
-		local:  key,
-		assign: func(expression string) string { return key + " = " + expression },
+		local:    key,
+		assign:   func(expression string) string { return key + " = " + expression },
+		boundary: end,
 	})...)
 	nodes = append(nodes,
 		line(5, "2:"),
@@ -343,8 +371,9 @@ func deserializeMap(plan *fieldPlan) []fsast.Node {
 		assign: func(expression string) string { return value + " = " + expression },
 		// The entry's value already holds a fresh instance, so a submessage
 		// merges into it rather than replacing it.
-		mode:   mergeInto,
-		target: value,
+		mode:     mergeInto,
+		target:   value,
+		boundary: end,
 	}
 	valueContext.retainUnknownEnum = foldUnrecognizedEnum(plan.Value, valueContext.assign)
 	nodes = append(nodes, readValue(6, plan.Value, valueContext)...)
