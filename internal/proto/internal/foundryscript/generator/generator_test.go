@@ -155,6 +155,89 @@ func TestNestedOneofFlattensPrefixedOwnerSegments(t *testing.T) {
 	require.NotContains(t, files, "cafecito/game/v1/GameOuterInnerChoiceCase.pb.fs")
 }
 
+func TestSameFileDescriptorEnumResolvesLocally(t *testing.T) {
+	files, err := Generate(namespacedFile(
+		[]*protoast.Message{{
+			Name: "Player",
+			Fields: []*protoast.Field{{
+				Name:         "status",
+				Number:       1,
+				FieldType:    "PlayerStatus",
+				FullTypePath: "cafecito.game.v1.PlayerStatus",
+				SourceFile:   "player.proto",
+				IsEnum:       true,
+			}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	), "player.proto", nil)
+	require.NoError(t, err)
+
+	source := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, source,
+		"var status: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED")
+	require.Contains(t, source, "status.to_wire()")
+}
+
+func TestSameFileDescriptorEnumUsesLocalPrefix(t *testing.T) {
+	files, err := Generate(prefixedFile(
+		"Game",
+		[]*protoast.Message{{
+			Name: "Player",
+			Fields: []*protoast.Field{{
+				Name:         "status",
+				Number:       1,
+				FieldType:    "PlayerStatus",
+				FullTypePath: "cafecito.game.v1.PlayerStatus",
+				SourceFile:   "player.proto",
+				IsEnum:       true,
+			}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	), "player.proto", nil)
+	require.NoError(t, err)
+
+	source := files["cafecito/game/v1/GamePlayer.pb.fs"]
+	require.Contains(t, source,
+		"var status: GamePlayerStatus = GamePlayerStatus.PLAYER_STATUS_UNSPECIFIED")
+	require.Contains(t, files["cafecito/game/v1/GamePlayerStatus.pb.fs"],
+		"enum_name GamePlayerStatus")
+}
+
+func TestSameFileDescriptorMapEnumResolvesLocally(t *testing.T) {
+	files, err := Generate(namespacedFile(
+		[]*protoast.Message{{
+			Name: "Player",
+			Maps: []*protoast.MapField{{
+				Name:              "seen",
+				Number:            1,
+				KeyType:           "string",
+				ValueType:         "PlayerStatus",
+				FullValueTypePath: "cafecito.game.v1.PlayerStatus",
+				ValueSourceFile:   "player.proto",
+				ValueIsEnum:       true,
+			}},
+		}},
+		[]*protoast.Enum{{
+			Name:   "PlayerStatus",
+			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
+		}},
+	), "player.proto", nil)
+	require.NoError(t, err)
+
+	source := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, source, "var seen: Dictionary[String, PlayerStatus] = {}")
+	require.Contains(t, source,
+		"var _pb_seen_value: PlayerStatus = PlayerStatus.PLAYER_STATUS_UNSPECIFIED")
+	require.Contains(t, source,
+		"_pb_seen_entry.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_VARINT)))")
+}
+
 func TestReferenceUsesDeclaringFilesPrefix(t *testing.T) {
 	imported := &protoast.ProtoFile{
 		Syntax:  "proto3",

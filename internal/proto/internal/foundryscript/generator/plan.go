@@ -597,16 +597,20 @@ type typeUse struct {
 	// EnumValues is the referenced enum's values when it was declared in
 	// another file; the parser fills this in as part of resolving the import.
 	EnumValues []*protoast.EnumValue
-	// SourceFile is the proto file the type was declared in, when that is not
-	// the file being generated.
+	// SourceFile is the proto file the type was declared in. Descriptor-driven
+	// generation also sets it for same-file references.
 	SourceFile string
+}
+
+func (r *resolver) isDependencySource(sourceFile string) bool {
+	return sourceFile != "" && sourceFile != r.sourceName
 }
 
 // resolve looks a reference up in the source that declared it. A field the
 // parser resolved across files is looked up in that file's namespace only;
 // anything else resolves lexically from scope outward, as proto does.
 func (r *resolver) resolve(use typeUse, scope, reference string) (typeInfo, bool) {
-	if use.SourceFile != "" {
+	if r.isDependencySource(use.SourceFile) {
 		info, found := r.imported[use.SourceFile][reference]
 		return info, found
 	}
@@ -614,20 +618,23 @@ func (r *resolver) resolve(use typeUse, scope, reference string) (typeInfo, bool
 }
 
 func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) {
-	if err := r.dependencyErrors[use.SourceFile]; err != nil {
-		return valuePlan{}, err
-	}
+	isDependency := r.isDependencySource(use.SourceFile)
 	// Inside the declaring class the reference is emitted as the schema wrote
 	// it: Foundry resolves inner type names lexically, exactly as proto does.
 	// Outside it, the registry's scoped reference is what resolves.
-	if r.unnamespaced[use.SourceFile] {
-		return valuePlan{}, fmt.Errorf(
-			"%s is declared in %s, which has no usable namespace: give it a package or a valid (foundrytools.namespace) option",
-			use.ProtoType, use.SourceFile)
+	if isDependency {
+		if err := r.dependencyErrors[use.SourceFile]; err != nil {
+			return valuePlan{}, err
+		}
+		if r.unnamespaced[use.SourceFile] {
+			return valuePlan{}, fmt.Errorf(
+				"%s is declared in %s, which has no usable namespace: give it a package or a valid (foundrytools.namespace) option",
+				use.ProtoType, use.SourceFile)
+		}
 	}
 	protoReference := TypeReference(use.ProtoType)
 	namer := r.localNamer
-	if use.SourceFile != "" {
+	if isDependency {
 		namer = r.dependencyNamers[use.SourceFile]
 	}
 	emittedReference := namer.Reference(use.ProtoType)
@@ -641,15 +648,19 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 		if cut := strings.Index(topLevel, "."); cut >= 0 {
 			topLevel = topLevel[:cut]
 		}
+		namespace := ""
+		if isDependency {
+			namespace = r.namespaces[use.SourceFile]
+		}
 		info = typeInfo{
 			ProtoReference: protoReference,
 			Reference:      emittedReference,
 			IsEnum:         use.IsEnum,
 			ZeroCase:       zeroValueNameOf(use.EnumValues),
-			Namespace:      r.namespaces[use.SourceFile],
+			Namespace:      namespace,
 			TopLevel:       topLevel,
 		}
-	} else if use.SourceFile != "" {
+	} else if isDependency {
 		if declaration, declared := r.importedDeclarations[use.SourceFile].resolve(
 			use.FullProtoPath,
 			use.ProtoType,
