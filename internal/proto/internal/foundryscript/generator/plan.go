@@ -284,10 +284,11 @@ func (r typeRegistry) resolve(scope, reference string) (typeInfo, bool) {
 // competing for one spelling; only the field's source file says which was
 // meant.
 type resolver struct {
-	local      typeRegistry
-	localNamer typeNamer
-	sourceName string
-	collisions *collisionCollector
+	local        typeRegistry
+	localNamer   typeNamer
+	sourceName   string
+	protoPackage string
+	collisions   *collisionCollector
 	// imported holds each dependency's declarations, keyed by its source file.
 	imported map[string]typeRegistry
 	// importedDeclarations preserves exact raw protobuf declaration identities
@@ -314,6 +315,7 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 		local:                typeRegistry{},
 		localNamer:           localNamer,
 		sourceName:           sourceName,
+		protoPackage:         file.Package,
 		collisions:           newCollisionCollector(),
 		imported:             map[string]typeRegistry{},
 		importedDeclarations: map[string]declarationIndex{},
@@ -602,19 +604,63 @@ type typeUse struct {
 	SourceFile string
 }
 
+type typeResolution struct {
+	Info           typeInfo
+	Reference      string
+	Found          bool
+	CanonicalLocal bool
+}
+
 func (r *resolver) isDependencySource(sourceFile string) bool {
 	return sourceFile != "" && sourceFile != r.sourceName
+}
+
+// localReference canonicalizes an absolute or current-package-qualified
+// protobuf name to the registry-relative spelling used for local declarations.
+//
+// A package-looking relative name may instead name an ordinary nested
+// declaration. Resolve that spelling first, matching protobuf's lexical rules,
+// and only treat it as package-qualified when no declaration captures it.
+func (r *resolver) localReference(scope, protoType string) (string, bool) {
+	normalized := strings.TrimLeft(protoType, ".")
+	absolute := normalized != protoType
+	reference := TypeReference(normalized)
+	if !absolute {
+		if _, found := r.local.resolve(scope, reference); found {
+			return reference, false
+		}
+	}
+
+	protoPackage := strings.TrimLeft(r.protoPackage, ".")
+	if protoPackage != "" {
+		packagePrefix := protoPackage + "."
+		if strings.HasPrefix(normalized, packagePrefix) {
+			return TypeReference(strings.TrimPrefix(normalized, packagePrefix)), true
+		}
+	}
+	return reference, absolute
 }
 
 // resolve looks a reference up in the source that declared it. A field the
 // parser resolved across files is looked up in that file's namespace only;
 // anything else resolves lexically from scope outward, as proto does.
-func (r *resolver) resolve(use typeUse, scope, reference string) (typeInfo, bool) {
+func (r *resolver) resolve(use typeUse, scope, reference string) typeResolution {
 	if r.isDependencySource(use.SourceFile) {
 		info, found := r.imported[use.SourceFile][reference]
-		return info, found
+		return typeResolution{Info: info, Reference: reference, Found: found}
 	}
-	return r.local.resolve(scope, reference)
+	localReference, canonical := r.localReference(scope, use.ProtoType)
+	if canonical {
+		info, found := r.local.resolve("", localReference)
+		return typeResolution{
+			Info:           info,
+			Reference:      localReference,
+			Found:          found,
+			CanonicalLocal: true,
+		}
+	}
+	info, found := r.local.resolve(scope, localReference)
+	return typeResolution{Info: info, Reference: localReference, Found: found}
 }
 
 func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) {
@@ -638,7 +684,12 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 		namer = r.dependencyNamers[use.SourceFile]
 	}
 	emittedReference := namer.Reference(use.ProtoType)
-	info, found := r.resolve(use, scope, protoReference)
+	resolution := r.resolve(use, scope, protoReference)
+	info, found := resolution.Info, resolution.Found
+	if found && resolution.CanonicalLocal {
+		protoReference = resolution.Reference
+		emittedReference = info.Reference
+	}
 	if !found {
 		// The descriptor-driven plugin path can hand over a reference whose
 		// declaration is not in the request. The parser still told us whether

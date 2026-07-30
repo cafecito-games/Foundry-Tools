@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package probe.local.v1;
+
+option (foundrytools.type_prefix) = "Game";
+
+message Node {
+  string label = 1;
+}
+
+message Holder {
+  .probe.local.v1.Node node = 1;
+  map<string, .probe.local.v1.Node> nodes = 2;
+
+  oneof selection {
+    .probe.local.v1.Node selected = 3;
+  }
+}

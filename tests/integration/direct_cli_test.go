@@ -79,3 +79,29 @@ func TestDirectCLIAppliesTypePrefix(t *testing.T) {
 	_, err = os.Stat(filepath.Join(outDir, "probe/collisions/v1/Node.pb.fs"))
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
+
+func TestDirectCLIResolvesAbsoluteLocalTypeReferences(t *testing.T) {
+	root := repoRoot(t)
+	outDir := t.TempDir()
+
+	run(t, root, "go", "run", "./cmd/anvil", "proto", "generate",
+		"-I", "tests/integration/fixtures/absolute_local",
+		"-o", outDir,
+		"tests/integration/fixtures/absolute_local/types.proto")
+
+	holder, err := os.ReadFile(filepath.Join(outDir, "probe/local/v1/GameHolder.pb.fs"))
+	require.NoError(t, err)
+	require.Contains(t, string(holder), "var node: GameNode? = null")
+	require.Contains(t, string(holder), "var nodes: Dictionary[String, GameNode] = {}")
+	require.Contains(t, string(holder),
+		"var _pb_selection_selected_message: GameNode = GameNode.new()")
+
+	union, err := os.ReadFile(filepath.Join(outDir, "probe/local/v1/GameHolderSelectionCase.pb.fs"))
+	require.NoError(t, err)
+	require.Contains(t, string(union), "\tSelected(selected: GameNode)\n")
+
+	generated := string(holder) + string(union)
+	require.NotContains(t, generated, "GameProbe")
+	require.NotContains(t, generated, "GameLocal")
+	require.NotContains(t, generated, "GameV1")
+}

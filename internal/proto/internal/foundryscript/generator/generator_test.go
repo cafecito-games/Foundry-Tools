@@ -138,6 +138,69 @@ func TestGeneratePrefixesDeclarationsReferencesAndPaths(t *testing.T) {
 	require.NotContains(t, files, "cafecito/game/v1/State.pb.fs")
 }
 
+func TestGenerateCanonicalizesAbsoluteLocalReferencesBeforeApplyingPrefix(t *testing.T) {
+	files := generate(t, prefixedFile("Game", []*protoast.Message{
+		{
+			Name: "Outer",
+			Fields: []*protoast.Field{
+				{FieldType: "Inner", Name: "lexical", Number: 1},
+				{FieldType: "Outer.Inner", Name: "qualified", Number: 2},
+				{
+					FieldType:    "Inner",
+					FullTypePath: "cafecito.game.v1.Outer.Inner",
+					SourceFile:   "player.proto",
+					Name:         "descriptor_lexical",
+					Number:       3,
+				},
+			},
+			NestedMessages: []*protoast.Message{{Name: "Inner"}},
+		},
+		{
+			Name: "Holder",
+			Fields: []*protoast.Field{
+				{
+					FieldType: ".cafecito.game.v1.Outer.Inner",
+					Name:      "absolute",
+					Number:    1,
+				},
+				{
+					FieldType: "cafecito.game.v1.Outer.Inner",
+					Name:      "package_qualified",
+					Number:    2,
+				},
+				{
+					FieldType: "cafecito.game.v1.Node",
+					Name:      "matching_relative",
+					Number:    3,
+				},
+			},
+		},
+		{
+			Name: "cafecito",
+			NestedMessages: []*protoast.Message{{
+				Name: "game",
+				NestedMessages: []*protoast.Message{{
+					Name: "v1",
+					NestedMessages: []*protoast.Message{{
+						Name: "Node",
+					}},
+				}},
+			}},
+		},
+	}, nil))
+
+	outer := files["cafecito/game/v1/GameOuter.pb.fs"]
+	require.Contains(t, outer, "var lexical: GameInner? = null")
+	require.Contains(t, outer, "var qualified: GameOuter.GameInner? = null")
+	require.Contains(t, outer, "var descriptor_lexical: GameInner? = null")
+
+	holder := files["cafecito/game/v1/GameHolder.pb.fs"]
+	require.Contains(t, holder, "var absolute: GameOuter.GameInner? = null")
+	require.Contains(t, holder, "var package_qualified: GameOuter.GameInner? = null")
+	require.Contains(t, holder,
+		"var matching_relative: GameCafecito.GameGame.GameV1.GameNode? = null")
+}
+
 func TestNestedOneofFlattensPrefixedOwnerSegments(t *testing.T) {
 	files := generate(t, prefixedFile("Game", []*protoast.Message{{
 		Name: "Outer",
