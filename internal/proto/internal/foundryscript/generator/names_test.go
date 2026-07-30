@@ -108,3 +108,55 @@ func TestTypeNamerZeroValueMatchesLegacyHelpers(t *testing.T) {
 		require.Equal(t, TypeReference(reference), namer.Reference(reference))
 	}
 }
+
+func TestPlanMemberNameEscapesEngineTypes(t *testing.T) {
+	tests := []struct {
+		raw       string
+		generated string
+		kind      memberEscapeKind
+		reason    string
+	}{
+		{raw: "String", generated: "String_", kind: memberEscapeEngineBuiltin, reason: `built-in type "String"`},
+		{raw: "AsyncCallable", generated: "AsyncCallable_", kind: memberEscapeEngineBuiltin, reason: `built-in type "AsyncCallable"`},
+		{raw: "Node", generated: "Node_", kind: memberEscapeEngineNative, reason: `native class "Node"`},
+		{raw: "Timer", generated: "Timer_", kind: memberEscapeEngineNative, reason: `native class "Timer"`},
+		{raw: "node", generated: "node", kind: memberEscapeNone},
+		{raw: "string", generated: "string", kind: memberEscapeNone},
+		{raw: "Node_", generated: "Node_", kind: memberEscapeNone},
+	}
+
+	for _, test := range tests {
+		t.Run(test.raw, func(t *testing.T) {
+			got := planMemberName(test.raw)
+			require.Equal(t, test.generated, got.Generated)
+			require.Equal(t, test.kind, got.Escape.Kind)
+			require.Equal(t, test.reason, got.Escape.Description())
+			require.Equal(t, test.generated, FieldName(test.raw))
+		})
+	}
+}
+
+func TestPlanMemberNameKeepsExistingEscapePolicies(t *testing.T) {
+	tests := []struct {
+		raw       string
+		generated string
+		kind      memberEscapeKind
+	}{
+		{raw: "var", generated: "var_", kind: memberEscapeKeyword},
+		{raw: "to_bytes", generated: "to_bytes_", kind: memberEscapeGenerated},
+		{raw: "merge_from_bytes", generated: "merge_from_bytes_", kind: memberEscapeGenerated},
+		{raw: "plain", generated: "plain", kind: memberEscapeNone},
+	}
+	for _, test := range tests {
+		got := planMemberName(test.raw)
+		require.Equal(t, test.generated, got.Generated)
+		require.Equal(t, test.kind, got.Escape.Kind)
+	}
+}
+
+func TestPlanOneofAlternativeNameSkipsEngineTypes(t *testing.T) {
+	require.Equal(t, "Image", planOneofAlternativeName("Image").Generated)
+	require.Equal(t, memberEscapeNone, planOneofAlternativeName("Image").Escape.Kind)
+	require.Equal(t, "var_", planOneofAlternativeName("var").Generated)
+	require.Equal(t, memberEscapeKeyword, planOneofAlternativeName("var").Escape.Kind)
+}

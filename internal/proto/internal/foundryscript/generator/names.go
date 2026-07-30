@@ -161,6 +161,41 @@ func escapeIdentifier(name string) string {
 	return name
 }
 
+type memberEscapeKind uint8
+
+const (
+	memberEscapeNone memberEscapeKind = iota
+	memberEscapeKeyword
+	memberEscapeGenerated
+	memberEscapeEngineBuiltin
+	memberEscapeEngineNative
+)
+
+type memberEscape struct {
+	Kind         memberEscapeKind
+	ReservedName string
+}
+
+func (e memberEscape) Description() string {
+	switch e.Kind {
+	case memberEscapeKeyword:
+		return "Foundry keyword"
+	case memberEscapeGenerated:
+		return "generated member"
+	case memberEscapeEngineBuiltin:
+		return fmt.Sprintf("built-in type %q", e.ReservedName)
+	case memberEscapeEngineNative:
+		return fmt.Sprintf("native class %q", e.ReservedName)
+	default:
+		return ""
+	}
+}
+
+type plannedMemberName struct {
+	Generated string
+	Escape    memberEscape
+}
+
 // reservedFieldNames are the Foundry Script keywords that cannot appear after
 // `var`, so a proto field carrying one of these names has to be renamed rather
 // than emitted verbatim. Verified against the analyzer one word at a time;
@@ -185,14 +220,51 @@ var generatedMemberNames = map[string]bool{
 	unknownFieldsMember: true,
 }
 
+func planNonEngineMemberName(name string) plannedMemberName {
+	switch {
+	case reservedFieldNames[name]:
+		return plannedMemberName{
+			Generated: name + "_",
+			Escape:    memberEscape{Kind: memberEscapeKeyword, ReservedName: name},
+		}
+	case generatedMemberNames[name]:
+		return plannedMemberName{
+			Generated: name + "_",
+			Escape:    memberEscape{Kind: memberEscapeGenerated, ReservedName: name},
+		}
+	}
+
+	return plannedMemberName{Generated: name}
+}
+
+func planMemberName(name string) plannedMemberName {
+	if planned := planNonEngineMemberName(name); planned.Escape.Kind != memberEscapeNone {
+		return planned
+	}
+
+	if engineType, reserved := foundryEngineReservedTypes[name]; reserved {
+		kind := memberEscapeEngineNative
+		if engineType.kind == engineTypeBuiltin {
+			kind = memberEscapeEngineBuiltin
+		}
+		return plannedMemberName{
+			Generated: name + "_",
+			Escape:    memberEscape{Kind: kind, ReservedName: name},
+		}
+	}
+
+	return plannedMemberName{Generated: name}
+}
+
+func planOneofAlternativeName(name string) plannedMemberName {
+	return planNonEngineMemberName(name)
+}
+
 // FieldName converts a proto field name to the member name it is emitted as.
 // Proto field names are otherwise passed through unchanged: they are the
 // binding's public API, and mangling them would break every caller.
 func FieldName(name string) string {
-	if reservedFieldNames[name] || generatedMemberNames[name] {
-		return name + "_"
-	}
-	return name
+	return planMemberName(name).Generated
 }
 
 // localName is the name of a variable the emitter introduces inside a generated
