@@ -49,6 +49,7 @@ func TestRunReportsEngineTypeCollision(t *testing.T) {
 
 	resp := runPlugin(t, req)
 
+	require.Contains(t, resp.GetError(), "node.proto:4:1:")
 	require.Contains(t, resp.GetError(), `native class "Node"`)
 	require.Contains(t, resp.GetError(), "(foundrytools.type_prefix)")
 	require.Empty(t, resp.GetFile())
@@ -90,6 +91,12 @@ func nodeRequest(options *descriptorpb.FileOptions) *pluginpb.CodeGeneratorReque
 					Type:   descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
 				}},
 			}},
+			SourceCodeInfo: &descriptorpb.SourceCodeInfo{
+				Location: []*descriptorpb.SourceCodeInfo_Location{{
+					Path: []int32{4, 0},
+					Span: []int32{3, 0, 5, 1},
+				}},
+			},
 		}},
 	}
 }
