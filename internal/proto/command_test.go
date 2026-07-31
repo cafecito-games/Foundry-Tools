@@ -229,6 +229,79 @@ func TestGenerateAcceptsNamespacesThatCannotShadowTheRuntime(t *testing.T) {
 	}
 }
 
+// TestGenerateJSONFlagIsRegistered verifies --json is a documented flag on the
+// generate command rather than an unrecognized argument.
+func TestGenerateJSONFlagIsRegistered(t *testing.T) {
+	var stdout bytes.Buffer
+	cmd := NewCommand(&stdout)
+	generateCmd, _, err := cmd.Find([]string{"generate"})
+	require.NoError(t, err)
+
+	flag := generateCmd.Flags().Lookup("json")
+	require.NotNil(t, flag, "generate must register a --json flag")
+	require.NotEmpty(t, flag.Usage, "the --json flag must document what it does")
+	require.Equal(t, "false", flag.DefValue, "the flag must default to off")
+}
+
+// TestGenerateJSONFlagReachesGenerate verifies the flag's value is threaded
+// into the Options passed to Generate, not merely parsed and discarded.
+func TestGenerateJSONFlagReachesGenerate(t *testing.T) {
+	original := generateFunc
+	var capturedOptions []Options
+	generateFunc = func(file *File, sourceName string, imports []FileEntry, options Options) (GeneratedFiles, error) {
+		capturedOptions = append(capturedOptions, options)
+		return original(file, sourceName, imports, options)
+	}
+	t.Cleanup(func() { generateFunc = original })
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "probe.proto"), []byte(`syntax = "proto3";
+package demo;
+message Probe {
+  string label = 1;
+}
+`), 0o600))
+
+	var stdout bytes.Buffer
+	cmd := NewCommand(&stdout)
+	cmd.SetArgs([]string{"generate", "-o", t.TempDir(), "-I", root, "--json", filepath.Join(root, "probe.proto")})
+	require.NoError(t, cmd.Execute())
+
+	require.Len(t, capturedOptions, 1)
+	require.True(t, capturedOptions[0].JSON, "--json must reach the Options passed to Generate")
+}
+
+// TestGenerateWithoutJSONFlagMatchesOutputWithoutIt verifies that omitting
+// --json produces output identical to explicitly requesting it off, so
+// today's default behavior is unchanged by the flag's existence.
+func TestGenerateWithoutJSONFlagMatchesOutputWithoutIt(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "probe.proto"), []byte(`syntax = "proto3";
+package demo;
+message Probe {
+  string label = 1;
+}
+`), 0o600))
+
+	implicit := t.TempDir()
+	var stdout bytes.Buffer
+	cmd := NewCommand(&stdout)
+	cmd.SetArgs([]string{"generate", "-o", implicit, "-I", root, filepath.Join(root, "probe.proto")})
+	require.NoError(t, cmd.Execute())
+
+	explicit := t.TempDir()
+	stdout.Reset()
+	cmd = NewCommand(&stdout)
+	cmd.SetArgs([]string{"generate", "-o", explicit, "-I", root, "--json=false", filepath.Join(root, "probe.proto")})
+	require.NoError(t, cmd.Execute())
+
+	implicitSource, err := os.ReadFile(filepath.Join(implicit, "demo", "Probe.pb.fs"))
+	require.NoError(t, err)
+	explicitSource, err := os.ReadFile(filepath.Join(explicit, "demo", "Probe.pb.fs"))
+	require.NoError(t, err)
+	require.Equal(t, string(implicitSource), string(explicitSource))
+}
+
 // generateNamespacedSchema runs `proto generate` over a one-message schema
 // pinned to namespace, and returns the output directory for inspection.
 func generateNamespacedSchema(t *testing.T, namespace string, execute func(*testing.T, *cobra.Command)) string {
