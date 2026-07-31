@@ -45,14 +45,23 @@ if [ -d "$OUT/google" ]; then
   exit 1
 fi
 
-if grep -R -n -E -e '(^|[^_])func [A-Za-z0-9_]+\(.*Variant|-> Variant' "$OUT"; then
+# anvil copies the runtime in beside the bindings, so both scans below reach it
+# too. json_node.fs is the one runtime file that has to break each rule: it is
+# the system's only Variant boundary, and inside an enum body the enum's own
+# name does not resolve unqualified, so its self-references are spelled out in
+# full. The exemption is by file name, exactly as the runtime's own Variant
+# assertion scopes it, so every other file the scans reach is still held to both
+# rules.
+BOUNDARY=json_node.fs
+
+if grep -R -n -E --exclude="$BOUNDARY" -e '(^|[^_])func [A-Za-z0-9_]+\(.*Variant|-> Variant' "$OUT"; then
   echo "public Variant signature found in generated Foundry Script"
   exit 1
 fi
 
 # An active `import foundry.proto` makes every runtime reference short; a
 # dotted one means the emitter re-qualified something it did not need to.
-if grep -R -n -E -e '\bfoundry\.proto\.[A-Z]' "$OUT"; then
+if grep -R -n -E --exclude="$BOUNDARY" -e '\bfoundry\.proto\.[A-Z]' "$OUT"; then
   echo "redundant foundry.proto. qualification found in generated Foundry Script"
   exit 1
 fi

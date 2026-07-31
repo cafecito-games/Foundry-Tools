@@ -11,6 +11,13 @@ import (
 	"github.com/cafecito-games/foundry-tools/internal/runtime"
 )
 
+// The one runtime file allowed to name Variant. JSON.parse_string and
+// JSON.stringify are Variant-typed engine APIs, so a JSON document has to meet
+// a dynamic value somewhere; json_node.fs is that somewhere, and the exemption
+// is scoped to it by name so every other runtime file, present and future,
+// stays Variant-free.
+const jsonNodePath = "foundry/proto/json_node.fs"
+
 func TestFilesReturnsRuntimeSources(t *testing.T) {
 	files := runtime.Files()
 
@@ -18,7 +25,32 @@ func TestFilesReturnsRuntimeSources(t *testing.T) {
 	require.Contains(t, files, "foundry/proto/wire.fs")
 	require.Contains(t, files["foundry/proto/wire.fs"], "static func decode_bytes")
 	require.Contains(t, files["foundry/proto/wire.fs"], "static func skip_field")
-	require.NotContains(t, runtime.PublicSource(files), "Variant")
+	require.NotContains(t, runtime.PublicSource(sourcesOutsideTheVariantBoundary(files)), "Variant")
+}
+
+// The exemption above is only meaningful while the boundary file is the one
+// that needs it: if json_node.fs ever stops naming Variant, the carve-out has
+// outlived its reason and should go rather than sit there widening the check.
+func TestTheVariantBoundaryIsTheJSONNode(t *testing.T) {
+	files := runtime.Files()
+
+	require.Contains(t, files, jsonNodePath)
+	// Inside an enum body the enum's own name does not resolve to the enum
+	// being declared, so the conversions spell their own type out in full.
+	require.Contains(t, files[jsonNodePath], "static func to_variant(_pb_node: foundry.proto.JsonNode) -> Variant")
+	require.Contains(t, files[jsonNodePath],
+		"static func from_variant(_pb_value: Variant) -> (foundry.proto.JsonNode?, ProtobufError)")
+}
+
+func sourcesOutsideTheVariantBoundary(files map[string]string) map[string]string {
+	rest := make(map[string]string, len(files))
+	for name, source := range files {
+		if name == jsonNodePath {
+			continue
+		}
+		rest[name] = source
+	}
+	return rest
 }
 
 // Trait requirements must be abstract; a bare func fails to resolve the trait

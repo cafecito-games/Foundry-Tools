@@ -268,6 +268,7 @@ func _init() -> void:
 	check_json_base64()
 	check_json_timestamp()
 	check_json_duration()
+	check_json_node()
 
 	if failures > 0:
 		printerr("round trip failed with ", failures, " error(s)")
@@ -900,3 +901,102 @@ func check_json_duration() -> void:
 
 	var (_leading_digit_paths, leading_digit_parse_error) = JsonFieldMask.from_json("1foo")
 	check(leading_digit_parse_error == ProtobufError.JSON_TYPE_MISMATCH, "a JSON path opening on a digit is refused")
+
+## The Variant boundary. Everything above JsonNode works on six closed cases;
+## only these two conversions meet a dynamic value, so what has to hold is that
+## a document crosses in both directions unchanged and that anything which is
+## not a JSON shape is refused instead of coerced into one.
+func check_json_node() -> void:
+	check(JsonNode.to_variant(JsonNode.Null) == null, "a null node converts to a null Variant")
+	check(JsonNode.to_variant(JsonNode.Bool(true)) == true, "a bool node converts to a bool")
+	check(JsonNode.to_variant(JsonNode.Number(1.5)) == 1.5, "a number node converts to a float")
+	check(JsonNode.to_variant(JsonNode.Text("ready")) == "ready", "a text node converts to a string")
+
+	check_json_node_round_trip(JsonNode.Null, "null")
+	check_json_node_round_trip(JsonNode.Bool(false), "false")
+	check_json_node_round_trip(JsonNode.Number(-2.25), "a number")
+	check_json_node_round_trip(JsonNode.Text(""), "the empty string")
+
+	## A union value erases to an array, so a container literal of them infers
+	## as Array[Array] and will not convert; the elements go in one at a time.
+	var scalars: Array[JsonNode] = []
+	scalars.append(JsonNode.Null)
+	scalars.append(JsonNode.Bool(true))
+	scalars.append(JsonNode.Text("item"))
+	check_json_node_round_trip(JsonNode.List(scalars), "a list")
+
+	var flat_fields: Dictionary[String, JsonNode] = {}
+	flat_fields["name"] = JsonNode.Text("Ava")
+	check_json_node_round_trip(JsonNode.Object(flat_fields), "an object")
+
+	## Direct self-recursion through both containers at once: an object holding
+	## a list holding an object is the shape a real document nests into.
+	var inner_fields: Dictionary[String, JsonNode] = {}
+	inner_fields["id"] = JsonNode.Number(7.0)
+	inner_fields["tag"] = JsonNode.Text("ore")
+	var entries: Array[JsonNode] = []
+	entries.append(JsonNode.Object(inner_fields))
+	entries.append(JsonNode.Null)
+	var outer_fields: Dictionary[String, JsonNode] = {}
+	outer_fields["items"] = JsonNode.List(entries)
+	outer_fields["ok"] = JsonNode.Bool(true)
+	var nested: JsonNode = JsonNode.Object(outer_fields)
+	check_json_node_round_trip(nested, "an object of a list of an object")
+
+	var nested_variant: Variant = JsonNode.to_variant(nested)
+	var (restored_nested, restored_nested_error) = JsonNode.from_variant(nested_variant)
+	check(restored_nested_error == ProtobufError.OK, "a nested document reads back")
+	match restored_nested:
+		JsonNode.Object(var fields):
+			match fields["items"]:
+				JsonNode.List(var values):
+					check(values.size() == 2, "the nested list keeps its length")
+					match values[0]:
+						JsonNode.Object(var innermost):
+							match innermost["id"]:
+								JsonNode.Number(var id):
+									check(id == 7.0, "the innermost number survives two levels of nesting")
+								_:
+									check(false, "the innermost value stayed a number")
+						_:
+							check(false, "the list element stayed an object")
+				_:
+					check(false, "the nested value stayed a list")
+		_:
+			check(false, "the nested document stayed an object")
+
+	## A number written without a fraction parses as an int, which is the same
+	## JSON shape as one written with it.
+	var (integral, integral_error) = JsonNode.from_variant(7)
+	check(integral_error == ProtobufError.OK, "an integer Variant reads back")
+	match integral:
+		JsonNode.Number(var value):
+			check(value == 7.0, "an integer Variant becomes a number node")
+		_:
+			check(false, "an integer Variant became a number node")
+
+	var (_unsupported, unsupported_error) = JsonNode.from_variant(Vector2(1, 2))
+	check(unsupported_error == ProtobufError.JSON_TYPE_MISMATCH, "a value outside the six shapes is refused")
+
+	var (_unsupported_element, unsupported_element_error) = JsonNode.from_variant([1, Vector2(1, 2)])
+	check(unsupported_element_error == ProtobufError.JSON_TYPE_MISMATCH, "an unsupported list element is refused")
+
+	## A JSON object is keyed by strings; a dictionary keyed by anything else
+	## did not come from a document.
+	var (_unsupported_key, unsupported_key_error) = JsonNode.from_variant({1: "one"})
+	check(unsupported_key_error == ProtobufError.JSON_TYPE_MISMATCH, "a non-string object key is refused")
+
+	## The whole point of the boundary: the engine's JSON API on one side, the
+	## union on the other.
+	var (parsed, parsed_error) = JsonNode.from_variant(JSON.parse_string("{\"items\":[{\"id\":7}]}"))
+	check(parsed_error == ProtobufError.OK, "a parsed document crosses the boundary")
+	check(JSON.stringify(JsonNode.to_variant(parsed)) == "{\"items\":[{\"id\":7.0}]}", "a document stringifies back")
+
+func check_json_node_round_trip(node: JsonNode, label: String) -> void:
+	var (restored, error) = JsonNode.from_variant(JsonNode.to_variant(node))
+	check(error == ProtobufError.OK, label + " crosses the Variant boundary")
+	## A tagged union's values carry payloads, so they do not compare with "==".
+	## Stringifying both sides compares the whole tree at once, which is the
+	## property under test: the crossing loses nothing.
+	check(JSON.stringify(JsonNode.to_variant(restored)) == JSON.stringify(JsonNode.to_variant(node)),
+		label + " comes back unchanged")
