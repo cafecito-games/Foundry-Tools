@@ -44,6 +44,32 @@ func TestRunGeneratesRequestedFile(t *testing.T) {
 	require.Equal(t, "cafecito/game/v1/Player.pb.fs", resp.GetFile()[0].GetName())
 }
 
+func TestRunReportsAnUnknownParameterKey(t *testing.T) {
+	req := &pluginpb.CodeGeneratorRequest{
+		Parameter:      proto.String("nonsense"),
+		FileToGenerate: []string{"player.proto"},
+		ProtoFile: []*descriptorpb.FileDescriptorProto{{
+			Name:    proto.String("player.proto"),
+			Syntax:  proto.String("proto3"),
+			Package: proto.String("cafecito.game.v1"),
+			MessageType: []*descriptorpb.DescriptorProto{{
+				Name: proto.String("Player"),
+				Field: []*descriptorpb.FieldDescriptorProto{{
+					Name:   proto.String("name"),
+					Number: proto.Int32(1),
+					Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+					Type:   descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+				}},
+			}},
+		}},
+	}
+
+	resp := runPlugin(t, req)
+
+	require.Contains(t, resp.GetError(), "nonsense")
+	require.Empty(t, resp.GetFile())
+}
+
 func TestRunReportsEngineTypeCollision(t *testing.T) {
 	req := nodeRequest(nil)
 

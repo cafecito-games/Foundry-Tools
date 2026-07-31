@@ -28,6 +28,11 @@ func Run(in io.Reader, out io.Writer) error {
 		return writeError(out, fmt.Sprintf("unmarshal request: %v", err))
 	}
 
+	options, err := parseParameter(req.GetParameter())
+	if err != nil {
+		return writeError(out, err.Error())
+	}
+
 	files, err := foundryproto.FromCodeGeneratorRequest(req)
 	if err != nil {
 		return writeError(out, err.Error())
@@ -70,7 +75,7 @@ func Run(in io.Reader, out io.Writer) error {
 		if validationErrors := foundryproto.Validate(file, name); len(validationErrors) != 0 {
 			return writeError(out, foundryproto.FormatValidationErrors(validationErrors))
 		}
-		generated, err := foundryproto.Generate(file, name, importsFor(name, dependencies, filesByName), foundryproto.Options{})
+		generated, err := foundryproto.Generate(file, name, importsFor(name, dependencies, filesByName), options)
 		if err != nil {
 			return writeError(out, err.Error())
 		}
