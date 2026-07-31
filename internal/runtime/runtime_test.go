@@ -49,6 +49,20 @@ func TestReadCarriersAreSingleDeclarationTupleFiles(t *testing.T) {
 	require.NotContains(t, files, "foundry/proto/decode_result.fs")
 }
 
+// The JSON error cases append after the existing wire-format cases without
+// renumbering them, so a caller that already stored a ProtobufError value
+// keeps the same meaning.
+func TestProtobufErrorCarriesTheJSONCases(t *testing.T) {
+	source := runtime.Files()["foundry/proto/protobuf_error.fs"]
+
+	require.Contains(t, source, "UNKNOWN_REQUIRED_FEATURE = 6")
+	require.Contains(t, source, "JSON_PARSE_FAILED = 7")
+	require.Contains(t, source, "JSON_TYPE_MISMATCH = 8")
+	require.Contains(t, source, "JSON_UNKNOWN_FIELD = 9")
+	require.Contains(t, source, "JSON_VALUE_OUT_OF_RANGE = 10")
+	require.Contains(t, source, "JSON_ANY_UNSUPPORTED = 11")
+}
+
 // The well-known bindings are checked in so consumers get them without running
 // the generator; regenerating here is what keeps the two in step.
 func TestWellKnownBindingsAreUpToDate(t *testing.T) {
