@@ -265,6 +265,7 @@ func _init() -> void:
 	check_packing()
 	check_well_known()
 	check_well_known_name_collision()
+	check_json_base64()
 
 	if failures > 0:
 		printerr("round trip failed with ", failures, " error(s)")
@@ -593,3 +594,29 @@ func check_well_known_name_collision() -> void:
 		"an imported type named like a well-known one round trips")
 	check(decoded.timeout is Duration and decoded.timeout.seconds == 30,
 		"the well-known reference that pulled the namespace in round trips")
+
+## The base64 helper behind the canonical JSON mapping of a bytes field: standard
+## alphabet on the way out, both alphabets and optional padding on the way in.
+func check_json_base64() -> void:
+	var base64_source: PackedByteArray = PackedByteArray([0, 1, 250, 255, 16, 32])
+	var base64_text: String = JsonBase64.encode(base64_source)
+	var (base64_decoded, base64_error) = JsonBase64.decode(base64_text)
+	check(base64_error == ProtobufError.OK, "base64 round trip decodes")
+	check(base64_decoded == base64_source, "base64 round trip preserves bytes")
+
+	var (base64_padded, base64_padded_error) = JsonBase64.decode("AAH6")
+	check(base64_padded_error == ProtobufError.OK, "base64 accepts a full quantum")
+	check(base64_padded == PackedByteArray([0, 1, 250]), "base64 decodes a full quantum")
+
+	var (base64_unpadded, base64_unpadded_error) = JsonBase64.decode("AAE")
+	check(base64_unpadded_error == ProtobufError.OK, "base64 accepts missing padding")
+	check(base64_unpadded == PackedByteArray([0, 1]), "base64 decodes missing padding")
+
+	var (_base64_url_safe, base64_url_safe_error) = JsonBase64.decode("-_8")
+	check(base64_url_safe_error == ProtobufError.OK, "base64 accepts the URL-safe alphabet")
+
+	var (_base64_bad, base64_bad_error) = JsonBase64.decode("not base64!")
+	check(base64_bad_error == ProtobufError.JSON_TYPE_MISMATCH, "base64 rejects a stray character")
+
+	var (_base64_over_padded, base64_over_padded_error) = JsonBase64.decode("A===")
+	check(base64_over_padded_error == ProtobufError.JSON_TYPE_MISMATCH, "base64 rejects a quantum with too much padding")
