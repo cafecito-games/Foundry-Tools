@@ -844,3 +844,16 @@ func check_json_duration() -> void:
 	var (mask_paths, mask_paths_error) = JsonFieldMask.from_json("fooBar.bazQux,user")
 	check(mask_paths_error == ProtobufError.OK, "a field mask parses")
 	check(mask_paths == ["foo_bar.baz_qux", "user"], "a field mask restores snake_case")
+
+	## A trailing or doubled underscore is swallowed by the camelCase mapping
+	## rather than reproduced coming back, so it cannot round-trip either.
+	var (_trailing_text, trailing_error) = JsonFieldMask.to_json(["foo_"])
+	check(trailing_error == ProtobufError.JSON_TYPE_MISMATCH, "a trailing underscore is refused")
+
+	var (_doubled_text, doubled_error) = JsonFieldMask.to_json(["foo__bar"])
+	check(doubled_error == ProtobufError.JSON_TYPE_MISMATCH, "a doubled underscore is refused")
+
+	## The canonical form never carries an underscore, so a JSON path with one
+	## is not something this helper could have produced.
+	var (_underscore_paths, underscore_error) = JsonFieldMask.from_json("foo_bar")
+	check(underscore_error == ProtobufError.JSON_TYPE_MISMATCH, "a JSON path with an underscore is refused")
