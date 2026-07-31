@@ -67,6 +67,12 @@ type fieldPlan struct {
 	// RawName is the exact protobuf field name, preserved for fallback docs and
 	// collision diagnostics.
 	RawName string
+	// JSONName is the name this field is read and written as in proto3
+	// canonical JSON: an explicit `[json_name = "..."]` when the schema
+	// carries one, otherwise the specification's camelCase derivation from
+	// RawName. Both spellings are accepted on input; only this one is
+	// emitted on output.
+	JSONName string
 	// LocalStem disambiguates emitter-owned locals for a oneof alternative.
 	// Ordinary fields and maps leave it empty and use RawName.
 	LocalStem   string
@@ -1174,6 +1180,7 @@ func planField(field *protoast.Field, messageName, scope string, resolve *resolv
 		Kind:     "field",
 		Name:     memberName.Generated,
 		RawName:  field.Name,
+		JSONName: jsonFieldName(field.Name, field.Options),
 		Escape:   memberName.Escape,
 		Number:   field.Number,
 		Value:    value,
@@ -1238,6 +1245,7 @@ func planMapField(mapField *protoast.MapField, messageName, scope string, resolv
 		Kind:        "map field",
 		Name:        memberName.Generated,
 		RawName:     mapField.Name,
+		JSONName:    jsonFieldName(mapField.Name, mapField.Options),
 		Escape:      memberName.Escape,
 		Number:      mapField.Number,
 		Cardinality: cardinalityMap,

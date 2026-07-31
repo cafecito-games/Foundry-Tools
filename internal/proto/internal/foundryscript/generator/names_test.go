@@ -190,6 +190,45 @@ func TestPlanMemberNamePrefersExistingEscapePolicyOverEngineType(t *testing.T) {
 	require.Equal(t, "Foundry keyword", got.Escape.description())
 }
 
+func TestJSONFieldNameDerivesCamelCaseFromProtoName(t *testing.T) {
+	tests := []struct {
+		protoName string
+		want      string
+	}{
+		{protoName: "player", want: "player"},
+		{protoName: "player_id", want: "playerId"},
+		{protoName: "player_health_total", want: "playerHealthTotal"},
+		{protoName: "_leading", want: "Leading"},
+		{protoName: "trailing_", want: "trailing"},
+		{protoName: "double__underscore", want: "doubleUnderscore"},
+		{protoName: "already_2fast", want: "already2fast"},
+	}
+	for _, test := range tests {
+		t.Run(test.protoName, func(t *testing.T) {
+			require.Equal(t, test.want, jsonFieldName(test.protoName, nil))
+		})
+	}
+}
+
+func TestJSONFieldNameHonoursExplicitJSONNameOption(t *testing.T) {
+	options := map[string]any{"json_name": "customName"}
+	require.Equal(t, "customName", jsonFieldName("player_id", options))
+
+	// A field whose explicit json_name disagrees with the derived spelling
+	// still wins with the explicit spelling.
+	require.NotEqual(t, jsonFieldName("player_id", nil), jsonFieldName("player_id", options))
+}
+
+func TestJSONFieldNameIgnoresNonStringJSONNameOption(t *testing.T) {
+	options := map[string]any{"json_name": int64(3)}
+	require.Equal(t, jsonFieldName("player_id", nil), jsonFieldName("player_id", options))
+}
+
+func TestJSONFieldNameIgnoresEmptyJSONNameOption(t *testing.T) {
+	options := map[string]any{"json_name": ""}
+	require.Equal(t, jsonFieldName("player_id", nil), jsonFieldName("player_id", options))
+}
+
 func TestPlanOneofAlternativeNameSkipsEngineTypes(t *testing.T) {
 	require.Equal(t, "Image", planOneofAlternativeName("Image").Generated)
 	require.Equal(t, memberEscapeNone, planOneofAlternativeName("Image").Escape.Kind)
