@@ -136,22 +136,20 @@ message Empty {
 	require.Contains(t, holder, "var timeout: Duration? = null")
 }
 
-// A schema of the caller's own may name foundry.proto.wkt through the namespace
-// option. It is still an ordinary dependency, so a collision between it and a
-// well-known export has to be caught the same way -- the runtime namespace is
-// not a marker for "this file is well-known".
-func TestCallerSchemaNamingTheRuntimeNamespaceStillCollides(t *testing.T) {
-	files := generateSchema(t, `
+// Generating only the importer must not let a dependency claim the runtime
+// namespace through the back door. Its bindings would be replaced by the
+// runtime's, so a reference to one would resolve to a type that does not
+// declare the field the schema asked for.
+func TestDependencyClaimingTheRuntimeNamespaceDoesNotResolveToTheRuntime(t *testing.T) {
+	_, err := generateSchemaError(t, `
 syntax = "proto3";
 
 package cafecito.game.v1;
 
 import "common.proto";
-import "google/protobuf/duration.proto";
 
 message Holder {
   cafecito.common.v1.Empty local_empty = 1;
-  google.protobuf.Duration timeout = 2;
 }
 `, schemaFile{"common.proto", `
 syntax = "proto3";
@@ -165,9 +163,9 @@ message Empty {
 }
 `})
 
-	holder := files["cafecito/game/v1/Holder.pb.fs"]
-	require.Contains(t, holder, "var local_empty: foundry.proto.wkt.Empty? = null",
-		"a caller file claiming the runtime namespace still collides with the runtime's Empty")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `namespace "foundry.proto.wkt" is reserved`)
+	require.Contains(t, err.Error(), "common.proto")
 }
 
 // Without a well-known reference the namespace is not imported, so a schema

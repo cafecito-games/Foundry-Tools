@@ -380,8 +380,24 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 		// A dependency's namespace is emitted as an import statement, so a
 		// malformed one is a parse error in a file the user did not write.
 		// Treat it as unusable rather than passing it through.
+		//
+		// A well-known dependency is placed in the runtime namespace by the
+		// line above and is the one file allowed to be there. Any other
+		// dependency claiming it would have its own bindings replaced by the
+		// runtime's, so a reference to one resolves to a type it does not
+		// declare; that is unusable for the same reason a malformed one is.
 		if validateNamespaceShape(namespace) != nil {
 			resolve.unnamespaced[imports[i].Filename] = true
+			continue
+		}
+		// The well-known bindings are placed in the runtime namespace by the
+		// line above and are the one dependency allowed to be there. Any other
+		// file claiming it would have its bindings replaced by the runtime's,
+		// so a reference to one resolves to a type that does not declare what
+		// the schema asked for. Generating the dependency itself is rejected
+		// outright; reaching it only as an import has to say the same thing.
+		if !isWellKnown && runtimeNamespaces()[namespace] {
+			resolve.dependencyErrors[imports[i].Filename] = reservedNamespaceError(namespace)
 			continue
 		}
 		resolve.namespaces[imports[i].Filename] = namespace

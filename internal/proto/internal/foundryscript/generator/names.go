@@ -51,21 +51,28 @@ func ValidateNamespace(namespace string) error {
 	// shadow a runtime file, and reserving the whole `foundry.` prefix would
 	// reject schemas that merely start with the same word.
 	if runtimeNamespaces()[namespace] {
-		return fmt.Errorf(
-			"namespace %q is reserved: foundry-tools ships the runtime bindings for %s, "+
-				"so generating into it would produce files the runtime replaces and silently discard this schema; "+
-				"set (foundrytools.namespace) to a namespace of your own",
-			namespace, strings.Join(sortedRuntimeNamespaces(), ", "),
-		)
+		return reservedNamespaceError(namespace)
 	}
 	return nil
 }
 
-// validateNamespaceShape validates only the spelling of a dotted namespace. A
-// dependency's namespace is emitted as an import statement rather than as an
-// output path, so a dependency that legitimately lives in a runtime namespace --
-// the well-known bindings above all -- has to pass this and not the reserved
-// check.
+// reservedNamespaceError explains why a namespace the runtime ships cannot be
+// claimed. It is shared with the resolver, which reaches the same condition
+// through an import rather than through the file being generated.
+func reservedNamespaceError(namespace string) error {
+	return fmt.Errorf(
+		"namespace %q is reserved: foundry-tools ships the runtime bindings for %s, "+
+			"so generating into it would produce files the runtime replaces and silently discard this schema; "+
+			"set (foundrytools.namespace) to a namespace of your own",
+		namespace, strings.Join(sortedRuntimeNamespaces(), ", "),
+	)
+}
+
+// validateNamespaceShape validates only the spelling of a dotted namespace,
+// leaving the reserved check to the caller. The well-known bindings are the one
+// dependency that legitimately resolves into a runtime namespace, so the
+// resolver applies the reserved check to every other dependency itself rather
+// than through ValidateNamespace.
 func validateNamespaceShape(namespace string) error {
 	if namespace == "" {
 		return fmt.Errorf("namespace is required")
