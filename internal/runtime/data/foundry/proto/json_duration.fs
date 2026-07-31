@@ -85,6 +85,11 @@ static func parse(text: String) -> (int, int, ProtobufError):
 
 	if whole_text.length() == 0 or whole_text.length() > MAXIMUM_SECONDS_DIGITS:
 		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+	## A whole-seconds run of more than one digit may not start with a zero: the
+	## reference decoder reads a single leading zero and then refuses whatever
+	## digit follows it, so "01s" is malformed rather than a zero-padded "1s".
+	if whole_text.length() > 1 and whole_text.substr(0, 1) == "0":
+		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
 	var (whole, whole_ok) = _digits(whole_text)
 	if not whole_ok:
 		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)

@@ -797,6 +797,13 @@ func check_json_duration() -> void:
 	var (_alpha_seconds, _alpha_nanos, alpha_error) = JsonDuration.parse("3xs")
 	check(alpha_error == ProtobufError.JSON_TYPE_MISMATCH, "a non-digit in the whole part is refused")
 
+	var (_leading_zero_seconds, _leading_zero_nanos, leading_zero_error) = JsonDuration.parse("01s")
+	check(leading_zero_error == ProtobufError.JSON_TYPE_MISMATCH, "a zero-padded whole part is refused")
+
+	var (bare_zero_seconds, bare_zero_nanos, bare_zero_error) = JsonDuration.parse("0s")
+	check(bare_zero_error == ProtobufError.OK, "a bare zero parses")
+	check(bare_zero_seconds == 0 and bare_zero_nanos == 0, "a bare zero parses to zero")
+
 	var (_over_range_seconds, _over_range_nanos, over_range_parse_error) = JsonDuration.parse("315576000001s")
 	check(over_range_parse_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a parsed second past the upper bound is refused")
 
