@@ -354,18 +354,27 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 			resolve.dependencyErrors[imports[i].Filename] = err
 			continue
 		}
-		namer, err := newTypeNamer(imports[i].File, imports[i].Filename)
-		if err != nil {
-			resolve.dependencyErrors[imports[i].Filename] = err
-			continue
+		// The well-known types ship as runtime source, so a reference to one
+		// resolves to the runtime namespace rather than to a per-project
+		// binding generated from google.protobuf. Its names have to match the
+		// checked-in bindings too: those were generated with no type prefix, so
+		// a (foundrytools.type_prefix) on a copy the caller supplied through an
+		// include path is not applied here. Honouring it would emit references
+		// to a type the runtime does not declare.
+		isWellKnown := wellknown.IsWellKnownImport(imports[i].Filename)
+		namer := typeNamer{}
+		if !isWellKnown {
+			fileNamer, err := newTypeNamer(imports[i].File, imports[i].Filename)
+			if err != nil {
+				resolve.dependencyErrors[imports[i].Filename] = err
+				continue
+			}
+			namer = fileNamer
 		}
 		resolve.dependencyNamers[imports[i].Filename] = namer
 
 		namespace := NamespaceFor(imports[i].File)
-		// The well-known types ship as runtime source, so a reference to one
-		// resolves to the runtime namespace rather than to a per-project
-		// binding generated from google.protobuf.
-		if wellknown.IsWellKnownImport(imports[i].Filename) {
+		if isWellKnown {
 			namespace = wellknown.Namespace
 		}
 		// A dependency's namespace is emitted as an import statement, so a

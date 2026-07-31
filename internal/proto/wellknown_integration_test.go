@@ -165,6 +165,43 @@ message Empty {
 	require.Contains(t, holder, "var local_empty: Empty? = null")
 }
 
+// A caller may supply their own copy of a well-known file through an include
+// path, and that copy may carry file options of the caller's own. The reference
+// still resolves to the runtime binding, which was generated with no prefix, so
+// the caller's (foundrytools.type_prefix) must not reach the name emitted for
+// it -- a `GameTimestamp` would name a type the runtime does not declare.
+func TestCallerSuppliedWellKnownFileDoesNotPrefixTheRuntimeReference(t *testing.T) {
+	files := generateSchema(t, `
+syntax = "proto3";
+
+package cafecito.game.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message Event {
+  google.protobuf.Timestamp occurred_at = 1;
+  repeated google.protobuf.Timestamp retries = 2;
+}
+`, schemaFile{"google/protobuf/timestamp.proto", `
+syntax = "proto3";
+
+package google.protobuf;
+
+option (foundrytools.type_prefix) = "Game";
+
+message Timestamp {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+`})
+
+	event := files["cafecito/game/v1/Event.pb.fs"]
+	require.Contains(t, event, "import foundry.proto.wkt")
+	require.Contains(t, event, "var occurred_at: Timestamp? = null")
+	require.Contains(t, event, "var retries: Array[Timestamp] = []")
+	require.NotContains(t, event, "GameTimestamp")
+}
+
 // Naming an unshipped google/protobuf file is an error rather than a second,
 // incompatible copy of a type the runtime already defines.
 func TestUnsupportedWellKnownFileIsRejected(t *testing.T) {
