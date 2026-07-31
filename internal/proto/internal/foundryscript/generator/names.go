@@ -183,7 +183,7 @@ const jsonNameOptionKey = "json_name"
 // removes each underscore and capitalizes the letter that followed it.
 func jsonFieldName(protoName string, options map[string]any) string {
 	if raw, ok := options[jsonNameOptionKey]; ok {
-		if explicit, isString := raw.(string); isString && explicit != "" {
+		if explicit, isString := raw.(string); isString {
 			return explicit
 		}
 	}

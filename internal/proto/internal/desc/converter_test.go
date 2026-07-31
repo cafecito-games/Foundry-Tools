@@ -149,6 +149,88 @@ func TestConvertScalarFields(t *testing.T) {
 	}
 }
 
+func TestConvertFieldCopiesJSONNameFromDescriptor(t *testing.T) {
+	fdp := &descriptorpb.FileDescriptorProto{
+		Name:   strPtr("json_name.proto"),
+		Syntax: strPtr("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: strPtr("M"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     strPtr("player_id"),
+						JsonName: strPtr("playerIdentifier"),
+						Number:   i32Ptr(1),
+						Type:     typePtr(descriptorpb.FieldDescriptorProto_TYPE_STRING),
+						Label:    labelPtr(descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL),
+					},
+				},
+			},
+		},
+	}
+
+	got, err := FromFileDescriptorProto(fdp)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	field := got.Messages[0].Fields[0]
+	if field.Options["json_name"] != "playerIdentifier" {
+		t.Errorf("field.Options[json_name] = %v, want %q", field.Options["json_name"], "playerIdentifier")
+	}
+}
+
+func TestConvertMapFieldCopiesJSONNameFromDescriptor(t *testing.T) {
+	fdp := &descriptorpb.FileDescriptorProto{
+		Name:    strPtr("map_json_name.proto"),
+		Package: strPtr("demo"),
+		Syntax:  strPtr("proto3"),
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: strPtr("M"),
+				NestedType: []*descriptorpb.DescriptorProto{
+					{
+						Name:    strPtr("AttrsEntry"),
+						Options: &descriptorpb.MessageOptions{MapEntry: boolPtr(true)},
+						Field: []*descriptorpb.FieldDescriptorProto{
+							{
+								Name:   strPtr("key"),
+								Number: i32Ptr(1),
+								Type:   typePtr(descriptorpb.FieldDescriptorProto_TYPE_STRING),
+								Label:  labelPtr(descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL),
+							},
+							{
+								Name:   strPtr("value"),
+								Number: i32Ptr(2),
+								Type:   typePtr(descriptorpb.FieldDescriptorProto_TYPE_INT32),
+								Label:  labelPtr(descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL),
+							},
+						},
+					},
+				},
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     strPtr("player_scores"),
+						JsonName: strPtr("scoresByPlayer"),
+						Number:   i32Ptr(1),
+						Type:     typePtr(descriptorpb.FieldDescriptorProto_TYPE_MESSAGE),
+						TypeName: strPtr(".demo.M.AttrsEntry"),
+						Label:    labelPtr(descriptorpb.FieldDescriptorProto_LABEL_REPEATED),
+					},
+				},
+			},
+		},
+	}
+
+	got, err := FromFileDescriptorProto(fdp)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	mf := got.Messages[0].Maps[0]
+	if mf.Options["json_name"] != "scoresByPlayer" {
+		t.Errorf("map field Options[json_name] = %v, want %q", mf.Options["json_name"], "scoresByPlayer")
+	}
+}
+
 func TestConvertMessageField(t *testing.T) {
 	fdp := &descriptorpb.FileDescriptorProto{
 		Name:    strPtr("msg.proto"),

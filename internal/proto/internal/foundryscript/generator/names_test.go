@@ -224,9 +224,11 @@ func TestJSONFieldNameIgnoresNonStringJSONNameOption(t *testing.T) {
 	require.Equal(t, jsonFieldName("player_id", nil), jsonFieldName("player_id", options))
 }
 
-func TestJSONFieldNameIgnoresEmptyJSONNameOption(t *testing.T) {
+func TestJSONFieldNameHonoursExplicitlyEmptyJSONNameOption(t *testing.T) {
+	// An explicitly present json_name, even an empty one, still wins over
+	// derivation: presence is what "wins when present" means, not non-emptiness.
 	options := map[string]any{"json_name": ""}
-	require.Equal(t, jsonFieldName("player_id", nil), jsonFieldName("player_id", options))
+	require.Equal(t, "", jsonFieldName("player_id", options))
 }
 
 func TestPlanOneofAlternativeNameSkipsEngineTypes(t *testing.T) {
