@@ -74,25 +74,36 @@ static func parse(text: String) -> (int, int, ProtobufError):
 	elif body.substr(0, 1) == "+":
 		body = body.substr(1, body.length() - 1)
 
+	## Canonical output always carries a whole part, but a parser has to accept
+	## either side of the point being omitted -- ".5s" and "3.s" both come from
+	## compatible protobuf implementations -- as long as at least one of the two
+	## is present.
 	var point: int = body.find(".")
 	var whole_text: String = body
 	var fraction_text: String = ""
-	if point >= 0:
+	var has_point: bool = point >= 0
+	if has_point:
 		whole_text = body.substr(0, point)
 		fraction_text = body.substr(point + 1, body.length() - point - 1)
-		if fraction_text.length() == 0 or fraction_text.length() > 9:
+		if fraction_text.length() > 9:
 			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+	if whole_text.length() == 0 and (not has_point or fraction_text.length() == 0):
+		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+	if whole_text.length() > MAXIMUM_SECONDS_DIGITS:
+		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
 
-	if whole_text.length() == 0 or whole_text.length() > MAXIMUM_SECONDS_DIGITS:
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
-	## A whole-seconds run of more than one digit may not start with a zero: the
-	## reference decoder reads a single leading zero and then refuses whatever
-	## digit follows it, so "01s" is malformed rather than a zero-padded "1s".
-	if whole_text.length() > 1 and whole_text.substr(0, 1) == "0":
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
-	var (whole, whole_ok) = _digits(whole_text)
-	if not whole_ok:
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+	var whole: int = 0
+	if whole_text.length() > 0:
+		## A whole-seconds run of more than one digit may not start with a zero:
+		## the reference decoder reads a single leading zero and then refuses
+		## whatever digit follows it, so "01s" is malformed rather than a
+		## zero-padded "1s".
+		if whole_text.length() > 1 and whole_text.substr(0, 1) == "0":
+			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		var (whole_value, whole_ok) = _digits(whole_text)
+		if not whole_ok:
+			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		whole = whole_value
 	if whole > MAXIMUM_SECONDS:
 		return (0, 0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
 

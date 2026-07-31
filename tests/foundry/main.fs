@@ -788,8 +788,19 @@ func check_json_duration() -> void:
 	var (_empty_seconds, _empty_nanos, empty_error) = JsonDuration.parse("")
 	check(empty_error == ProtobufError.JSON_TYPE_MISMATCH, "an empty string is refused")
 
-	var (_empty_fraction_seconds, _empty_fraction_nanos, empty_fraction_error) = JsonDuration.parse("3.s")
-	check(empty_fraction_error == ProtobufError.JSON_TYPE_MISMATCH, "an empty fraction is refused")
+	## Digits on only one side of the point are legal, matching what a
+	## compatible protobuf implementation may emit.
+	var (trailing_point_seconds, trailing_point_nanos, trailing_point_error) = JsonDuration.parse("3.s")
+	check(trailing_point_error == ProtobufError.OK, "an empty fraction after the point parses")
+	check(trailing_point_seconds == 3 and trailing_point_nanos == 0, "an empty fraction after the point has zero nanos")
+
+	var (leading_point_seconds, leading_point_nanos, leading_point_error) = JsonDuration.parse(".5s")
+	check(leading_point_error == ProtobufError.OK, "an empty whole part before the point parses")
+	check(leading_point_seconds == 0 and leading_point_nanos == 500000000, "an empty whole part before the point has zero seconds")
+
+	var (negative_leading_point_seconds, negative_leading_point_nanos, negative_leading_point_error) = JsonDuration.parse("-.5s")
+	check(negative_leading_point_error == ProtobufError.OK, "a negative empty whole part parses")
+	check(negative_leading_point_seconds == 0 and negative_leading_point_nanos == -500000000, "a negative empty whole part carries its sign in nanos")
 
 	var (_wide_fraction_seconds, _wide_fraction_nanos, wide_fraction_error) = JsonDuration.parse("3.1234567890s")
 	check(wide_fraction_error == ProtobufError.JSON_TYPE_MISMATCH, "a ten-digit fraction is refused")
