@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROJECT="$ROOT/tests/foundry"
 OUT="$PROJECT/generated"
 FOUNDRY="${FOUNDRY_BIN:-$(command -v foundry || true)}"
-RUN_LOG="$(mktemp)"
+RUN_LOG=""
 
 if [ -z "$FOUNDRY" ] || [ ! -x "$FOUNDRY" ]; then
   echo "Foundry binary not found on PATH. Install foundry or set FOUNDRY_BIN." >&2
@@ -15,13 +15,19 @@ fi
 cleanup() {
   rm -rf "$OUT" "$PROJECT/.foundry"
   rm -f "$PROJECT"/*.uid
-  rm -f "$RUN_LOG"
+  if [ -n "$RUN_LOG" ]; then
+    rm -f "$RUN_LOG"
+  fi
 }
 
 trap cleanup EXIT
 
 cleanup
 mkdir -p "$OUT"
+
+# Created only now, right before it is used, so the path it reserves is never
+# deleted-then-reopened by name -- the window a symlink swap would need.
+RUN_LOG="$(mktemp)"
 
 (
   cd "$ROOT"
