@@ -81,6 +81,7 @@ tasks:
   foundry:test:
     desc: Run generated Foundry Script checks with a Foundry editor binary.
     cmds:
+      - task: build
       - |
         test -n "{{.FOUNDRY_BIN}}" -a -x "{{.FOUNDRY_BIN}}" || (echo "Foundry binary not found on PATH. Install foundry or set FOUNDRY_BIN." && exit 1)
       - FOUNDRY_BIN="{{.FOUNDRY_BIN}}" bash tests/foundry/run.sh
