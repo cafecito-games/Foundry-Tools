@@ -69,31 +69,100 @@ that issue is unblocked as a side effect rather than superseded.
 
 **No JSON lexer is needed.** The engine exposes `JSON` and `Marshalls` as native
 classes (`engine_reserved_types.gen.go`) with the same surface Godot gives them.
-Serialization builds a `Variant` tree and hands it to `JSON.stringify`;
-deserialization runs `JSON.parse_string` and walks the resulting `Variant`. `bytes` to
-and from base64 falls out of `Marshalls`. Godot's parser returning every number as a
-float is what forces the 64-bit precision decision above.
+`JSON.stringify` consumes a `Variant` tree and `JSON.parse_string` produces one, so
+the engine boundary is `Variant`-shaped in both directions. `bytes` to and from
+base64 falls out of `Marshalls`. Godot's parser returning every number as a float is
+what forces the 64-bit precision decision above.
 
 ## Generated surface
 
 A message gains four members when the option is on:
 
 ```
-func to_json_variant() -> Variant
+func to_json_node() -> JsonNode
 func to_json_string() -> String
-func merge_from_json_variant(_pb_value: Variant) -> ProtobufError
+func merge_from_json_node(_pb_node: JsonNode) -> ProtobufError
 static func from_json_string(_pb_text: String) -> (X?, ProtobufError)
 ```
 
-`to_json_string` is `JSON.stringify` over the variant tree; `from_json_string` is
-`JSON.parse_string` followed by `merge_from_json_variant`. The static constructor
-returns the same `(X?, ProtobufError)` tuple as `from_bytes`, and errors are returned
-rather than thrown, matching the wire path exactly.
+`to_json_string` converts the node tree to a `Variant` and calls `JSON.stringify`;
+`from_json_string` is `JSON.parse_string`, then `Variant` to `JsonNode`, then
+`merge_from_json_node`. The static constructor returns the same `(X?, ProtobufError)`
+tuple as `from_bytes`, and errors are returned rather than thrown, matching the wire
+path exactly.
 
-These entry points expose `Variant`, which the README otherwise tells generated
-public APIs to avoid. That is deliberate: a JSON document is a dynamic value, and a
-caller who wants to embed a message in a larger `Variant` tree should not have to
-round-trip through a string to do it.
+### `JsonNode`
+
+A JSON document is a dynamic value, but it is dynamic over a *closed* set of six
+shapes. That makes it a tagged union rather than a `Variant`:
+
+```
+enum_name JsonNode:
+	Null
+	Bool(value: bool)
+	Number(value: float)
+	Text(value: String)
+	List(values: Array[JsonNode])
+	Object(fields: Dictionary[String, JsonNode])
+```
+
+It lives in the runtime at `internal/runtime/data/foundry/proto/json_node.fs`,
+alongside two conversions in the same namespace:
+
+```
+static func to_variant(_pb_node: JsonNode) -> Variant
+static func from_variant(_pb_value: Variant) -> (JsonNode?, ProtobufError)
+```
+
+`from_variant` is the only place in the system that inspects a dynamic type at
+runtime. Everything downstream of it matches exhaustively on six cases.
+
+**Why not `Variant` on the generated surface.** The README tells generated public
+APIs to avoid `Variant`, and two gates enforce it:
+
+- `tests/foundry/run.sh:48` greps the generated output directory for `-> Variant` and
+  public `Variant` parameters.
+- `internal/runtime/runtime_test.go:21` asserts `runtime.PublicSource(files)` — the
+  concatenation of every runtime source file — contains no `Variant` at all.
+
+A `Variant`-typed generated surface would have breached both, permanently, on every
+message in every project that enables JSON. `JsonNode` confines the breach to one
+file. The `run.sh` gate is untouched: generated messages reference only `JsonNode`,
+never `Variant`, and the runtime is not copied into the output directory it scans.
+
+The runtime gate does need one narrow carve-out. `JSON.stringify` and
+`JSON.parse_string` are the engine's API and they are `Variant`-typed, so the
+conversion has to touch `Variant` somewhere; `json_node.fs` is that somewhere. The
+assertion narrows from "no `Variant` anywhere in the runtime" to "no `Variant` in the
+runtime outside `foundry/proto/json_node.fs`", which keeps it meaningful for every
+other runtime file and for all future ones. Scope the exemption by file, not by
+deleting the check.
+
+The alternative is worse in exactly the way the rule exists to prevent: leaving the
+surface `Variant`-typed spreads dynamic values across every generated message, where
+`JsonNode` keeps them behind one boundary and buys exhaustiveness checking on every
+`match` in generated code.
+
+**Why not name the cases after proto types.** An earlier sketch had cases like
+`Timestamp(String)` and `Int32Value(int)`. Those carry protobuf provenance into a
+type that models JSON shape: a `Timestamp`, a `Duration`, and a `FieldMask` all
+serialize to a JSON string, and the document does not remember which produced it.
+Worse, a union keyed on proto types would have to stay open, since every
+user-defined message would need a case. Keyed on JSON shapes it closes at six.
+
+**Why not reuse `google.protobuf.Value`.** `Value`'s `ValueKindCase` is already this
+union, and `Struct`/`ListValue` already prove `Dictionary[String, Value]`,
+`Array[Value]`, and the mutual recursion compile. But `Value` also carries
+`_pb_unknown_fields`, `to_bytes`, `merge_from_bytes` and the rest of the wire
+surface. A JSON node owning a protobuf wire encoder is confusing, and it would couple
+the JSON API to a well-known type's binding. `Value`'s own JSON form is then a
+straightforward mapping onto `JsonNode`.
+
+**The cost, accepted.** Serialization allocates and walks two trees rather than one:
+the `JsonNode` tree, then the `Variant` tree that `JSON.stringify` requires. This is
+a constant factor on an opt-in path. If profiling later shows it matters,
+`to_json_string` can build the `Variant` tree directly while `to_json_node` remains
+the typed public surface — an implementation change, not an API change.
 
 ## Mapping
 
@@ -167,8 +236,12 @@ not fit.
   Nothing parses plugin options today.
 - New `json_serialize.go` and `json_deserialize.go` beside the existing emitters,
   driven off the same field model `plan.go` already builds.
-- New runtime sources under `internal/runtime/data/foundry/proto/` for RFC-3339,
-  `FieldMask` paths, and base64.
+- New runtime sources under `internal/runtime/data/foundry/proto/` for `JsonNode`
+  and its two `Variant` conversions, RFC-3339, `FieldMask` paths, and base64.
+  `JsonNode` gates both emitters: neither can be written before it exists.
+- Every new runtime type also needs an entry in `runtimeTypeNames` in
+  `internal/proto/internal/foundryscript/generator/names.go`, or
+  `TestRuntimeTypeNamesCoverEveryExportedRuntimeType` fails.
 - `internal/proto/wellknown/gen` forces the option on, so the checked-in
   `wkt/*.pb.fs` regenerate carrying JSON. The drift test in
   `internal/runtime/runtime_test.go` keeps the checked-in output honest.
