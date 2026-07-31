@@ -70,11 +70,11 @@ func TestImportPathForTreatsAPathWithNoRootAsItsOwnImportPath(t *testing.T) {
 	require.Equal(t, "cafecito/game/v1/player.proto", name)
 }
 
-// A path outside every include root that still spells out a google/protobuf
-// file has no identity: it could be the well-known schema or an unrelated one.
-// Skipping it would silently drop bindings, generating it would silently
-// produce a second, incompatible Timestamp, so it is an error that says how to
-// resolve it.
+// An absolute path that no include root contains still spells out a
+// google/protobuf file but has no identity: with nothing to make it relative to
+// it could be the well-known schema or an unrelated one. Skipping it would
+// silently drop bindings, generating it would silently produce a second,
+// incompatible Timestamp, so it is an error that says how to resolve it.
 func TestImportPathForRejectsAnUnrootedGoogleProtobufPath(t *testing.T) {
 	_, err := ImportPathFor("/abs/path/to/google/protobuf/timestamp.proto", nil)
 	require.Error(t, err)
@@ -82,8 +82,15 @@ func TestImportPathForRejectsAnUnrootedGoogleProtobufPath(t *testing.T) {
 	require.Contains(t, err.Error(), "-I /abs/path/to")
 	require.Contains(t, err.Error(), "google/protobuf/timestamp.proto")
 
-	// An unshipped google/protobuf file is just as unidentifiable.
-	_, err = ImportPathFor("vendor/google/protobuf/descriptor.proto", []string{"other"})
+	// An unshipped google/protobuf file is just as unidentifiable when it is
+	// absolute and no root claims it.
+	_, err = ImportPathFor("/abs/vendor/google/protobuf/descriptor.proto", []string{"other"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot be identified without an include path")
+
+	// So is one that climbs out of the working directory, which likewise leaves
+	// no relative spelling to use as an import path.
+	_, err = ImportPathFor("../vendor/google/protobuf/timestamp.proto", nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot be identified without an include path")
 
@@ -91,6 +98,36 @@ func TestImportPathForRejectsAnUnrootedGoogleProtobufPath(t *testing.T) {
 	name, err := ImportPathFor("cafecito/game/v1/player.proto", []string{"other"})
 	require.NoError(t, err)
 	require.Equal(t, "cafecito/game/v1/player.proto", name)
+}
+
+// A relative path is its own import path even when no root contains it, which
+// is exactly protoc's model: the path as given names the file. A lookalike is
+// therefore an ordinary schema and generates.
+func TestImportPathForKeepsARelativePathOutsideEveryRoot(t *testing.T) {
+	name, err := ImportPathFor("myorg/google/protobuf/timestamp.proto", nil)
+	require.NoError(t, err)
+	require.Equal(t, "myorg/google/protobuf/timestamp.proto", name)
+	require.False(t, IsWellKnownImport(name))
+
+	// The same holds for a vendored tree named without -I: the caller is asking
+	// for bindings for vend/google/protobuf/timestamp.proto, and passing
+	// -I vend is what names the runtime's copy instead.
+	name, err = ImportPathFor("vend/google/protobuf/timestamp.proto", nil)
+	require.NoError(t, err)
+	require.Equal(t, "vend/google/protobuf/timestamp.proto", name)
+	require.False(t, IsWellKnownImport(name))
+
+	name, err = ImportPathFor("vend/google/protobuf/timestamp.proto", []string{"vend"})
+	require.NoError(t, err)
+	require.Equal(t, "google/protobuf/timestamp.proto", name)
+	require.True(t, IsWellKnownImport(name))
+
+	// A relative path no root contains keeps its own spelling even when another
+	// root was supplied.
+	name, err = ImportPathFor("vendor/google/protobuf/descriptor.proto", []string{"other"})
+	require.NoError(t, err)
+	require.Equal(t, "vendor/google/protobuf/descriptor.proto", name)
+	require.NoError(t, Check(name))
 }
 
 // An absolute input is claimed by a relative root that contains it, since both

@@ -64,9 +64,14 @@ disk. A repo that vendors the protos and runs `anvil proto generate -I vendor
 vendor/google/protobuf/timestamp.proto` is naming
 `google/protobuf/timestamp.proto` and gets the runtime's bindings, while
 `anvil proto generate -I . myorg/google/protobuf/timestamp.proto` is naming a
-schema of its own and gets bindings generated for it. Naming a `google/protobuf`
-path that no include root contains is an error: with nothing to resolve it
-against it could be either file, and both guesses fail silently.
+schema of its own and gets bindings generated for it. With no `-I` at all a
+relative path is its own import path, as it is for protoc, so
+`anvil proto generate vendor/google/protobuf/timestamp.proto` names
+`vendor/google/protobuf/timestamp.proto` and generates it; passing `-I vendor`
+is what names the runtime's copy instead. Only a path with no relative spelling
+to fall back on — an absolute one, or one that climbs out of every include root
+— is an error when it spells a `google/protobuf` path: with nothing to resolve
+it against it could be either file, and both guesses fail silently.
 
 A schema may still declare its own `Timestamp`. The import is emitted only for
 a file that references a well-known type, and a local declaration shadows the

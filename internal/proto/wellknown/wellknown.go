@@ -56,13 +56,20 @@ func IsWellKnownImport(importedPath string) bool {
 // file, while `-I . myorg/google/protobuf/timestamp.proto` carries a distinct
 // import path and is an ordinary schema of the caller's own.
 //
-// A path no include root contains is its own import path, which is what protoc
-// does with a relative path and no -I. That leaves one case with no answer: a
-// path outside every root that nonetheless spells out a google/protobuf file,
-// such as an absolute path into a vendored tree passed with no -I. It could be
-// the well-known file or an unrelated schema, and both guesses are damaging --
-// one silently drops bindings the caller asked for, the other silently produces
-// a second, incompatible copy of a runtime type. That case is an error.
+// A relative path no include root contains is its own import path, which is
+// what protoc does with a relative path and no -I. `vend/google/protobuf/
+// timestamp.proto` passed that way therefore carries the import path
+// vend/google/protobuf/timestamp.proto, is not the well-known file, and is
+// generated; a caller who wants the runtime's bindings names them by passing
+// -I vend.
+//
+// That leaves one case with no answer: a path from which no relative import
+// path can be derived at all -- an absolute path, or one that climbs out of
+// every root -- that nonetheless spells out a google/protobuf file. There is
+// nothing to make it relative to, so it could be the well-known file or an
+// unrelated schema, and both guesses are damaging: one silently drops bindings
+// the caller asked for, the other silently produces a second, incompatible copy
+// of a runtime type. That case is an error.
 func ImportPathFor(filename string, importRoots []string) (string, error) {
 	for _, root := range importRoots {
 		if relative, ok := relativeTo(root, filename); ok {
@@ -70,16 +77,32 @@ func ImportPathFor(filename string, importRoots []string) (string, error) {
 		}
 	}
 	name := normalize(filename)
-	if index := strings.LastIndex(name, "/"+protoPrefix); index >= 0 {
+	if index := strings.LastIndex(name, "/"+protoPrefix); index >= 0 && !isImportPath(name) {
+		suggestedRoot := name[:index]
+		if suggestedRoot == "" {
+			suggestedRoot = "/"
+		}
 		return "", fmt.Errorf(
-			"%s cannot be identified without an include path: no -I root contains it, so it is "+
-				"either the well-known %s or an unrelated schema that spells its path the same way. "+
-				"Pass -I %s to name it as the well-known file, or leave it off the command line "+
-				"entirely -- foundry-tools already ships Foundry Script for %s",
-			filename, name[index+1:], name[:index], strings.Join(Files(), ", "),
+			"%s cannot be identified without an include path: it is not relative to the working "+
+				"directory and no -I root contains it, so it is either the well-known %s or an "+
+				"unrelated schema that spells its path the same way. Pass -I %s to name it as the "+
+				"well-known file, or leave it off the command line entirely -- foundry-tools "+
+				"already ships Foundry Script for %s",
+			filename, name[index+1:], suggestedRoot, strings.Join(Files(), ", "),
 		)
 	}
 	return name, nil
+}
+
+// isImportPath reports whether a normalized path can stand as an import path on
+// its own. protoc names a file by the path it was given, so a plain relative
+// path qualifies; an absolute one, or one that climbs above the working
+// directory, has no spelling protoc could hand to an import statement.
+func isImportPath(name string) bool {
+	if path.IsAbs(name) || filepath.IsAbs(filepath.FromSlash(name)) {
+		return false
+	}
+	return name != ".." && !strings.HasPrefix(name, "../")
 }
 
 // relativeTo reports the import path filename carries under root, if root
