@@ -827,3 +827,76 @@ func check_json_duration() -> void:
 	## is refused before it is ever computed.
 	var (_unsafe_wide_seconds, _unsafe_wide_nanos, unsafe_wide_error) = JsonDuration.parse("9999999999999999999s")
 	check(unsafe_wide_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a whole part too wide to accumulate safely is out of range")
+
+	## Splitting the empty string on "," naively yields one empty element rather
+	## than none, so an empty mask is checked before anything with paths in it.
+	var (empty_paths, empty_paths_error) = JsonFieldMask.from_json("")
+	check(empty_paths_error == ProtobufError.OK, "an empty mask parses")
+	check(empty_paths.size() == 0, "an empty mask has no paths")
+
+	var (mask_text, mask_error) = JsonFieldMask.to_json(["foo_bar.baz_qux", "user"])
+	check(mask_error == ProtobufError.OK, "a field mask converts to JSON")
+	check(mask_text == "fooBar.bazQux,user", "a field mask camelCases each segment")
+
+	var (_upper_text, upper_error) = JsonFieldMask.to_json(["fooBar"])
+	check(upper_error == ProtobufError.JSON_TYPE_MISMATCH, "an uppercase path is refused")
+
+	var (mask_paths, mask_paths_error) = JsonFieldMask.from_json("fooBar.bazQux,user")
+	check(mask_paths_error == ProtobufError.OK, "a field mask parses")
+	check(mask_paths == ["foo_bar.baz_qux", "user"], "a field mask restores snake_case")
+
+	## A trailing or doubled underscore is swallowed by the camelCase mapping
+	## rather than reproduced coming back, so it cannot round-trip either.
+	var (_trailing_text, trailing_error) = JsonFieldMask.to_json(["foo_"])
+	check(trailing_error == ProtobufError.JSON_TYPE_MISMATCH, "a trailing underscore is refused")
+
+	var (_doubled_text, doubled_error) = JsonFieldMask.to_json(["foo__bar"])
+	check(doubled_error == ProtobufError.JSON_TYPE_MISMATCH, "a doubled underscore is refused")
+
+	## The canonical form never carries an underscore, so a JSON path with one
+	## is not something this helper could have produced.
+	var (_underscore_paths, underscore_error) = JsonFieldMask.from_json("foo_bar")
+	check(underscore_error == ProtobufError.JSON_TYPE_MISMATCH, "a JSON path with an underscore is refused")
+
+	## An underscore immediately before a digit has no visible effect once
+	## capitalized, so the conversion would lose it silently.
+	var (_digit_text, digit_error) = JsonFieldMask.to_json(["foo_1"])
+	check(digit_error == ProtobufError.JSON_TYPE_MISMATCH, "an underscore before a digit is refused")
+
+	## An empty segment -- a leading, trailing, or doubled dot -- has nothing
+	## to convert and is refused in both directions.
+	var (_leading_dot_text, leading_dot_error) = JsonFieldMask.to_json([".foo"])
+	check(leading_dot_error == ProtobufError.JSON_TYPE_MISMATCH, "a leading dot is refused")
+
+	var (_double_dot_text, double_dot_error) = JsonFieldMask.to_json(["foo..bar"])
+	check(double_dot_error == ProtobufError.JSON_TYPE_MISMATCH, "a doubled dot is refused")
+
+	## An underscore at the start of a segment is different from one in the
+	## middle: it round-trips cleanly, becoming a capitalized first letter.
+	var (leading_underscore_text, leading_underscore_error) = JsonFieldMask.to_json(["_foo.bar._baz"])
+	check(leading_underscore_error == ProtobufError.OK, "a segment-initial underscore converts")
+	check(leading_underscore_text == "Foo.bar.Baz", "a segment-initial underscore becomes a capital")
+
+	var (leading_underscore_paths, leading_underscore_parse_error) = JsonFieldMask.from_json("Foo.bar.Baz")
+	check(leading_underscore_parse_error == ProtobufError.OK, "a capitalized segment start parses")
+	check(leading_underscore_paths == ["_foo.bar._baz"], "a capitalized segment start restores its underscore")
+
+	## A comma inside a path would be indistinguishable from the delimiter
+	## that joins paths, so it is refused rather than accepted and later
+	## split into paths that were never there.
+	var (_comma_text, comma_error) = JsonFieldMask.to_json(["foo,bar"])
+	check(comma_error == ProtobufError.JSON_TYPE_MISMATCH, "a comma inside a path is refused")
+
+	var (_comma_paths, comma_parse_error) = JsonFieldMask.from_json("foo!bar")
+	check(comma_parse_error == ProtobufError.JSON_TYPE_MISMATCH, "a non-identifier character is refused")
+
+	## A protobuf identifier may never start with a digit, in the whole path
+	## or in a later segment, so neither direction accepts one that does.
+	var (_leading_digit_text, leading_digit_error) = JsonFieldMask.to_json(["1foo"])
+	check(leading_digit_error == ProtobufError.JSON_TYPE_MISMATCH, "a path opening on a digit is refused")
+
+	var (_leading_digit_segment_text, leading_digit_segment_error) = JsonFieldMask.to_json(["foo.1bar"])
+	check(leading_digit_segment_error == ProtobufError.JSON_TYPE_MISMATCH, "a segment opening on a digit is refused")
+
+	var (_leading_digit_paths, leading_digit_parse_error) = JsonFieldMask.from_json("1foo")
+	check(leading_digit_parse_error == ProtobufError.JSON_TYPE_MISMATCH, "a JSON path opening on a digit is refused")
