@@ -1,11 +1,15 @@
 package fsgenerator
 
 import (
+	gopath "path"
 	"sort"
+	"strings"
 	"testing"
 
-	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
 	"github.com/stretchr/testify/require"
+
+	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
+	"github.com/cafecito-games/foundry-tools/internal/runtime"
 )
 
 // Every generated file imports foundry.proto, so a schema type sharing a name
@@ -65,4 +69,33 @@ func TestWellKnownExportsAreNotEscaped(t *testing.T) {
 	sort.Strings(escaped)
 	require.Empty(t, escaped,
 		"a name foundry.proto.wkt exports is escaped, which renames the runtime's own binding when it is regenerated")
+}
+
+// A schema generating into a namespace the runtime ships writes its bindings to
+// the same output paths as the runtime files, which both entry points write
+// last -- so the schema would be discarded with nothing said about it.
+//
+// The reserved set is derived from the shipped runtime source rather than
+// listed, so this recomputes it independently from the output paths the runtime
+// files occupy: a runtime namespace added later is reserved without an edit
+// here or in the generator.
+func TestReservedNamespacesAreEveryNamespaceTheRuntimeDeclares(t *testing.T) {
+	expected := map[string]bool{}
+	for path := range runtime.Files() {
+		directory := gopath.Dir(path)
+		require.NotEqual(t, ".", directory, "runtime file %s is not namespaced", path)
+		expected[strings.ReplaceAll(directory, "/", ".")] = true
+	}
+	require.NotEmpty(t, expected, "no runtime files found; the embedded runtime is probably empty")
+
+	require.Equal(t, expected, runtimeNamespaces(),
+		"the reserved set must be every namespace the runtime declares, derived from its source")
+
+	// The namespaces shipped today, so a change to either side of the
+	// comparison above is still visible as a change in what is rejected.
+	require.Equal(t, []string{"foundry.proto", wellknown.Namespace}, sortedRuntimeNamespaces())
+
+	for namespace := range expected {
+		require.ErrorContains(t, ValidateNamespace(namespace), "is reserved")
+	}
 }

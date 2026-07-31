@@ -380,7 +380,7 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 		// A dependency's namespace is emitted as an import statement, so a
 		// malformed one is a parse error in a file the user did not write.
 		// Treat it as unusable rather than passing it through.
-		if ValidateNamespace(namespace) != nil {
+		if validateNamespaceShape(namespace) != nil {
 			resolve.unnamespaced[imports[i].Filename] = true
 			continue
 		}

@@ -40,8 +40,33 @@ func NamespaceFor(file *protoast.ProtoFile) string {
 	return file.Package
 }
 
-// ValidateNamespace validates a dotted Foundry Script namespace.
+// ValidateNamespace validates a dotted Foundry Script namespace and rejects the
+// namespaces the runtime ships bindings in.
 func ValidateNamespace(namespace string) error {
+	if err := validateNamespaceShape(namespace); err != nil {
+		return err
+	}
+	// Only an exact match is reserved. A nested namespace such as
+	// foundry.proto.wkt.mine generates into its own directory and so cannot
+	// shadow a runtime file, and reserving the whole `foundry.` prefix would
+	// reject schemas that merely start with the same word.
+	if runtimeNamespaces()[namespace] {
+		return fmt.Errorf(
+			"namespace %q is reserved: foundry-tools ships the runtime bindings for %s, "+
+				"so generating into it would produce files the runtime replaces and silently discard this schema; "+
+				"set (foundrytools.namespace) to a namespace of your own",
+			namespace, strings.Join(sortedRuntimeNamespaces(), ", "),
+		)
+	}
+	return nil
+}
+
+// validateNamespaceShape validates only the spelling of a dotted namespace. A
+// dependency's namespace is emitted as an import statement rather than as an
+// output path, so a dependency that legitimately lives in a runtime namespace --
+// the well-known bindings above all -- has to pass this and not the reserved
+// check.
+func validateNamespaceShape(namespace string) error {
 	if namespace == "" {
 		return fmt.Errorf("namespace is required")
 	}

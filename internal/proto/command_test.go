@@ -2,11 +2,13 @@ package proto
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
@@ -182,4 +184,69 @@ func TestGenerateRejectsAnUnrootedGoogleProtobufPath(t *testing.T) {
 	entries, err := os.ReadDir(outDir)
 	require.NoError(t, err)
 	require.Empty(t, entries, "a rejected input must produce no output at all")
+}
+
+// A schema that claims a namespace the runtime ships generates into the same
+// output paths as the runtime files, which are written last and would replace
+// it. Rejecting it is what keeps the caller's schema from being silently
+// discarded while the command reports success.
+func TestGenerateRejectsARuntimeNamespace(t *testing.T) {
+	for _, namespace := range []string{"foundry.proto", "foundry.proto.wkt"} {
+		t.Run(namespace, func(t *testing.T) {
+			outDir := generateNamespacedSchema(t, namespace, func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				err := cmd.Execute()
+				require.Error(t, err)
+				require.Contains(t, err.Error(), namespace)
+				require.Contains(t, err.Error(), "is reserved")
+				require.Contains(t, err.Error(), "(foundrytools.namespace)")
+			})
+			entries, err := os.ReadDir(outDir)
+			require.NoError(t, err)
+			require.Empty(t, entries, "a rejected schema must produce no output at all")
+		})
+	}
+}
+
+// Only an exact match is reserved. A nested namespace generates into its own
+// directory, so it cannot shadow a runtime file, and an ordinary namespace was
+// never at risk.
+func TestGenerateAcceptsNamespacesThatCannotShadowTheRuntime(t *testing.T) {
+	for namespace, expected := range map[string]string{
+		"foundry.proto.wkt.mine": filepath.Join("foundry", "proto", "wkt", "mine", "Empty.pb.fs"),
+		"cafecito.game.v1":       filepath.Join("cafecito", "game", "v1", "Empty.pb.fs"),
+	} {
+		t.Run(namespace, func(t *testing.T) {
+			outDir := generateNamespacedSchema(t, namespace, func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				require.NoError(t, cmd.Execute())
+			})
+			source, err := os.ReadFile(filepath.Join(outDir, expected))
+			require.NoError(t, err)
+			require.Contains(t, string(source), "var x: int = 0",
+				"the caller's own field must survive into the emitted binding")
+		})
+	}
+}
+
+// generateNamespacedSchema runs `proto generate` over a one-message schema
+// pinned to namespace, and returns the output directory for inspection.
+func generateNamespacedSchema(t *testing.T, namespace string, execute func(*testing.T, *cobra.Command)) string {
+	t.Helper()
+	root := t.TempDir()
+	source := fmt.Sprintf(`syntax = "proto3";
+package demo;
+option (foundrytools.namespace) = %q;
+message Empty {
+  int32 x = 1;
+}
+`, namespace)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "shadow.proto"), []byte(source), 0o600))
+
+	outDir := t.TempDir()
+	var stdout bytes.Buffer
+	cmd := NewCommand(&stdout)
+	cmd.SetArgs([]string{"generate", "-o", outDir, "-I", root, filepath.Join(root, "shadow.proto")})
+	execute(t, cmd)
+	return outDir
 }

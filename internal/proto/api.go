@@ -60,6 +60,14 @@ func Generate(file *File, sourceName string, imports []FileEntry) (GeneratedFile
 	return fsgenerator.Generate(file, sourceName, imports)
 }
 
+// GenerateIntoRuntimeNamespace renders bindings without rejecting the namespaces
+// the runtime ships. Only internal/proto/wellknown/gen may use it: it renders
+// the checked-in foundry.proto.wkt bindings, which is what makes that namespace
+// reserved for everyone else.
+func GenerateIntoRuntimeNamespace(file *File, sourceName string, imports []FileEntry) (GeneratedFiles, error) {
+	return fsgenerator.GenerateIntoRuntimeNamespace(file, sourceName, imports)
+}
+
 // FromCodeGeneratorRequest converts protoc plugin descriptors to the internal
 // protobuf AST.
 func FromCodeGeneratorRequest(req *pluginpb.CodeGeneratorRequest) ([]*File, error) {

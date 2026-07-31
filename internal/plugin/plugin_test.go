@@ -332,3 +332,64 @@ func filesByName(resp *pluginpb.CodeGeneratorResponse) map[string]string {
 	}
 	return files
 }
+
+// The plugin merges the runtime files into its response after the generated
+// ones, so a schema claiming a namespace the runtime ships would have its
+// bindings replaced by the runtime's and protoc would report success.
+func TestRunRejectsARuntimeNamespace(t *testing.T) {
+	for _, namespace := range []string{"foundry.proto", "foundry.proto.wkt"} {
+		t.Run(namespace, func(t *testing.T) {
+			resp := runPlugin(t, namespacedRequest(t, namespace))
+
+			require.Contains(t, resp.GetError(), namespace)
+			require.Contains(t, resp.GetError(), "is reserved")
+			require.Contains(t, resp.GetError(), "(foundrytools.namespace)")
+			require.Empty(t, resp.GetFile())
+		})
+	}
+}
+
+// Only an exact match is reserved: a nested namespace generates into its own
+// directory and so cannot shadow a runtime file.
+func TestRunAcceptsNamespacesThatCannotShadowTheRuntime(t *testing.T) {
+	for namespace, expected := range map[string]string{
+		"foundry.proto.wkt.mine": "foundry/proto/wkt/mine/Empty.pb.fs",
+		"cafecito.game.v1":       "cafecito/game/v1/Empty.pb.fs",
+	} {
+		t.Run(namespace, func(t *testing.T) {
+			resp := runPlugin(t, namespacedRequest(t, namespace))
+			require.Empty(t, resp.GetError())
+
+			source, ok := filesByName(resp)[expected]
+			require.True(t, ok)
+			require.Contains(t, source, "var x: int = 0",
+				"the caller's own field must survive into the emitted binding")
+		})
+	}
+}
+
+// namespacedRequest builds a request for a one-message schema pinned to
+// namespace, which is what decides the output paths its bindings take.
+func namespacedRequest(t *testing.T, namespace string) *pluginpb.CodeGeneratorRequest {
+	t.Helper()
+	options := &descriptorpb.FileOptions{}
+	proto.SetExtension(options, foundrytoolspb.E_Namespace, namespace)
+	return &pluginpb.CodeGeneratorRequest{
+		FileToGenerate: []string{"shadow.proto"},
+		ProtoFile: []*descriptorpb.FileDescriptorProto{{
+			Name:    proto.String("shadow.proto"),
+			Syntax:  proto.String("proto3"),
+			Package: proto.String("demo"),
+			Options: options,
+			MessageType: []*descriptorpb.DescriptorProto{{
+				Name: proto.String("Empty"),
+				Field: []*descriptorpb.FieldDescriptorProto{{
+					Name:   proto.String("x"),
+					Number: proto.Int32(1),
+					Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+					Type:   descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+				}},
+			}},
+		}},
+	}
+}

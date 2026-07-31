@@ -77,6 +77,14 @@ A schema may still declare its own `Timestamp`. The import is emitted only for
 a file that references a well-known type, and a local declaration shadows the
 imported one, so nothing is renamed.
 
+What a schema may not do is generate *into* a namespace the runtime ships.
+`option (foundrytools.namespace) = "foundry.proto.wkt"` — or `"foundry.proto"` —
+would write bindings to the same paths the runtime files occupy, and the runtime
+is written last, so the schema would be silently discarded. Both are rejected
+with a diagnostic naming the namespace. Only those exact namespaces are
+reserved: `foundry.proto.wkt.mine` generates into its own directory and is fine,
+and so is any other namespace beginning with `foundry`.
+
 These are plain message bindings today: they round-trip correctly on the wire,
 but carry none of the semantics the types imply. `Struct` will not convert to a
 `Dictionary`, `Timestamp` will not convert to seconds, and `Any` will not pack

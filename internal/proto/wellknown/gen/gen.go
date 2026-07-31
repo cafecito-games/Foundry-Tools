@@ -77,7 +77,10 @@ func Generate() (map[string]string, error) {
 		if validationErrors := proto.Validate(parsed.File, sourceName); len(validationErrors) != 0 {
 			return nil, fmt.Errorf("%s", proto.FormatValidationErrors(validationErrors))
 		}
-		generated, err := proto.Generate(parsed.File, sourceName, proto.ImportsOf(parsed))
+		// wellknown.Namespace is reserved against every other caller precisely
+		// because this package fills it, so this is the one path that renders
+		// into it. proto.Generate would reject these files.
+		generated, err := proto.GenerateIntoRuntimeNamespace(parsed.File, sourceName, proto.ImportsOf(parsed))
 		if err != nil {
 			return nil, err
 		}

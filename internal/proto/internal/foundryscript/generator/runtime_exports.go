@@ -2,6 +2,7 @@ package fsgenerator
 
 import (
 	"regexp"
+	"sort"
 	"sync"
 
 	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
@@ -31,6 +32,33 @@ func runtimeExports(namespace string) map[string]string {
 		}
 	}
 	return declared
+}
+
+// runtimeNamespaces is the set of namespaces the embedded runtime declares.
+// Every runtime file is written to an output path derived from its namespace,
+// so a schema generating into one of these namespaces would emit files that the
+// runtime then overwrites. Reading the set out of the shipped source rather than
+// listing it here means a namespace added to the runtime is reserved without a
+// second edit somewhere else.
+var runtimeNamespaces = sync.OnceValue(func() map[string]bool {
+	namespaces := map[string]bool{}
+	for _, source := range runtime.Files() {
+		if match := runtimeNamespace.FindStringSubmatch(source); len(match) == 2 {
+			namespaces[match[1]] = true
+		}
+	}
+	return namespaces
+})
+
+// sortedRuntimeNamespaces lists the reserved namespaces in stable order so a
+// diagnostic reads the same way on every run.
+func sortedRuntimeNamespaces() []string {
+	namespaces := make([]string, 0, len(runtimeNamespaces()))
+	for namespace := range runtimeNamespaces() {
+		namespaces = append(namespaces, namespace)
+	}
+	sort.Strings(namespaces)
+	return namespaces
 }
 
 // wellKnownExports are the names an `import foundry.proto.wkt` brings into
