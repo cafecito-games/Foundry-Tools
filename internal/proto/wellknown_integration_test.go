@@ -136,6 +136,40 @@ message Empty {
 	require.Contains(t, holder, "var timeout: Duration? = null")
 }
 
+// A schema of the caller's own may name foundry.proto.wkt through the namespace
+// option. It is still an ordinary dependency, so a collision between it and a
+// well-known export has to be caught the same way -- the runtime namespace is
+// not a marker for "this file is well-known".
+func TestCallerSchemaNamingTheRuntimeNamespaceStillCollides(t *testing.T) {
+	files := generateSchema(t, `
+syntax = "proto3";
+
+package cafecito.game.v1;
+
+import "common.proto";
+import "google/protobuf/duration.proto";
+
+message Holder {
+  cafecito.common.v1.Empty local_empty = 1;
+  google.protobuf.Duration timeout = 2;
+}
+`, schemaFile{"common.proto", `
+syntax = "proto3";
+
+package cafecito.common.v1;
+
+option (foundrytools.namespace) = "foundry.proto.wkt";
+
+message Empty {
+  int32 x = 1;
+}
+`})
+
+	holder := files["cafecito/game/v1/Holder.pb.fs"]
+	require.Contains(t, holder, "var local_empty: foundry.proto.wkt.Empty? = null",
+		"a caller file claiming the runtime namespace still collides with the runtime's Empty")
+}
+
 // Without a well-known reference the namespace is not imported, so a schema
 // type named like a well-known one still resolves by its short name.
 func TestImportedTypeNamedLikeAWellKnownTypeStaysShortWithoutAReference(t *testing.T) {

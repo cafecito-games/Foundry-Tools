@@ -472,8 +472,11 @@ func (r *resolver) ambiguous(scope, reference string) bool {
 	}
 	for filename := range r.imported {
 		// Already counted above, once for the namespace as a whole rather than
-		// once per well-known file this schema happens to import.
-		if r.namespaces[filename] == wellknown.Namespace {
+		// once per well-known file this schema happens to import. The test is
+		// whether the file is well-known, not what namespace it lands in: a
+		// schema of the caller's own may name foundry.proto.wkt through the
+		// namespace option, and skipping it here would drop a real collision.
+		if wellknown.IsWellKnownImport(filename) {
 			continue
 		}
 		for key := range r.imported[filename] {
