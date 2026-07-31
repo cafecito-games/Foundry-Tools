@@ -27,7 +27,8 @@ func TestGenerateRequiresNamespace(t *testing.T) {
 	_, err := Generate(messageFile(&protoast.Message{
 		Name:   "Player",
 		Fields: []*protoast.Field{{FieldType: "string", Name: "name", Number: 1}},
-	}), "player.proto", nil)
+	}), "player.proto", nil, Options{})
+
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "namespace is required")
 }
@@ -74,7 +75,7 @@ func prefixedFile(prefix string, messages []*protoast.Message, enums []*protoast
 
 func generate(t *testing.T, file *protoast.ProtoFile) GeneratedFiles {
 	t.Helper()
-	files, err := Generate(file, "player.proto", nil)
+	files, err := Generate(file, "player.proto", nil, Options{})
 	require.NoError(t, err)
 	return files
 }
@@ -235,7 +236,8 @@ func TestSameFileDescriptorEnumResolvesLocally(t *testing.T) {
 			Name:   "PlayerStatus",
 			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
 		}},
-	), "player.proto", nil)
+	), "player.proto", nil, Options{})
+
 	require.NoError(t, err)
 
 	source := files["cafecito/game/v1/Player.pb.fs"]
@@ -262,7 +264,8 @@ func TestSameFileDescriptorEnumUsesLocalPrefix(t *testing.T) {
 			Name:   "PlayerStatus",
 			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
 		}},
-	), "player.proto", nil)
+	), "player.proto", nil, Options{})
+
 	require.NoError(t, err)
 
 	source := files["cafecito/game/v1/GamePlayer.pb.fs"]
@@ -290,7 +293,8 @@ func TestSameFileDescriptorMapEnumResolvesLocally(t *testing.T) {
 			Name:   "PlayerStatus",
 			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
 		}},
-	), "player.proto", nil)
+	), "player.proto", nil, Options{})
+
 	require.NoError(t, err)
 
 	source := files["cafecito/game/v1/Player.pb.fs"]
@@ -327,7 +331,8 @@ func TestReferenceUsesDeclaringFilesPrefix(t *testing.T) {
 				IsEnum: true, SourceFile: "inventory.proto",
 			},
 		},
-	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}}, Options{})
+
 	require.NoError(t, err)
 
 	source := files["cafecito/game/v1/Player.pb.fs"]
@@ -368,7 +373,8 @@ func TestMissingImportedDeclarationDoesNotResolveToLocalType(t *testing.T) {
 
 	files, err := Generate(local, "player.proto", []FileEntry{{
 		File: imported, Filename: "inventory.proto",
-	}})
+	}}, Options{})
+
 	require.NoError(t, err)
 
 	messageSource := files["cafecito/game/v1/Player.pb.fs"]
@@ -394,7 +400,8 @@ func TestReferencedDependencyReportsInvalidPrefix(t *testing.T) {
 	_, err := Generate(namespacedFile([]*protoast.Message{{
 		Name:   "Player",
 		Fields: []*protoast.Field{{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"}},
-	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}}, Options{})
+
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "inventory.proto")
 	require.Contains(t, err.Error(), typePrefixOptionKey)
@@ -412,7 +419,8 @@ func TestUnreferencedDependencyIgnoresInvalidPrefix(t *testing.T) {
 	files, err := Generate(namespacedFile([]*protoast.Message{{
 		Name:   "Player",
 		Fields: []*protoast.Field{{FieldType: "string", Name: "name", Number: 1}},
-	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}}, Options{})
+
 	require.NoError(t, err)
 	require.Contains(t, files, "cafecito/game/v1/Player.pb.fs")
 }
@@ -858,7 +866,7 @@ func TestGeneratePackedTrueOnUnpackableFieldIsRejected(t *testing.T) {
 					Options:   map[string]any{"packed": true},
 				}}},
 				slotMessage(),
-			}, nil), "player.proto", nil)
+			}, nil), "player.proto", nil, Options{})
 
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "field Player.values")
@@ -990,7 +998,7 @@ func TestGenerateAcceptsEveryProto3Scalar(t *testing.T) {
 		fields = append(fields, &protoast.Field{FieldType: scalar, Name: scalar + "_field", Number: i + 1})
 	}
 
-	_, err := Generate(namespacedFile([]*protoast.Message{{Name: "Player", Fields: fields}}, nil), "player.proto", nil)
+	_, err := Generate(namespacedFile([]*protoast.Message{{Name: "Player", Fields: fields}}, nil), "player.proto", nil, Options{})
 	require.NoError(t, err)
 }
 
@@ -1075,7 +1083,8 @@ func TestGenerateRejectsTheGeneratedPrefix(t *testing.T) {
 	_, err := Generate(namespacedFile([]*protoast.Message{{
 		Name:   "Player",
 		Fields: []*protoast.Field{{FieldType: "int32", Name: "_pb_offset", Number: 1}},
-	}}, nil), "player.proto", nil)
+	}}, nil), "player.proto", nil, Options{})
+
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "the _pb_ prefix is reserved")
 
@@ -1085,7 +1094,8 @@ func TestGenerateRejectsTheGeneratedPrefix(t *testing.T) {
 			Name:   "_pb_result",
 			Fields: []*protoast.Field{{FieldType: "int32", Name: "amount", Number: 1}},
 		}},
-	}}, nil), "player.proto", nil)
+	}}, nil), "player.proto", nil, Options{})
+
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "the _pb_ prefix is reserved")
 }
@@ -1105,7 +1115,8 @@ func TestReferenceToADependencyWithAnInvalidNamespaceIsRejected(t *testing.T) {
 	_, err := Generate(namespacedFile([]*protoast.Message{{
 		Name:   "Player",
 		Fields: []*protoast.Field{{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"}},
-	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}}, Options{})
+
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no usable namespace")
 }
@@ -1245,7 +1256,8 @@ func TestCrossFileReferencesImportTheirNamespace(t *testing.T) {
 			{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"},
 			{FieldType: "Rarity", Name: "rarity", Number: 2, IsEnum: true, SourceFile: "inventory.proto"},
 		},
-	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}}, Options{})
+
 	require.NoError(t, err)
 	source := files["cafecito/game/v1/Player.pb.fs"]
 
@@ -1288,7 +1300,8 @@ func TestImportedTypeIsNotCapturedByALocalOfTheSameName(t *testing.T) {
 			},
 		},
 		slotMessage(),
-	}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}}, Options{})
+
 	require.NoError(t, err)
 	source := files["cafecito/game/v1/Player.pb.fs"]
 
@@ -1316,7 +1329,8 @@ func TestImportedTypeKeepsTheShortSpellingWhenUnambiguous(t *testing.T) {
 	files, err := Generate(namespacedFile([]*protoast.Message{{
 		Name:   "Player",
 		Fields: []*protoast.Field{{FieldType: "Item", Name: "held", Number: 1, SourceFile: "inventory.proto"}},
-	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}})
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "inventory.proto"}}, Options{})
+
 	require.NoError(t, err)
 
 	require.Contains(t, files["cafecito/game/v1/Player.pb.fs"], "var held: Item? = null")
@@ -1331,7 +1345,8 @@ func TestGenerateRejectsCollidingMemberNames(t *testing.T) {
 			{FieldType: "int32", Name: "var", Number: 1},
 			{FieldType: "string", Name: "var_", Number: 2},
 		},
-	}}, nil), "player.proto", nil)
+	}}, nil), "player.proto", nil, Options{})
+
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "generated Foundry member names collide:")
 	require.Contains(t, err.Error(), `Foundry member "var_"`)
@@ -1347,7 +1362,8 @@ func TestGenerateRejectsOneofCollidingWithAField(t *testing.T) {
 			Name:   "payload",
 			Fields: []*protoast.Field{{FieldType: "string", Name: "text", Number: 2}},
 		}},
-	}}, nil), "player.proto", nil)
+	}}, nil), "player.proto", nil, Options{})
+
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `Foundry member "payload"`)
 	require.Contains(t, err.Error(), "field cafecito.game.v1.Player.payload")
@@ -1487,7 +1503,8 @@ func TestGenerateRejectsCollidingRetentionMembers(t *testing.T) {
 			Name:   "PlayerStatus",
 			Values: []*protoast.EnumValue{{Name: "PLAYER_STATUS_UNSPECIFIED", Number: 0}},
 		}},
-	), "player.proto", nil)
+	), "player.proto", nil, Options{})
+
 	require.Error(t, err)
 	diagnostic := err.Error()
 	require.Equal(t, 1, strings.Count(
@@ -1529,7 +1546,8 @@ func TestSameNameFromTwoImportedNamespacesIsQualified(t *testing.T) {
 	}}, nil), "player.proto", []FileEntry{
 		{File: first, Filename: "inventory.proto"},
 		{File: second, Filename: "catalog.proto"},
-	})
+	}, Options{})
+
 	require.NoError(t, err)
 	source := files["cafecito/game/v1/Player.pb.fs"]
 
@@ -1713,7 +1731,25 @@ func TestReferenceToAnUnnamespacedDependencyIsRejected(t *testing.T) {
 	_, err := Generate(namespacedFile([]*protoast.Message{{
 		Name:   "Player",
 		Fields: []*protoast.Field{{FieldType: "Item", Name: "held", Number: 1, SourceFile: "loose.proto"}},
-	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "loose.proto"}})
+	}}, nil), "player.proto", []FileEntry{{File: imported, Filename: "loose.proto"}}, Options{})
+
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no usable namespace")
+}
+
+func TestGenerateAcceptsOptions(t *testing.T) {
+	file := namespacedFile([]*protoast.Message{{
+		Name:   "Probe",
+		Fields: []*protoast.Field{{FieldType: "string", Name: "label", Number: 1}},
+	}}, nil)
+
+	withJSON, err := Generate(file, "probe.proto", nil, Options{JSON: true})
+	require.NoError(t, err)
+
+	withoutJSON, err := Generate(file, "probe.proto", nil, Options{})
+	require.NoError(t, err)
+
+	// The option is threaded but nothing consumes it yet, so both runs agree.
+	// This assertion inverts when the JSON emitter lands.
+	require.Equal(t, withoutJSON, withJSON)
 }

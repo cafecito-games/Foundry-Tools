@@ -45,7 +45,7 @@ func TestGenerateAggregatesEscapedMemberCollisions(t *testing.T) {
 				}},
 			}},
 		},
-	}, nil), "members.proto", nil)
+	}, nil), "members.proto", nil, Options{})
 
 	require.Nil(t, files)
 	require.EqualError(t, err, `generated Foundry member names collide:
@@ -74,7 +74,7 @@ func TestGenerateAggregatesKeywordAndEscapedOneofCollisions(t *testing.T) {
 				Fields: []*protoast.Field{{FieldType: "string", Name: "text", Number: 2}},
 			}},
 		},
-	}, nil), "members.proto", nil)
+	}, nil), "members.proto", nil, Options{})
 
 	require.Nil(t, files)
 	require.Error(t, err)
@@ -98,7 +98,7 @@ func TestGenerateReportsTypeCollisionsBeforeMemberCollisions(t *testing.T) {
 			{FieldType: "int32", Name: "String", Number: 1},
 			{FieldType: "int32", Name: "String_", Number: 2},
 		},
-	}}, nil), "members.proto", nil)
+	}}, nil), "members.proto", nil, Options{})
 
 	require.Nil(t, files)
 	require.Error(t, err)
@@ -116,7 +116,7 @@ func TestGenerateCollectsNestedMessageMemberCollisions(t *testing.T) {
 				{FieldType: "int32", Name: "Timer_", Number: 2},
 			},
 		}},
-	}}, nil), "members.proto", nil)
+	}}, nil), "members.proto", nil, Options{})
 
 	require.Nil(t, files)
 	require.Error(t, err)
@@ -180,7 +180,7 @@ func TestGenerateMethodEscapeCollidesOnlyAtEscapedSpelling(t *testing.T) {
 			{Position: protoast.Position{Line: 5, Column: 3}, FieldType: "bytes", Name: "to_bytes", Number: 1},
 			{Position: protoast.Position{Line: 6, Column: 3}, FieldType: "bytes", Name: "to_bytes_", Number: 2},
 		},
-	}}, nil), "members.proto", nil)
+	}}, nil), "members.proto", nil, Options{})
 
 	require.Nil(t, files)
 	require.EqualError(t, err, `generated Foundry member names collide:

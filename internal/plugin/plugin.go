@@ -70,7 +70,7 @@ func Run(in io.Reader, out io.Writer) error {
 		if validationErrors := foundryproto.Validate(file, name); len(validationErrors) != 0 {
 			return writeError(out, foundryproto.FormatValidationErrors(validationErrors))
 		}
-		generated, err := foundryproto.Generate(file, name, importsFor(name, dependencies, filesByName))
+		generated, err := foundryproto.Generate(file, name, importsFor(name, dependencies, filesByName), foundryproto.Options{})
 		if err != nil {
 			return writeError(out, err.Error())
 		}

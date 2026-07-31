@@ -17,8 +17,8 @@ type FileEntry struct {
 }
 
 // Generate renders top-level message and enum skeletons for a proto file.
-func Generate(file *protoast.ProtoFile, sourceName string, imports []FileEntry) (GeneratedFiles, error) {
-	return generateFiles(file, sourceName, imports, ValidateNamespace)
+func Generate(file *protoast.ProtoFile, sourceName string, imports []FileEntry, options Options) (GeneratedFiles, error) {
+	return generateFiles(file, sourceName, imports, options, ValidateNamespace)
 }
 
 // GenerateIntoRuntimeNamespace is Generate without the reserved-namespace
@@ -27,14 +27,18 @@ func Generate(file *protoast.ProtoFile, sourceName string, imports []FileEntry) 
 // reserved in the first place. Every other caller must use Generate, so that a
 // schema claiming a runtime namespace is rejected instead of being generated and
 // then overwritten by the runtime files.
-func GenerateIntoRuntimeNamespace(file *protoast.ProtoFile, sourceName string, imports []FileEntry) (GeneratedFiles, error) {
-	return generateFiles(file, sourceName, imports, validateNamespaceShape)
+func GenerateIntoRuntimeNamespace(file *protoast.ProtoFile, sourceName string, imports []FileEntry, options Options) (GeneratedFiles, error) {
+	return generateFiles(file, sourceName, imports, options, validateNamespaceShape)
 }
 
+// generateFiles renders one proto file. The Options value is accepted here so
+// that both entry points agree on the signature; no emitter consumes it yet,
+// which is why the parameter is unnamed.
 func generateFiles(
 	file *protoast.ProtoFile,
 	sourceName string,
 	imports []FileEntry,
+	_ Options,
 	validateNamespace func(string) error,
 ) (GeneratedFiles, error) {
 	localNamer, err := newTypeNamer(file, sourceName)
