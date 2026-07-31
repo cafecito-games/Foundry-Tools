@@ -34,10 +34,16 @@ func NewCommand(stdout io.Writer) *cobra.Command {
 	return cmd
 }
 
+// generateFunc renders Foundry Script for a parsed proto file. It is a
+// package-level seam so tests can observe the Options a generate run
+// receives without duplicating the command's flag-parsing logic.
+var generateFunc = Generate
+
 func newGenerateCommand(stdout io.Writer) *cobra.Command {
 	var opts struct {
 		outDir     string
 		importPath []string
+		json       bool
 	}
 
 	cmd := &cobra.Command{
@@ -66,7 +72,7 @@ func newGenerateCommand(stdout io.Writer) *cobra.Command {
 				if validationErrors := Validate(parsed.File, parsed.Filename); len(validationErrors) != 0 {
 					return validationErrorList(validationErrors)
 				}
-				generatedFiles, err := Generate(parsed.File, parsed.Filename, ImportsOf(parsed), Options{})
+				generatedFiles, err := generateFunc(parsed.File, parsed.Filename, ImportsOf(parsed), Options{JSON: opts.json})
 				if err != nil {
 					return err
 				}
@@ -86,6 +92,7 @@ func newGenerateCommand(stdout io.Writer) *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&opts.outDir, "out", "o", ".", "output directory")
 	cmd.Flags().StringArrayVarP(&opts.importPath, "proto_path", "I", nil, "proto import path")
+	cmd.Flags().BoolVar(&opts.json, "json", false, "emit the proto3 canonical JSON mapping alongside the wire codec")
 	return cmd
 }
 
