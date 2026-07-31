@@ -11,7 +11,11 @@ import (
 // ParsedFile is a parsed protobuf file and the filename used for diagnostics.
 type ParsedFile struct {
 	Filename string
-	File     *protoast.ProtoFile
+	// ImportPath is Filename resolved against the include roots: the name
+	// protoc would know this file by, and so the name that decides whether it
+	// is a well-known type the runtime already ships.
+	ImportPath string
+	File       *protoast.ProtoFile
 	// Imports are the files this one pulled in, transitively through public
 	// re-exports. The generator needs them to resolve the namespace and the
 	// enum defaults of any type declared outside this file.
@@ -22,9 +26,13 @@ type ParsedFile struct {
 func ParseFiles(filenames, importRoots []string) ([]ParsedFile, error) {
 	out := make([]ParsedFile, 0, len(filenames))
 	for _, filename := range filenames {
+		importPath, err := wellknown.ImportPathFor(filename, importRoots)
+		if err != nil {
+			return nil, err
+		}
 		// A google/protobuf file the runtime does not ship cannot be generated
 		// at all, so say so here rather than after it has been read and parsed.
-		if err := wellknown.Check(filename); err != nil {
+		if err := wellknown.Check(importPath); err != nil {
 			return nil, err
 		}
 		data, err := os.ReadFile(filename) //nolint:gosec // CLI input path is explicitly user-provided.
@@ -47,7 +55,12 @@ func ParseFiles(filenames, importRoots []string) ([]ParsedFile, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, ParsedFile{Filename: filename, File: file, Imports: imported})
+		out = append(out, ParsedFile{
+			Filename:   filename,
+			ImportPath: importPath,
+			File:       file,
+			Imports:    imported,
+		})
 	}
 	return out, nil
 }

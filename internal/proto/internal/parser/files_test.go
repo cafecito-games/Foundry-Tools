@@ -100,3 +100,37 @@ func TestParseFilesRejectsAnUnsupportedGoogleFile(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not supported")
 }
+
+// A vendored copy is identified the same way anything else is: by its path
+// relative to the include root that contains it. Rejection follows from that
+// import path rather than from the shape of the path on disk.
+func TestParseFilesRejectsAnUnsupportedGoogleFileResolvedFromAnIncludeRoot(t *testing.T) {
+	dir := t.TempDir()
+	vendored := filepath.Join(dir, "vendor", "google", "protobuf", "descriptor.proto")
+	require.NoError(t, os.MkdirAll(filepath.Dir(vendored), 0o755))
+	require.NoError(t, os.WriteFile(vendored, []byte("syntax = \"proto2\";\npackage google.protobuf;\n"), 0o644))
+
+	_, err := ParseFiles([]string{vendored}, []string{filepath.Join(dir, "vendor")})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "google/protobuf/descriptor.proto is not supported")
+}
+
+// ParsedFile carries the import path the include roots resolved it to, which is
+// what callers classify on.
+func TestParseFilesRecordsTheResolvedImportPath(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "protos", "cafecito", "game", "v1", "player.proto")
+	require.NoError(t, os.MkdirAll(filepath.Dir(source), 0o755))
+	require.NoError(t, os.WriteFile(source, []byte(`syntax = "proto3";
+package cafecito.game.v1;
+message Player {
+  string id = 1;
+}
+`), 0o644))
+
+	files, err := ParseFiles([]string{source}, []string{filepath.Join(dir, "protos")})
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, source, files[0].Filename)
+	require.Equal(t, "cafecito/game/v1/player.proto", files[0].ImportPath)
+}

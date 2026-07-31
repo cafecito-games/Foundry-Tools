@@ -59,7 +59,7 @@ func newGenerateCommand(stdout io.Writer) *cobra.Command {
 			for _, parsed := range parsedFiles {
 				// The runtime already ships bindings for these, so generating
 				// them here would give this project a second, incompatible copy.
-				if wellknown.IsWellKnown(parsed.Filename) {
+				if wellknown.IsWellKnownImport(parsed.ImportPath) {
 					continue
 				}
 				generatedCount++

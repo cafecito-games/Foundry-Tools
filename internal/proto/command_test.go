@@ -91,9 +91,10 @@ func TestGenerateSkipsWellKnownFiles(t *testing.T) {
 }
 
 // A repo that vendors the well-known protos names them by an absolute or
-// vendor-prefixed path, which is the same schema as the bare import spelling.
-// Generating a project-local binding for it would hand the project a second,
-// incompatible Timestamp alongside the runtime's.
+// vendor-prefixed path under `-I vendor`, which resolves to the bare import
+// spelling and so is the same schema. Generating a project-local binding for it
+// would hand the project a second, incompatible Timestamp alongside the
+// runtime's.
 func TestGenerateSkipsWellKnownFilesNamedByVendoredPath(t *testing.T) {
 	root := t.TempDir()
 	name := "google/protobuf/timestamp.proto"
@@ -122,4 +123,63 @@ func TestGenerateSkipsWellKnownFilesNamedByVendoredPath(t *testing.T) {
 
 	_, err = os.Stat(filepath.Join(outDir, "foundry", "proto", "wkt", "Timestamp.pb.fs"))
 	require.NoError(t, err)
+}
+
+// A schema of the caller's own whose import path only ends in a well-known
+// spelling is an ordinary file. Its bindings were asked for and must be
+// emitted; skipping it would drop the caller's requested output with no error.
+func TestGenerateEmitsASchemaWhoseImportPathOnlyEndsInAWellKnownSpelling(t *testing.T) {
+	root := t.TempDir()
+	name := "myorg/google/protobuf/timestamp.proto"
+	path := filepath.Join(root, filepath.FromSlash(name))
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(`syntax = "proto3";
+package myorg.google.protobuf;
+
+message Timestamp {
+  int64 seconds = 1;
+}
+`), 0o600))
+	t.Chdir(root)
+
+	outDir := t.TempDir()
+	var stdout bytes.Buffer
+	cmd := NewCommand(&stdout)
+	cmd.SetArgs([]string{"generate", "-o", outDir, "-I", ".", name})
+
+	require.NoError(t, cmd.Execute())
+	require.Contains(t, stdout.String(), "generated Foundry Script for 1 proto file(s)")
+
+	source, err := os.ReadFile(filepath.Join(outDir, "myorg", "google", "protobuf", "Timestamp.pb.fs"))
+	require.NoError(t, err)
+	require.Contains(t, string(source), "class_name Timestamp")
+}
+
+// Named with no include root that contains it, a google/protobuf path has no
+// identity: it is either the well-known schema or an unrelated one, and both
+// guesses are silent damage. The error names the include path that would settle
+// it and points out that the bindings already ship.
+func TestGenerateRejectsAnUnrootedGoogleProtobufPath(t *testing.T) {
+	root := t.TempDir()
+	name := "google/protobuf/timestamp.proto"
+	vendoredPath := filepath.Join(root, "vendor", filepath.FromSlash(name))
+	require.NoError(t, os.MkdirAll(filepath.Dir(vendoredPath), 0o755))
+	source, err := wellknown.Source(name)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(vendoredPath, source, 0o600))
+
+	outDir := t.TempDir()
+	var stdout bytes.Buffer
+	cmd := NewCommand(&stdout)
+	cmd.SetArgs([]string{"generate", "-o", outDir, vendoredPath})
+
+	err = cmd.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot be identified without an include path")
+	require.Contains(t, err.Error(), "-I "+filepath.Join(root, "vendor"))
+	require.Contains(t, err.Error(), "google/protobuf/timestamp.proto")
+
+	entries, err := os.ReadDir(outDir)
+	require.NoError(t, err)
+	require.Empty(t, entries, "a rejected input must produce no output at all")
 }

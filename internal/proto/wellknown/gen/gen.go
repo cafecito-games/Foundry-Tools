@@ -32,8 +32,6 @@ func Generate() (map[string]string, error) {
 
 	names := wellknown.Files()
 	paths := make([]string, 0, len(names))
-	// Diagnostics should name the upstream path, not the staging copy.
-	sourceNames := make(map[string]string, len(names))
 	for _, name := range names {
 		source, err := wellknown.Source(name)
 		if err != nil {
@@ -47,14 +45,13 @@ func Generate() (map[string]string, error) {
 			return nil, fmt.Errorf("stage %s: %w", name, err)
 		}
 		paths = append(paths, path)
-		sourceNames[path] = name
 	}
 
 	// Staging exists only so the parser has bytes to read; it is not a way to
-	// disguise these files. wellknown.IsWellKnown classifies by import-path
-	// suffix, so the staged copies are recognized as well-known exactly like the
-	// bare spelling would be, and sourceNames maps each one back to that
-	// spelling for the generation below.
+	// disguise these files. The staging directory is passed as the include
+	// root, so each staged copy resolves to exactly the import path it was
+	// staged under -- google/protobuf/timestamp.proto and so on -- which is
+	// also the name diagnostics should carry rather than the staging copy's.
 	//
 	// What lets this package render files every other caller skips is that it
 	// does not route through a caller that skips them: the well-known check
@@ -70,7 +67,7 @@ func Generate() (map[string]string, error) {
 	files := make(map[string]string)
 	for index := range parsedFiles {
 		parsed := parsedFiles[index]
-		sourceName := sourceNames[parsed.Filename]
+		sourceName := parsed.ImportPath
 
 		if parsed.File.Options == nil {
 			parsed.File.Options = make(map[string]any)

@@ -1,12 +1,19 @@
 // Package wellknown identifies the google/protobuf well-known types, which are
 // shipped as runtime source rather than generated per project. Generating them
 // per project would give every project its own incompatible Timestamp.
+//
+// A proto file is identified by its import path: the path it carries relative
+// to an include root, which is how protoc names it. Everything here takes an
+// import path and matches it exactly. A filesystem path is not an import path
+// until an include root has been applied to it, which is what ImportPathFor is
+// for.
 package wellknown
 
 import (
 	"embed"
 	"fmt"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -30,39 +37,81 @@ var supported = map[string]bool{
 	protoPrefix + "wrappers.proto":   true,
 }
 
-// IsWellKnown reports whether filename names a well-known file the runtime
-// ships bindings for.
+// IsWellKnownImport reports whether an import path names a well-known file the
+// runtime ships bindings for.
 //
-// Classification is by import-path suffix, which is how protoc thinks of a
-// file: what identifies it is its path relative to an include root, not where
-// the copy happens to sit on disk. A vendored or absolute path such as
-// vendor/google/protobuf/timestamp.proto is the same schema as the bare import
-// spelling, so generating a project-local binding for it would produce exactly
-// the second, incompatible Timestamp this package exists to prevent.
-func IsWellKnown(filename string) bool {
-	return supported[importPath(filename)]
-}
-
-// IsWellKnownImport reports whether an import statement's path names a
-// well-known file, matching the path exactly.
-//
-// This is deliberately stricter than IsWellKnown. That function classifies a
-// file the caller already has, where a vendored or absolute path is merely a
-// different spelling of the same schema. An import path is instead a literal
-// reference to be resolved: "myorg/google/protobuf/timestamp.proto" names a
-// file that may simply not exist, and answering it with the bundled schema
-// would turn a missing or misspelled import into a silent substitution.
+// The match is exact because an import path is the file's identity, not a hint
+// about it. "myorg/google/protobuf/timestamp.proto" names a different file that
+// happens to be spelled similarly: answering yes for it would both skip
+// generating bindings the caller asked for and, during import resolution, turn
+// a misspelled import into a silent substitution of the bundled schema.
 func IsWellKnownImport(importedPath string) bool {
 	return supported[normalize(importedPath)]
 }
 
-// Check rejects a google/protobuf file the runtime does not ship. Falling back
-// to generic generation would silently produce a second, incompatible copy of a
-// type the runtime already defines, so an unshipped file is an error rather
-// than a quiet divergence.
-func Check(filename string) error {
-	name := importPath(filename)
-	if name == "" || supported[name] {
+// ImportPathFor reduces a filesystem path to the import path protoc would give
+// it: the path relative to the first include root that contains it. A vendored
+// tree invoked as `-I vendor vendor/google/protobuf/timestamp.proto` therefore
+// carries the import path google/protobuf/timestamp.proto and is the well-known
+// file, while `-I . myorg/google/protobuf/timestamp.proto` carries a distinct
+// import path and is an ordinary schema of the caller's own.
+//
+// A path no include root contains is its own import path, which is what protoc
+// does with a relative path and no -I. That leaves one case with no answer: a
+// path outside every root that nonetheless spells out a google/protobuf file,
+// such as an absolute path into a vendored tree passed with no -I. It could be
+// the well-known file or an unrelated schema, and both guesses are damaging --
+// one silently drops bindings the caller asked for, the other silently produces
+// a second, incompatible copy of a runtime type. That case is an error.
+func ImportPathFor(filename string, importRoots []string) (string, error) {
+	for _, root := range importRoots {
+		if relative, ok := relativeTo(root, filename); ok {
+			return relative, nil
+		}
+	}
+	name := normalize(filename)
+	if index := strings.LastIndex(name, "/"+protoPrefix); index >= 0 {
+		return "", fmt.Errorf(
+			"%s cannot be identified without an include path: no -I root contains it, so it is "+
+				"either the well-known %s or an unrelated schema that spells its path the same way. "+
+				"Pass -I %s to name it as the well-known file, or leave it off the command line "+
+				"entirely -- foundry-tools already ships Foundry Script for %s",
+			filename, name[index+1:], name[:index], strings.Join(Files(), ", "),
+		)
+	}
+	return name, nil
+}
+
+// relativeTo reports the import path filename carries under root, if root
+// contains it. Both sides are resolved against the working directory so that a
+// relative root such as `-I .` still claims an absolute input.
+func relativeTo(root, filename string) (string, bool) {
+	absoluteRoot, err := filepath.Abs(filepath.FromSlash(normalize(root)))
+	if err != nil {
+		return "", false
+	}
+	absoluteFile, err := filepath.Abs(filepath.FromSlash(normalize(filename)))
+	if err != nil {
+		return "", false
+	}
+	relative, err := filepath.Rel(absoluteRoot, absoluteFile)
+	if err != nil {
+		return "", false
+	}
+	relative = filepath.ToSlash(relative)
+	if relative == ".." || strings.HasPrefix(relative, "../") {
+		return "", false
+	}
+	return relative, true
+}
+
+// Check rejects a google/protobuf import path the runtime does not ship.
+// Falling back to generic generation would silently produce a second,
+// incompatible copy of a type the runtime already defines, so an unshipped file
+// is an error rather than a quiet divergence.
+func Check(importedPath string) error {
+	name := normalize(importedPath)
+	if !strings.HasPrefix(name, protoPrefix) || supported[name] {
 		return nil
 	}
 	return fmt.Errorf(
@@ -81,28 +130,13 @@ func Files() []string {
 	return names
 }
 
-// Source returns the vendored text of a supported well-known file.
-func Source(filename string) ([]byte, error) {
-	name := importPath(filename)
+// Source returns the vendored text of a supported well-known import path.
+func Source(importedPath string) ([]byte, error) {
+	name := normalize(importedPath)
 	if !supported[name] {
-		return nil, fmt.Errorf("%s is not a vendored well-known file", normalize(filename))
+		return nil, fmt.Errorf("%s is not a vendored well-known file", name)
 	}
 	return protoFS.ReadFile(path.Join("proto", name))
-}
-
-// importPath reduces filename to the google/protobuf import path it carries, or
-// returns the empty string when it carries none. Both a bare import spelling
-// and a path that merely contains the directory -- a vendored tree, an absolute
-// path -- name the same file to protoc, so both reduce to the same key.
-func importPath(filename string) string {
-	name := normalize(filename)
-	if strings.HasPrefix(name, protoPrefix) {
-		return name
-	}
-	if index := strings.LastIndex(name, "/"+protoPrefix); index >= 0 {
-		return name[index+1:]
-	}
-	return ""
 }
 
 func normalize(filename string) string {

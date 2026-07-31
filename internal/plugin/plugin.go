@@ -56,9 +56,12 @@ func Run(in io.Reader, out io.Writer) error {
 		if !ok {
 			return writeError(out, fmt.Sprintf("file to generate %q not found in request", name))
 		}
-		// The runtime already ships bindings for these, so generating them here
-		// would give this project a second, incompatible copy.
-		if wellknown.IsWellKnown(name) {
+		// protoc has already resolved every name in file_to_generate against
+		// the include paths, so these are canonical import paths and match
+		// exactly. The runtime already ships bindings for the well-known ones,
+		// so generating them here would give this project a second,
+		// incompatible copy.
+		if wellknown.IsWellKnownImport(name) {
 			continue
 		}
 		if err := wellknown.Check(name); err != nil {

@@ -232,6 +232,36 @@ func TestRunShipsRuntimeForAWellKnownOnlyRequest(t *testing.T) {
 	}
 }
 
+// protoc resolves every name in file_to_generate against the include paths
+// before handing it over, so an import path that merely ends in a well-known
+// spelling names a different file. Skipping it would drop bindings the caller
+// asked protoc for, with nothing said about it.
+func TestRunGeneratesAFileWhoseImportPathOnlyEndsInAWellKnownSpelling(t *testing.T) {
+	req := wellKnownRequest([]string{"myorg/google/protobuf/timestamp.proto"})
+	req.ProtoFile = append(req.ProtoFile, &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("myorg/google/protobuf/timestamp.proto"),
+		Syntax:  proto.String("proto3"),
+		Package: proto.String("myorg.google.protobuf"),
+		MessageType: []*descriptorpb.DescriptorProto{{
+			Name: proto.String("Timestamp"),
+			Field: []*descriptorpb.FieldDescriptorProto{{
+				Name:   proto.String("seconds"),
+				Number: proto.Int32(1),
+				Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Type:   descriptorpb.FieldDescriptorProto_TYPE_INT64.Enum(),
+			}},
+		}},
+	})
+
+	resp := runPlugin(t, req)
+	require.Empty(t, resp.GetError())
+
+	files := filesByName(resp)
+	source, ok := files["myorg/google/protobuf/Timestamp.pb.fs"]
+	require.True(t, ok, "a schema of the caller's own must still be generated")
+	require.Contains(t, source, "class_name Timestamp")
+}
+
 func TestRunRejectsUnsupportedWellKnownFile(t *testing.T) {
 	req := wellKnownRequest([]string{"google/protobuf/descriptor.proto"})
 	req.ProtoFile = append(req.ProtoFile, &descriptorpb.FileDescriptorProto{

@@ -365,7 +365,7 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 		// The well-known types ship as runtime source, so a reference to one
 		// resolves to the runtime namespace rather than to a per-project
 		// binding generated from google.protobuf.
-		if wellknown.IsWellKnown(imports[i].Filename) {
+		if wellknown.IsWellKnownImport(imports[i].Filename) {
 			namespace = wellknown.Namespace
 		}
 		// A dependency's namespace is emitted as an import statement, so a
@@ -400,7 +400,7 @@ func referencesWellKnown(file *protoast.ProtoFile, sourceName string) bool {
 		return false
 	}
 	fromWellKnownFile := func(referenced string) bool {
-		return referenced != "" && referenced != sourceName && wellknown.IsWellKnown(referenced)
+		return referenced != "" && referenced != sourceName && wellknown.IsWellKnownImport(referenced)
 	}
 	var messageReferences func(message *protoast.Message) bool
 	messageReferences = func(message *protoast.Message) bool {

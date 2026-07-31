@@ -58,6 +58,16 @@ own; the referencing file gets `import foundry.proto.wkt` and refers to
 which would otherwise produce a second copy of a type the runtime already
 defines.
 
+A file is recognized as well-known by its import path — its path relative to an
+include root, which is how protoc names it — and never by where the copy sits on
+disk. A repo that vendors the protos and runs `anvil proto generate -I vendor
+vendor/google/protobuf/timestamp.proto` is naming
+`google/protobuf/timestamp.proto` and gets the runtime's bindings, while
+`anvil proto generate -I . myorg/google/protobuf/timestamp.proto` is naming a
+schema of its own and gets bindings generated for it. Naming a `google/protobuf`
+path that no include root contains is an error: with nothing to resolve it
+against it could be either file, and both guesses fail silently.
+
 A schema may still declare its own `Timestamp`. The import is emitted only for
 a file that references a well-known type, and a local declaration shadows the
 imported one, so nothing is renamed.
