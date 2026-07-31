@@ -18,13 +18,32 @@ type FileEntry struct {
 
 // Generate renders top-level message and enum skeletons for a proto file.
 func Generate(file *protoast.ProtoFile, sourceName string, imports []FileEntry) (GeneratedFiles, error) {
+	return generateFiles(file, sourceName, imports, ValidateNamespace)
+}
+
+// GenerateIntoRuntimeNamespace is Generate without the reserved-namespace
+// check, and exists for exactly one caller: internal/proto/wellknown/gen, which
+// renders the checked-in foundry.proto.wkt bindings that make that namespace
+// reserved in the first place. Every other caller must use Generate, so that a
+// schema claiming a runtime namespace is rejected instead of being generated and
+// then overwritten by the runtime files.
+func GenerateIntoRuntimeNamespace(file *protoast.ProtoFile, sourceName string, imports []FileEntry) (GeneratedFiles, error) {
+	return generateFiles(file, sourceName, imports, validateNamespaceShape)
+}
+
+func generateFiles(
+	file *protoast.ProtoFile,
+	sourceName string,
+	imports []FileEntry,
+	validateNamespace func(string) error,
+) (GeneratedFiles, error) {
 	localNamer, err := newTypeNamer(file, sourceName)
 	if err != nil {
 		return nil, err
 	}
 
 	namespace := NamespaceFor(file)
-	if err := ValidateNamespace(namespace); err != nil {
+	if err := validateNamespace(namespace); err != nil {
 		return nil, err
 	}
 

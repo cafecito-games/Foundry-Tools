@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package cafecito.game.v1;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// An event carrying a well-known type in every position a reference can take.
+message Event {
+  google.protobuf.Timestamp occurred_at = 1;
+  google.protobuf.Struct attributes = 2;
+  repeated google.protobuf.Any attachments = 3;
+  map<string, google.protobuf.Timestamp> checkpoints = 4;
+  oneof detail {
+    google.protobuf.Any payload = 5;
+    string note = 6;
+  }
+}

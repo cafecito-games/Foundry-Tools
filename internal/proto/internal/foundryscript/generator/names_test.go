@@ -46,7 +46,7 @@ func TestNewTypeNamerAllowsAbsentAndIdentifierFragmentPrefixes(t *testing.T) {
 	for _, file := range []*protoast.ProtoFile{
 		nil,
 		{},
-		{Options: map[string]any{namespaceOptionKey: "game"}},
+		{Options: map[string]any{NamespaceOptionKey: "game"}},
 	} {
 		namer, err := newTypeNamer(file, "types.proto")
 		require.NoError(t, err)

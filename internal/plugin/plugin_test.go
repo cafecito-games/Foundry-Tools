@@ -184,3 +184,212 @@ func runPlugin(t *testing.T, req *pluginpb.CodeGeneratorRequest) *pluginpb.CodeG
 	require.NoError(t, proto.Unmarshal(out.Bytes(), resp))
 	return resp
 }
+
+// protoc hands the well-known descriptors over as ordinary dependencies, so
+// this is the path where a reference to one is most likely to be generated a
+// second time by mistake.
+func TestRunRoutesWellKnownReferenceToRuntimeNamespace(t *testing.T) {
+	resp := runPlugin(t, wellKnownRequest([]string{"event.proto"}))
+	require.Empty(t, resp.GetError())
+
+	files := filesByName(resp)
+	source, ok := files["cafecito/game/v1/Event.pb.fs"]
+	require.True(t, ok)
+	require.Contains(t, source, "import foundry.proto.wkt")
+	require.Contains(t, source, "var occurred_at: Timestamp? = null")
+	for name := range files {
+		require.NotContains(t, name, "google/protobuf/",
+			"well-known types must come from the runtime, not per-project generation")
+	}
+}
+
+func TestRunSkipsWellKnownFileToGenerate(t *testing.T) {
+	resp := runPlugin(t, wellKnownRequest([]string{"google/protobuf/timestamp.proto", "event.proto"}))
+	require.Empty(t, resp.GetError())
+
+	files := filesByName(resp)
+	require.Contains(t, files, "cafecito/game/v1/Event.pb.fs")
+	require.Contains(t, files, "foundry/proto/wkt/Timestamp.pb.fs")
+	for name := range files {
+		require.NotContains(t, name, "google/protobuf/")
+	}
+}
+
+// A request for nothing but well-known files still has an answer: the runtime
+// bindings the schemas resolve to. Skipping them here would return an empty
+// response with no error, which reads as a silent failure and diverges from
+// what `anvil proto generate` writes for the same input.
+func TestRunShipsRuntimeForAWellKnownOnlyRequest(t *testing.T) {
+	resp := runPlugin(t, wellKnownRequest([]string{"google/protobuf/timestamp.proto"}))
+	require.Empty(t, resp.GetError())
+
+	files := filesByName(resp)
+	require.Contains(t, files, "foundry/proto/wkt/Timestamp.pb.fs")
+	require.Contains(t, files, "foundry/proto/wire.fs")
+	for name := range files {
+		require.NotContains(t, name, "cafecito/",
+			"only the files asked for should generate a binding")
+	}
+}
+
+// protoc resolves every name in file_to_generate against the include paths
+// before handing it over, so an import path that merely ends in a well-known
+// spelling names a different file. Skipping it would drop bindings the caller
+// asked protoc for, with nothing said about it.
+func TestRunGeneratesAFileWhoseImportPathOnlyEndsInAWellKnownSpelling(t *testing.T) {
+	req := wellKnownRequest([]string{"myorg/google/protobuf/timestamp.proto"})
+	req.ProtoFile = append(req.ProtoFile, &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("myorg/google/protobuf/timestamp.proto"),
+		Syntax:  proto.String("proto3"),
+		Package: proto.String("myorg.google.protobuf"),
+		MessageType: []*descriptorpb.DescriptorProto{{
+			Name: proto.String("Timestamp"),
+			Field: []*descriptorpb.FieldDescriptorProto{{
+				Name:   proto.String("seconds"),
+				Number: proto.Int32(1),
+				Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Type:   descriptorpb.FieldDescriptorProto_TYPE_INT64.Enum(),
+			}},
+		}},
+	})
+
+	resp := runPlugin(t, req)
+	require.Empty(t, resp.GetError())
+
+	files := filesByName(resp)
+	source, ok := files["myorg/google/protobuf/Timestamp.pb.fs"]
+	require.True(t, ok, "a schema of the caller's own must still be generated")
+	require.Contains(t, source, "class_name Timestamp")
+}
+
+func TestRunRejectsUnsupportedWellKnownFile(t *testing.T) {
+	req := wellKnownRequest([]string{"google/protobuf/descriptor.proto"})
+	req.ProtoFile = append(req.ProtoFile, &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("google/protobuf/descriptor.proto"),
+		Syntax:  proto.String("proto2"),
+		Package: proto.String("google.protobuf"),
+	})
+
+	resp := runPlugin(t, req)
+
+	require.Contains(t, resp.GetError(), "descriptor.proto")
+	require.Contains(t, resp.GetError(), "not supported")
+	require.Empty(t, resp.GetFile())
+}
+
+// wellKnownRequest builds a request whose event.proto carries a
+// google.protobuf.Timestamp, with the well-known descriptor supplied as a
+// dependency the way protoc supplies it.
+func wellKnownRequest(fileToGenerate []string) *pluginpb.CodeGeneratorRequest {
+	timestamp := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("google/protobuf/timestamp.proto"),
+		Syntax:  proto.String("proto3"),
+		Package: proto.String("google.protobuf"),
+		MessageType: []*descriptorpb.DescriptorProto{{
+			Name: proto.String("Timestamp"),
+			Field: []*descriptorpb.FieldDescriptorProto{
+				{
+					Name:   proto.String("seconds"),
+					Number: proto.Int32(1),
+					Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+					Type:   descriptorpb.FieldDescriptorProto_TYPE_INT64.Enum(),
+				},
+				{
+					Name:   proto.String("nanos"),
+					Number: proto.Int32(2),
+					Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+					Type:   descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+				},
+			},
+		}},
+	}
+	event := &descriptorpb.FileDescriptorProto{
+		Name:       proto.String("event.proto"),
+		Syntax:     proto.String("proto3"),
+		Package:    proto.String("cafecito.game.v1"),
+		Dependency: []string{"google/protobuf/timestamp.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{{
+			Name: proto.String("Event"),
+			Field: []*descriptorpb.FieldDescriptorProto{{
+				Name:     proto.String("occurred_at"),
+				Number:   proto.Int32(1),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+				TypeName: proto.String(".google.protobuf.Timestamp"),
+			}},
+		}},
+	}
+	return &pluginpb.CodeGeneratorRequest{
+		FileToGenerate: fileToGenerate,
+		ProtoFile:      []*descriptorpb.FileDescriptorProto{timestamp, event},
+	}
+}
+
+func filesByName(resp *pluginpb.CodeGeneratorResponse) map[string]string {
+	files := make(map[string]string, len(resp.GetFile()))
+	for _, file := range resp.GetFile() {
+		files[file.GetName()] = file.GetContent()
+	}
+	return files
+}
+
+// The plugin merges the runtime files into its response after the generated
+// ones, so a schema claiming a namespace the runtime ships would have its
+// bindings replaced by the runtime's and protoc would report success.
+func TestRunRejectsARuntimeNamespace(t *testing.T) {
+	for _, namespace := range []string{"foundry.proto", "foundry.proto.wkt"} {
+		t.Run(namespace, func(t *testing.T) {
+			resp := runPlugin(t, namespacedRequest(t, namespace))
+
+			require.Contains(t, resp.GetError(), namespace)
+			require.Contains(t, resp.GetError(), "is reserved")
+			require.Contains(t, resp.GetError(), "(foundrytools.namespace)")
+			require.Empty(t, resp.GetFile())
+		})
+	}
+}
+
+// Only an exact match is reserved: a nested namespace generates into its own
+// directory and so cannot shadow a runtime file.
+func TestRunAcceptsNamespacesThatCannotShadowTheRuntime(t *testing.T) {
+	for namespace, expected := range map[string]string{
+		"foundry.proto.wkt.mine": "foundry/proto/wkt/mine/Empty.pb.fs",
+		"cafecito.game.v1":       "cafecito/game/v1/Empty.pb.fs",
+	} {
+		t.Run(namespace, func(t *testing.T) {
+			resp := runPlugin(t, namespacedRequest(t, namespace))
+			require.Empty(t, resp.GetError())
+
+			source, ok := filesByName(resp)[expected]
+			require.True(t, ok)
+			require.Contains(t, source, "var x: int = 0",
+				"the caller's own field must survive into the emitted binding")
+		})
+	}
+}
+
+// namespacedRequest builds a request for a one-message schema pinned to
+// namespace, which is what decides the output paths its bindings take.
+func namespacedRequest(t *testing.T, namespace string) *pluginpb.CodeGeneratorRequest {
+	t.Helper()
+	options := &descriptorpb.FileOptions{}
+	proto.SetExtension(options, foundrytoolspb.E_Namespace, namespace)
+	return &pluginpb.CodeGeneratorRequest{
+		FileToGenerate: []string{"shadow.proto"},
+		ProtoFile: []*descriptorpb.FileDescriptorProto{{
+			Name:    proto.String("shadow.proto"),
+			Syntax:  proto.String("proto3"),
+			Package: proto.String("demo"),
+			Options: options,
+			MessageType: []*descriptorpb.DescriptorProto{{
+				Name: proto.String("Empty"),
+				Field: []*descriptorpb.FieldDescriptorProto{{
+					Name:   proto.String("x"),
+					Number: proto.Int32(1),
+					Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+					Type:   descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+				}},
+			}},
+		}},
+	}
+}

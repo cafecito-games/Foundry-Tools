@@ -17,12 +17,27 @@ var updateGolden = flag.Bool("update", false, "rewrite examples/golden from the 
 const (
 	goldenProto = "../../examples/example.proto"
 	goldenDir   = "../../examples/golden"
+
+	wellKnownGoldenProto = "../../examples/golden-wkt/event.proto"
+	wellKnownGoldenDir   = "../../examples/golden-wkt/generated"
 )
 
 // TestGoldenExampleProto keeps examples/golden in lockstep with the emitter.
 // Run `go test ./internal/proto -run TestGolden -update` to regenerate.
 func TestGoldenExampleProto(t *testing.T) {
-	parsedFiles, err := proto.ParseFiles([]string{goldenProto}, []string{filepath.Dir(goldenProto)})
+	requireGolden(t, goldenProto, goldenDir)
+}
+
+// TestGoldenWellKnownProto covers a schema whose every reference is to a
+// well-known type, in each position a reference can take.
+func TestGoldenWellKnownProto(t *testing.T) {
+	requireGolden(t, wellKnownGoldenProto, wellKnownGoldenDir)
+}
+
+func requireGolden(t *testing.T, protoPath, goldenPath string) {
+	t.Helper()
+
+	parsedFiles, err := proto.ParseFiles([]string{protoPath}, []string{filepath.Dir(protoPath)})
 	require.NoError(t, err)
 	require.Len(t, parsedFiles, 1)
 
@@ -33,21 +48,21 @@ func TestGoldenExampleProto(t *testing.T) {
 	require.NoError(t, err)
 
 	if *updateGolden {
-		writeGolden(t, generated)
+		writeGolden(t, goldenPath, generated)
 		return
 	}
 
-	require.Equal(t, sortedKeys(generated), goldenFileNames(t),
-		"generated file set differs from examples/golden; rerun with -update")
+	require.Equal(t, sortedKeys(generated), goldenFileNames(t, goldenPath),
+		"generated file set differs from %s; rerun with -update", goldenPath)
 	for name, source := range generated {
-		want, err := os.ReadFile(filepath.Join(goldenDir, name))
+		want, err := os.ReadFile(filepath.Join(goldenPath, name))
 		require.NoError(t, err)
 		require.Equal(t, string(want), source,
 			"%s is stale; rerun with -update", name)
 	}
 }
 
-func writeGolden(t *testing.T, generated proto.GeneratedFiles) {
+func writeGolden(t *testing.T, goldenDir string, generated proto.GeneratedFiles) {
 	t.Helper()
 
 	require.NoError(t, os.RemoveAll(goldenDir))
@@ -59,7 +74,7 @@ func writeGolden(t *testing.T, generated proto.GeneratedFiles) {
 	t.Logf("wrote %d golden file(s) to %s", len(generated), goldenDir)
 }
 
-func goldenFileNames(t *testing.T) []string {
+func goldenFileNames(t *testing.T, goldenDir string) []string {
 	t.Helper()
 
 	var names []string

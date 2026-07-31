@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 
 	foundryproto "github.com/cafecito-games/foundry-tools/internal/proto"
+	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
 	"github.com/cafecito-games/foundry-tools/internal/runtime"
 )
 
@@ -50,11 +51,21 @@ func Run(in io.Reader, out io.Writer) error {
 	resp := &pluginpb.CodeGeneratorResponse{
 		SupportedFeatures: proto.Uint64(supportedFeatures),
 	}
-	generatedAny := false
 	for _, name := range req.GetFileToGenerate() {
 		file, ok := filesByName[name]
 		if !ok {
 			return writeError(out, fmt.Sprintf("file to generate %q not found in request", name))
+		}
+		// protoc has already resolved every name in file_to_generate against
+		// the include paths, so these are canonical import paths and match
+		// exactly. The runtime already ships bindings for the well-known ones,
+		// so generating them here would give this project a second,
+		// incompatible copy.
+		if wellknown.IsWellKnownImport(name) {
+			continue
+		}
+		if err := wellknown.Check(name); err != nil {
+			return writeError(out, err.Error())
 		}
 		if validationErrors := foundryproto.Validate(file, name); len(validationErrors) != 0 {
 			return writeError(out, foundryproto.FormatValidationErrors(validationErrors))
@@ -63,14 +74,13 @@ func Run(in io.Reader, out io.Writer) error {
 		if err != nil {
 			return writeError(out, err.Error())
 		}
-		if len(generated) != 0 {
-			generatedAny = true
-		}
 		appendFiles(resp, generated)
 	}
-	if generatedAny {
-		appendFiles(resp, runtime.Files())
-	}
+	// The runtime ships whenever generation was asked for, even if no schema
+	// produced a binding of its own: it is what generated code compiles
+	// against, and it is the only place the well-known bindings come from, so a
+	// request naming nothing but well-known files is asking for exactly it.
+	appendFiles(resp, runtime.Files())
 
 	return writeResponse(out, resp)
 }

@@ -90,6 +90,11 @@ tasks:
     cmds:
       - FOUNDRY_BIN="{{.FOUNDRY_BIN}}" bash scripts/ci/sync-foundry-engine-types.sh write
 
+  gen-wkt:
+    desc: Regenerate the checked-in well-known type bindings.
+    cmds:
+      - go run ./internal/proto/wellknown/cmd/gen-wkt
+
   lint:
     desc: Run golangci-lint.
     cmds:

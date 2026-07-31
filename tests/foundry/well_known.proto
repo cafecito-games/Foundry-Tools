@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package probe.wellknown.v1;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "well_known_dependency.proto";
+
+// A schema type may carry a well-known type's name. The local declaration wins
+// the short spelling and the well-known reference is qualified.
+message Timestamp {
+  string label = 1;
+}
+
+message Reading {
+  Timestamp local = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  google.protobuf.Struct attributes = 3;
+  repeated google.protobuf.Any attachments = 4;
+  map<string, google.protobuf.Timestamp> checkpoints = 5;
+  oneof detail {
+    google.protobuf.Any payload = 6;
+    string note = 7;
+  }
+}
+
+// Referencing any well-known type imports the whole runtime namespace, so an
+// Empty imported from another schema competes with the runtime's own even
+// though nothing here names google.protobuf.Empty.
+message Holder {
+  probe.wellknown.common.v1.Empty local_empty = 1;
+  google.protobuf.Duration timeout = 2;
+}

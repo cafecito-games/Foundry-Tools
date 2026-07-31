@@ -1,10 +1,13 @@
 import cafecito.game.v1
 import cafecito.inventory.v1
 import foundry.proto
+import foundry.proto.wkt
 import probe.collisions.v1
 import probe.dependency.v1
 import probe.packing.v1
 import probe.scalars.v1
+import probe.wellknown.common.v1
+import probe.wellknown.v1
 
 extends SceneTree
 
@@ -260,6 +263,8 @@ func _init() -> void:
 
 	check_scalars()
 	check_packing()
+	check_well_known()
+	check_well_known_name_collision()
 
 	if failures > 0:
 		printerr("round trip failed with ", failures, " error(s)")
@@ -501,3 +506,90 @@ func unpacked_records(number: int, values: Array[int]) -> PackedByteArray:
 		records.append_array(Wire.encode_varint(Wire.make_tag(number, Wire.WIRE_VARINT)))
 		records.append_array(Wire.encode_varint(value))
 	return records
+
+## A schema that references the well-known types, which the runtime ships rather
+## than the project generating them. probe.wellknown.v1 declares a Timestamp of
+## its own, so both spellings have to be qualified here -- this file imports the
+## two namespaces that export the name.
+func check_well_known() -> void:
+	var local: probe.wellknown.v1.Timestamp = probe.wellknown.v1.Timestamp.new()
+	local.label = "local"
+
+	var occurred_at: foundry.proto.wkt.Timestamp = foundry.proto.wkt.Timestamp.new()
+	occurred_at.seconds = 1700000000
+	occurred_at.nanos = 500
+
+	var name: Value = Value.new()
+	name.kind = ValueKindCase.StringValue("player")
+	var attributes: Struct = Struct.new()
+	attributes.fields["name"] = name
+
+	var attachment: Any = Any.new()
+	attachment.type_url = "type.googleapis.com/probe.wellknown.v1.Timestamp"
+	attachment.value = local.to_bytes()
+
+	var reading: Reading = Reading.new()
+	reading.local = local
+	reading.occurred_at = occurred_at
+	reading.attributes = attributes
+	reading.attachments.append(attachment)
+	reading.checkpoints["start"] = occurred_at
+	reading.detail = ReadingDetailCase.Payload(attachment)
+
+	var (decoded, decode_error) = Reading.from_bytes(reading.to_bytes())
+	check(decode_error == ProtobufError.OK, "well-known fixture decodes")
+	if not (decoded is Reading):
+		return
+	check(decoded.local is probe.wellknown.v1.Timestamp and decoded.local.label == "local",
+		"a schema type keeps a well-known name")
+	check(decoded.occurred_at is foundry.proto.wkt.Timestamp and decoded.occurred_at.seconds == 1700000000,
+		"a well-known message field round trips")
+	check(decoded.occurred_at is foundry.proto.wkt.Timestamp and decoded.occurred_at.nanos == 500,
+		"a well-known message field round trips in full")
+	check(decoded.checkpoints.has("start") and decoded.checkpoints["start"].seconds == 1700000000,
+		"a well-known map value round trips")
+	check(decoded.attachments.size() == 1 and decoded.attachments[0].type_url == attachment.type_url,
+		"a repeated well-known element round trips")
+	if decoded.attributes is Struct:
+		var decoded_name: Value? = decoded.attributes.fields.get("name")
+		if decoded_name is Value:
+			match decoded_name.kind:
+				ValueKindCase.StringValue(var text):
+					check(text == "player", "a well-known oneof case round trips")
+				_:
+					printerr("FAIL: Struct value case did not round trip")
+					failures += 1
+		else:
+			printerr("FAIL: Struct field did not round trip")
+			failures += 1
+	else:
+		printerr("FAIL: well-known Struct field did not round trip")
+		failures += 1
+	match decoded.detail:
+		ReadingDetailCase.Payload(var payload):
+			check(payload.value == local.to_bytes(), "a well-known oneof member round trips")
+		_:
+			printerr("FAIL: well-known oneof case did not round trip")
+			failures += 1
+
+## A schema importing a well-known type also has every other well-known name in
+## scope, so an Empty of another schema's must be qualified to resolve at all.
+func check_well_known_name_collision() -> void:
+	var local_empty: probe.wellknown.common.v1.Empty = probe.wellknown.common.v1.Empty.new()
+	local_empty.x = 7
+
+	var timeout: Duration = Duration.new()
+	timeout.seconds = 30
+
+	var holder: Holder = Holder.new()
+	holder.local_empty = local_empty
+	holder.timeout = timeout
+
+	var (decoded, decode_error) = Holder.from_bytes(holder.to_bytes())
+	check(decode_error == ProtobufError.OK, "well-known collision fixture decodes")
+	if not (decoded is Holder):
+		return
+	check(decoded.local_empty is probe.wellknown.common.v1.Empty and decoded.local_empty.x == 7,
+		"an imported type named like a well-known one round trips")
+	check(decoded.timeout is Duration and decoded.timeout.seconds == 30,
+		"the well-known reference that pulled the namespace in round trips")

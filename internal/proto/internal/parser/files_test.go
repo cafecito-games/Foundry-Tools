@@ -41,3 +41,96 @@ message Player {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `import "missing.proto" not found`)
 }
+
+// A schema importing a well-known type builds with no include path, because
+// the vendored copy stands in for one.
+func TestParseFilesResolvesWellKnownImportWithoutAnIncludePath(t *testing.T) {
+	dir := t.TempDir()
+	protoPath := filepath.Join(dir, "event.proto")
+	require.NoError(t, os.WriteFile(protoPath, []byte(`syntax = "proto3";
+package cafecito.game.v1;
+import "google/protobuf/timestamp.proto";
+message Event {
+  google.protobuf.Timestamp occurred_at = 1;
+}
+`), 0o644))
+
+	files, err := ParseFiles([]string{protoPath}, nil)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Len(t, files[0].Imports, 1)
+	require.Equal(t, "google/protobuf/timestamp.proto", files[0].Imports[0].Filename)
+	require.Equal(t, "google.protobuf", files[0].Imports[0].File.Package)
+}
+
+// An include path is an explicit statement about which sources to use, so a
+// copy the caller supplies wins over the vendored one.
+func TestWellKnownFallbackYieldsToACallerSuppliedCopy(t *testing.T) {
+	dir := t.TempDir()
+	vendored := filepath.Join(dir, "google", "protobuf", "timestamp.proto")
+	require.NoError(t, os.MkdirAll(filepath.Dir(vendored), 0o755))
+	require.NoError(t, os.WriteFile(vendored, []byte(`syntax = "proto3";
+package google.protobuf;
+message Timestamp {
+  int64 seconds = 1;
+}
+`), 0o644))
+
+	fs := WellKnownFS{Next: &OSFS{BaseDir: dir}}
+	source, err := fs.Read("google/protobuf/timestamp.proto")
+	require.NoError(t, err)
+	require.NotContains(t, string(source), "nanos")
+}
+
+// An import path is a literal reference, not a spelling of a file the caller
+// already holds. A path that merely ends in a well-known name is a different
+// file, and standing in for it would turn a typo into a silent substitution.
+func TestWellKnownFSDoesNotSatisfyAnImportThatOnlyEndsInAWellKnownPath(t *testing.T) {
+	fs := WellKnownFS{Next: &OSFS{BaseDir: t.TempDir()}}
+
+	require.False(t, fs.Exists("myorg/google/protobuf/timestamp.proto"))
+	_, err := fs.Read("myorg/google/protobuf/timestamp.proto")
+	require.Error(t, err)
+
+	require.True(t, fs.Exists("google/protobuf/timestamp.proto"))
+}
+
+func TestParseFilesRejectsAnUnsupportedGoogleFile(t *testing.T) {
+	_, err := ParseFiles([]string{"google/protobuf/descriptor.proto"}, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not supported")
+}
+
+// A vendored copy is identified the same way anything else is: by its path
+// relative to the include root that contains it. Rejection follows from that
+// import path rather than from the shape of the path on disk.
+func TestParseFilesRejectsAnUnsupportedGoogleFileResolvedFromAnIncludeRoot(t *testing.T) {
+	dir := t.TempDir()
+	vendored := filepath.Join(dir, "vendor", "google", "protobuf", "descriptor.proto")
+	require.NoError(t, os.MkdirAll(filepath.Dir(vendored), 0o755))
+	require.NoError(t, os.WriteFile(vendored, []byte("syntax = \"proto2\";\npackage google.protobuf;\n"), 0o644))
+
+	_, err := ParseFiles([]string{vendored}, []string{filepath.Join(dir, "vendor")})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "google/protobuf/descriptor.proto is not supported")
+}
+
+// ParsedFile carries the import path the include roots resolved it to, which is
+// what callers classify on.
+func TestParseFilesRecordsTheResolvedImportPath(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "protos", "cafecito", "game", "v1", "player.proto")
+	require.NoError(t, os.MkdirAll(filepath.Dir(source), 0o755))
+	require.NoError(t, os.WriteFile(source, []byte(`syntax = "proto3";
+package cafecito.game.v1;
+message Player {
+  string id = 1;
+}
+`), 0o644))
+
+	files, err := ParseFiles([]string{source}, []string{filepath.Join(dir, "protos")})
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, source, files[0].Filename)
+	require.Equal(t, "cafecito/game/v1/player.proto", files[0].ImportPath)
+}

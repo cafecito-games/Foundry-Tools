@@ -7,6 +7,7 @@ import (
 
 	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
 	fstypes "github.com/cafecito-games/foundry-tools/internal/proto/internal/foundryscript/types"
+	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
 )
 
 // Protobuf wire types.
@@ -323,6 +324,10 @@ type resolver struct {
 	// named from another file, so a reference is reported rather than emitted
 	// as an import that breaks the generated file.
 	unnamespaced map[string]bool
+	// referencesWellKnown records whether this file names a well-known type at
+	// all, which is what puts `import foundry.proto.wkt` in its output and so
+	// brings every well-known name into scope.
+	referencesWellKnown bool
 }
 
 func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntry, localNamer typeNamer) *resolver {
@@ -341,19 +346,58 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 		unnamespaced:         map[string]bool{},
 	}
 	for i := range imports {
-		namer, err := newTypeNamer(imports[i].File, imports[i].Filename)
-		if err != nil {
+		// A google/protobuf file with no runtime binding has no namespace a
+		// reference could name. Importing one is harmless -- descriptor.proto
+		// arrives with any file that uses custom options -- so this is reported
+		// only if a field actually resolves into it.
+		if err := wellknown.Check(imports[i].Filename); err != nil {
 			resolve.dependencyErrors[imports[i].Filename] = err
 			continue
+		}
+		// The well-known types ship as runtime source, so a reference to one
+		// resolves to the runtime namespace rather than to a per-project
+		// binding generated from google.protobuf. Its names have to match the
+		// checked-in bindings too: those were generated with no type prefix, so
+		// a (foundrytools.type_prefix) on a copy the caller supplied through an
+		// include path is not applied here. Honouring it would emit references
+		// to a type the runtime does not declare.
+		isWellKnown := wellknown.IsWellKnownImport(imports[i].Filename)
+		namer := typeNamer{}
+		if !isWellKnown {
+			fileNamer, err := newTypeNamer(imports[i].File, imports[i].Filename)
+			if err != nil {
+				resolve.dependencyErrors[imports[i].Filename] = err
+				continue
+			}
+			namer = fileNamer
 		}
 		resolve.dependencyNamers[imports[i].Filename] = namer
 
 		namespace := NamespaceFor(imports[i].File)
+		if isWellKnown {
+			namespace = wellknown.Namespace
+		}
 		// A dependency's namespace is emitted as an import statement, so a
 		// malformed one is a parse error in a file the user did not write.
 		// Treat it as unusable rather than passing it through.
-		if ValidateNamespace(namespace) != nil {
+		//
+		// A well-known dependency is placed in the runtime namespace by the
+		// line above and is the one file allowed to be there. Any other
+		// dependency claiming it would have its own bindings replaced by the
+		// runtime's, so a reference to one resolves to a type it does not
+		// declare; that is unusable for the same reason a malformed one is.
+		if validateNamespaceShape(namespace) != nil {
 			resolve.unnamespaced[imports[i].Filename] = true
+			continue
+		}
+		// The well-known bindings are placed in the runtime namespace by the
+		// line above and are the one dependency allowed to be there. Any other
+		// file claiming it would have its bindings replaced by the runtime's,
+		// so a reference to one resolves to a type that does not declare what
+		// the schema asked for. Generating the dependency itself is rejected
+		// outright; reaching it only as an import has to say the same thing.
+		if !isWellKnown && isRuntimeNamespace(namespace) {
+			resolve.dependencyErrors[imports[i].Filename] = reservedNamespaceError(namespace)
 			continue
 		}
 		resolve.namespaces[imports[i].Filename] = namespace
@@ -365,11 +409,56 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 			declarations,
 		)
 	}
+	resolve.referencesWellKnown = referencesWellKnown(file, sourceName)
 	declarations := resolve.local.registerFile(file, sourceName, "", localNamer)
 	for _, declaration := range declarations {
 		resolve.collisions.AddLocal(declaration)
 	}
 	return resolve
+}
+
+// referencesWellKnown reports whether any field of file names a type declared
+// in a well-known file. Importing one without referencing it emits no import,
+// so it does not bring the well-known names into scope.
+func referencesWellKnown(file *protoast.ProtoFile, sourceName string) bool {
+	if file == nil {
+		return false
+	}
+	fromWellKnownFile := func(referenced string) bool {
+		return referenced != "" && referenced != sourceName && wellknown.IsWellKnownImport(referenced)
+	}
+	var messageReferences func(message *protoast.Message) bool
+	messageReferences = func(message *protoast.Message) bool {
+		for _, field := range message.Fields {
+			if fromWellKnownFile(field.SourceFile) {
+				return true
+			}
+		}
+		for _, oneof := range message.Oneofs {
+			for _, field := range oneof.Fields {
+				if fromWellKnownFile(field.SourceFile) {
+					return true
+				}
+			}
+		}
+		for _, mapField := range message.Maps {
+			if fromWellKnownFile(mapField.ValueSourceFile) {
+				return true
+			}
+		}
+		for _, nested := range message.NestedMessages {
+			if messageReferences(nested) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, message := range file.Messages {
+		if messageReferences(message) {
+			return true
+		}
+	}
+	return false
 }
 
 // ambiguous reports whether the short spelling of an imported reference would
@@ -387,9 +476,27 @@ func (r *resolver) ambiguous(scope, reference string) bool {
 		return true
 	}
 	declaring := 0
-	for _, registry := range r.imported {
-		for key := range registry {
-			info := registry[key]
+	// A file that references any well-known type imports the whole runtime
+	// namespace, which exports every well-known name rather than only the one
+	// referenced. So the namespace declares the name whatever this schema
+	// imported: a `common.proto` exporting its own Empty collides with the
+	// runtime's the moment some field names a Duration.
+	if r.referencesWellKnown {
+		if _, exported := wellKnownExports()[head]; exported {
+			declaring++
+		}
+	}
+	for filename := range r.imported {
+		// Already counted above, once for the namespace as a whole rather than
+		// once per well-known file this schema happens to import. The test is
+		// whether the file is well-known, not what namespace it lands in: a
+		// schema of the caller's own may name foundry.proto.wkt through the
+		// namespace option, and skipping it here would drop a real collision.
+		if wellknown.IsWellKnownImport(filename) {
+			continue
+		}
+		for key := range r.imported[filename] {
+			info := r.imported[filename][key]
 			if strings.Contains(info.ProtoReference, ".") || info.TopLevel != head {
 				continue
 			}
@@ -752,7 +859,7 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 	// Outside it, the registry's scoped reference is what resolves.
 	if isDependency {
 		if err := r.dependencyErrors[use.SourceFile]; err != nil {
-			return valuePlan{}, err
+			return valuePlan{}, fmt.Errorf("%s is declared in %s: %w", use.ProtoType, use.SourceFile, err)
 		}
 		if r.unnamespaced[use.SourceFile] {
 			return valuePlan{}, fmt.Errorf(

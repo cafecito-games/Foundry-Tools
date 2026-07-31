@@ -1,0 +1,81 @@
+{
+  "planPath": "docs/superpowers/plans/2026-07-30-well-known-type-semantics.md",
+  "specPath": "docs/superpowers/specs/2026-07-30-well-known-type-semantics-design.md",
+  "issue": "https://github.com/cafecito-games/Foundry-Tools/issues/39",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 0: Verify retroactive conformance against the pinned engine",
+      "status": "completed",
+      "description": "**Goal:** Prove `extend` supports what Tasks 4-6 need before building on it, or fail fast to the hand-written fallback.\n\n**Verify:** `task foundry:test` -> exits 0\n\n```json:metadata\n{\"files\": [\"tests/foundry/conformance_spike.fs\"], \"verifyCommand\": \"task foundry:test\", \"acceptanceCriteria\": [\"extend loads on RefCounted+Message class\", \"instance witness dispatch\", \"static witness dispatch\", \"tuple-returning witness\"]}\n```",
+      "outcome": "Mechanism rejected: Foundry#1376 (static witnesses) and Foundry#1377 (import visibility)."
+    },
+    {
+      "id": 2,
+      "subject": "Task 1: Add type_name() to the Message trait",
+      "status": "deferred",
+      "description": "**Goal:** Every generated message reports its fully qualified protobuf name, which `Any.pack` needs.\n\n**Verify:** `task test && task foundry:test`\n\n```json:metadata\n{\"files\": [\"internal/runtime/data/foundry/proto/message.fs\", \"internal/proto/internal/foundryscript/generator/generator.go\", \"examples/golden\"], \"verifyCommand\": \"task test && task foundry:test\", \"acceptanceCriteria\": [\"Message declares type_name\", \"generated messages emit qualified name\", \"nested returns Outer.Inner\", \"goldens regenerated\"]}\n```",
+      "deferredTo": "https://github.com/cafecito-games/Foundry-Tools/issues/43",
+      "reason": "Deferred to #43 (Any is its only consumer)"
+    },
+    {
+      "id": 3,
+      "subject": "Task 2: Vendor well-known protos and generate their bindings",
+      "status": "completed",
+      "description": "**Goal:** The seventeen well-known types exist in the runtime as generated, checked-in, regenerable `.fs`.\n\n**Verify:** `go test ./internal/proto/wellknown/... ./internal/runtime/... -v && task foundry:test`\n\n```json:metadata\n{\"files\": [\"internal/proto/wellknown\", \"internal/runtime/data/foundry/proto/wkt\", \"Taskfile.yml\"], \"verifyCommand\": \"go test ./internal/proto/wellknown/... ./internal/runtime/... -v && task foundry:test\", \"acceptanceCriteria\": [\"seven protos vendored\", \"gen-wkt target works\", \"namespace foundry.proto.wkt\", \"drift guard test\", \"mutual recursion resolves\"]}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 3: Route well-known references to the runtime, stop generating them",
+      "status": "completed",
+      "blockedBy": [
+        3
+      ],
+      "description": "**Goal:** A schema importing `google/protobuf/timestamp.proto` references `foundry.proto.wkt.Timestamp` and produces no `Timestamp` of its own.\n\n**Verify:** `task test`\n\n```json:metadata\n{\"files\": [\"internal/proto/internal/foundryscript/generator/plan.go\", \"internal/proto/command.go\", \"internal/plugin/plugin.go\", \"examples/golden-wkt\"], \"verifyCommand\": \"task test\", \"acceptanceCriteria\": [\"no output for well-known files\", \"references resolve to foundry.proto.wkt\", \"map/repeated/oneof positions\", \"descriptor.proto rejected\", \"both entry paths\"]}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 4: Struct / Value / ListValue to and from Variant",
+      "status": "deferred",
+      "blockedBy": [
+        3
+      ],
+      "description": "**Goal:** A schema author converts between `Struct` and a Foundry `Dictionary` without hand-assembling `Value` cases.\n\n**Verify:** `task foundry:test` -> exits 0\n\n```json:metadata\n{\"files\": [\"internal/runtime/data/foundry/proto/protobuf_error.fs\", \"internal/runtime/data/foundry/proto/wkt/struct_variant.fs\", \"tests/foundry/wkt_test.fs\"], \"verifyCommand\": \"task foundry:test\", \"acceptanceCriteria\": [\"Value to Variant total\", \"Variant to Value strict\", \"int narrows\", \"non-string key rejected\", \"unrepresentable rejected\", \"no partial tree\"]}\n```",
+      "deferredTo": "https://github.com/cafecito-games/Foundry-Tools/issues/43",
+      "reason": "Deferred to #43"
+    },
+    {
+      "id": 6,
+      "subject": "Task 5: Timestamp / Duration to and from float seconds",
+      "status": "deferred",
+      "blockedBy": [
+        3
+      ],
+      "description": "**Goal:** A schema author converts a `Timestamp` to the unix-seconds float the engine's `Time` API speaks.\n\n**Verify:** `task foundry:test` -> exits 0\n\n```json:metadata\n{\"files\": [\"internal/runtime/data/foundry/proto/wkt/time_conversion.fs\", \"tests/foundry/wkt_test.fs\"], \"verifyCommand\": \"task foundry:test\", \"acceptanceCriteria\": [\"from_unix_time populates fields\", \"now() works\", \"round trip\", \"negative duration signs agree\"]}\n```",
+      "deferredTo": "https://github.com/cafecito-games/Foundry-Tools/issues/43",
+      "reason": "Deferred to #43"
+    },
+    {
+      "id": 7,
+      "subject": "Task 6: Any pack and typed unpack",
+      "status": "deferred",
+      "blockedBy": [
+        3
+      ],
+      "description": "**Goal:** A schema author packs a message into `Any` and unpacks it into a named type.\n\n**Verify:** `task foundry:test` -> exits 0\n\n```json:metadata\n{\"files\": [\"internal/runtime/data/foundry/proto/wkt/any_packing.fs\", \"tests/foundry/wkt_test.fs\"], \"verifyCommand\": \"task foundry:test\", \"acceptanceCriteria\": [\"pack writes type_url and value\", \"unpack_into on match\", \"mismatch leaves target untouched\", \"foreign prefix accepted\", \"is_type without decoding\"]}\n```",
+      "deferredTo": "https://github.com/cafecito-games/Foundry-Tools/issues/43",
+      "reason": "Deferred to #43"
+    },
+    {
+      "id": 8,
+      "subject": "Task 7: Document the mapping and file the JSON follow-up",
+      "status": "completed",
+      "blockedBy": [
+        4
+      ],
+      "description": "**Goal:** The README reflects the new behavior, and the deferred JSON question is captured.\n\n**Verify:** `task ci` -> PASS\n\n```json:metadata\n{\"files\": [\"README.md\"], \"verifyCommand\": \"task ci && task foundry:test\", \"acceptanceCriteria\": [\"README table row\", \"conversions documented\", \"non-goals stated\", \"follow-up issue filed\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-07-30",
+  "scopeNote": "Tasks 1, 4, 5, 6 deferred to #43 after Task 0 rejected retroactive conformance. In scope: 2, 3, 7."
+}

@@ -8,7 +8,11 @@ import (
 	"strings"
 )
 
-//go:embed data/*/**/*.fs
+// The whole tree is embedded rather than a fixed-depth glob: go:embed patterns
+// cannot express "any depth", and the well-known bindings nest one level deeper
+// than the core runtime. Files walks it and keeps only .fs sources.
+//
+//go:embed data
 var runtimeFS embed.FS
 
 // Files returns embedded runtime source files keyed by generated output path.

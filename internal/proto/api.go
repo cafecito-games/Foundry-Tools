@@ -14,6 +14,10 @@ import (
 	protovalidate "github.com/cafecito-games/foundry-tools/internal/proto/internal/validate"
 )
 
+// NamespaceOptionKey is the parsed-file option key that overrides the namespace
+// a proto file generates into.
+const NamespaceOptionKey = fsgenerator.NamespaceOptionKey
+
 // File is the internal protobuf AST used by the generator pipeline.
 type File = protoast.ProtoFile
 
@@ -54,6 +58,14 @@ func Validate(file *File, filename string) []ValidationError {
 // Generate renders Foundry Script protobuf bindings for file.
 func Generate(file *File, sourceName string, imports []FileEntry) (GeneratedFiles, error) {
 	return fsgenerator.Generate(file, sourceName, imports)
+}
+
+// GenerateIntoRuntimeNamespace renders bindings without rejecting the namespaces
+// the runtime ships. Only internal/proto/wellknown/gen may use it: it renders
+// the checked-in foundry.proto.wkt bindings, which is what makes that namespace
+// reserved for everyone else.
+func GenerateIntoRuntimeNamespace(file *File, sourceName string, imports []FileEntry) (GeneratedFiles, error) {
+	return fsgenerator.GenerateIntoRuntimeNamespace(file, sourceName, imports)
 }
 
 // FromCodeGeneratorRequest converts protoc plugin descriptors to the internal

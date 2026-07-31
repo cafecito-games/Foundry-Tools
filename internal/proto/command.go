@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cafecito-games/foundry-tools/internal/foundrytoolspb"
+	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
 	"github.com/cafecito-games/foundry-tools/internal/runtime"
 )
 
@@ -54,7 +55,14 @@ func newGenerateCommand(stdout io.Writer) *cobra.Command {
 				return err
 			}
 			files := make(map[string]string)
+			generatedCount := 0
 			for _, parsed := range parsedFiles {
+				// The runtime already ships bindings for these, so generating
+				// them here would give this project a second, incompatible copy.
+				if wellknown.IsWellKnownImport(parsed.ImportPath) {
+					continue
+				}
+				generatedCount++
 				if validationErrors := Validate(parsed.File, parsed.Filename); len(validationErrors) != 0 {
 					return validationErrorList(validationErrors)
 				}
@@ -72,7 +80,7 @@ func newGenerateCommand(stdout io.Writer) *cobra.Command {
 			if err := writeFiles(opts.outDir, files); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(stdout, "generated Foundry Script for %d proto file(s)\n", len(args))
+			_, err = fmt.Fprintf(stdout, "generated Foundry Script for %d proto file(s)\n", generatedCount)
 			return err
 		},
 	}

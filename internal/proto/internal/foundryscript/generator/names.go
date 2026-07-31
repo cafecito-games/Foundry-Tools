@@ -9,7 +9,9 @@ import (
 	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
 )
 
-const namespaceOptionKey = "(foundrytools.namespace)"
+// NamespaceOptionKey is the file option that overrides the namespace a proto
+// file generates into, keyed as it appears in a parsed file's option map.
+const NamespaceOptionKey = "(foundrytools.namespace)"
 const typePrefixOptionKey = "(foundrytools.type_prefix)"
 
 // generatedPrefix marks every name the emitter introduces -- locals, function
@@ -30,7 +32,7 @@ func NamespaceFor(file *protoast.ProtoFile) string {
 	if file == nil {
 		return ""
 	}
-	if raw, ok := file.Options[namespaceOptionKey]; ok {
+	if raw, ok := file.Options[NamespaceOptionKey]; ok {
 		if value, isString := raw.(string); isString && value != "" {
 			return value
 		}
@@ -38,8 +40,40 @@ func NamespaceFor(file *protoast.ProtoFile) string {
 	return file.Package
 }
 
-// ValidateNamespace validates a dotted Foundry Script namespace.
+// ValidateNamespace validates a dotted Foundry Script namespace and rejects the
+// namespaces the runtime ships bindings in.
 func ValidateNamespace(namespace string) error {
+	if err := validateNamespaceShape(namespace); err != nil {
+		return err
+	}
+	// Only an exact match is reserved. A nested namespace such as
+	// foundry.proto.wkt.mine generates into its own directory and so cannot
+	// shadow a runtime file, and reserving the whole `foundry.` prefix would
+	// reject schemas that merely start with the same word.
+	if isRuntimeNamespace(namespace) {
+		return reservedNamespaceError(namespace)
+	}
+	return nil
+}
+
+// reservedNamespaceError explains why a namespace the runtime ships cannot be
+// claimed. It is shared with the resolver, which reaches the same condition
+// through an import rather than through the file being generated.
+func reservedNamespaceError(namespace string) error {
+	return fmt.Errorf(
+		"namespace %q is reserved: foundry-tools ships the runtime bindings for %s, "+
+			"so generating into it would produce files the runtime replaces and silently discard this schema; "+
+			"set (foundrytools.namespace) to a namespace of your own",
+		namespace, strings.Join(sortedRuntimeNamespaces(), ", "),
+	)
+}
+
+// validateNamespaceShape validates only the spelling of a dotted namespace,
+// leaving the reserved check to the caller. The well-known bindings are the one
+// dependency that legitimately resolves into a runtime namespace, so the
+// resolver applies the reserved check to every other dependency itself rather
+// than through ValidateNamespace.
+func validateNamespaceShape(namespace string) error {
 	if namespace == "" {
 		return fmt.Errorf("namespace is required")
 	}
