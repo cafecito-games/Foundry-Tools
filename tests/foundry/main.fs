@@ -889,3 +889,14 @@ func check_json_duration() -> void:
 
 	var (_comma_paths, comma_parse_error) = JsonFieldMask.from_json("foo!bar")
 	check(comma_parse_error == ProtobufError.JSON_TYPE_MISMATCH, "a non-identifier character is refused")
+
+	## A protobuf identifier may never start with a digit, in the whole path
+	## or in a later segment, so neither direction accepts one that does.
+	var (_leading_digit_text, leading_digit_error) = JsonFieldMask.to_json(["1foo"])
+	check(leading_digit_error == ProtobufError.JSON_TYPE_MISMATCH, "a path opening on a digit is refused")
+
+	var (_leading_digit_segment_text, leading_digit_segment_error) = JsonFieldMask.to_json(["foo.1bar"])
+	check(leading_digit_segment_error == ProtobufError.JSON_TYPE_MISMATCH, "a segment opening on a digit is refused")
+
+	var (_leading_digit_paths, leading_digit_parse_error) = JsonFieldMask.from_json("1foo")
+	check(leading_digit_parse_error == ProtobufError.JSON_TYPE_MISMATCH, "a JSON path opening on a digit is refused")

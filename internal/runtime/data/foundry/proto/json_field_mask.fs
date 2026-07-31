@@ -63,14 +63,16 @@ static func _to_snake_case(path: String) -> String:
 ## doubled one, or one immediately before a digit or a dot is swallowed by
 ## _to_camel_case without leaving a mark _to_snake_case can recover, and
 ## anything outside [a-z0-9_.], a comma above all, is not a protobuf
-## identifier character to begin with. Each is refused up front instead of
-## being emitted as a path that would come back different.
+## identifier character to begin with. A digit may not open a segment either:
+## a protobuf identifier itself may never start with one. Each is refused up
+## front instead of being emitted as a path that would come back different.
 static func _is_lower_snake_case(path: String) -> bool:
 	if path.length() == 0:
 		return false
 	if path.substr(0, 1) == "." or path.substr(path.length() - 1, 1) == ".":
 		return false
 	var previous: String = ""
+	var at_segment_start: bool = true
 	var index: int = 0
 	while index < path.length():
 		var character: String = path.substr(index, 1)
@@ -80,12 +82,15 @@ static func _is_lower_snake_case(path: String) -> bool:
 			return false
 		if character == "." and previous == ".":
 			return false
+		if is_digit and at_segment_start:
+			return false
 		if character == "_":
 			if index + 1 >= path.length():
 				return false
 			var next_character: String = path.substr(index + 1, 1)
 			if next_character == "_" or next_character == "." or (next_character >= "0" and next_character <= "9"):
 				return false
+		at_segment_start = character == "."
 		previous = character
 		index += 1
 	return true
@@ -93,16 +98,17 @@ static func _is_lower_snake_case(path: String) -> bool:
 ## The canonical form never carries an underscore -- that is the marker that
 ## survives the round trip in the other direction -- so a path that contains
 ## one is not a JSON field mask this helper produced. Neither is a path with
-## an empty segment (a leading, trailing, or doubled dot) or a character
-## outside a protobuf identifier's alphabet; a capitalized segment start such
-## as "Foo" is fine, because that is exactly what _to_camel_case produces
-## from a leading underscore.
+## an empty segment (a leading, trailing, or doubled dot), a segment that
+## opens on a digit, or a character outside a protobuf identifier's alphabet;
+## a capitalized segment start such as "Foo" is fine, because that is exactly
+## what _to_camel_case produces from a leading underscore.
 static func _is_lower_camel_case(path: String) -> bool:
 	if path.length() == 0:
 		return false
 	if path.substr(0, 1) == "." or path.substr(path.length() - 1, 1) == ".":
 		return false
 	var previous: String = ""
+	var at_segment_start: bool = true
 	var index: int = 0
 	while index < path.length():
 		var character: String = path.substr(index, 1)
@@ -112,6 +118,9 @@ static func _is_lower_camel_case(path: String) -> bool:
 			return false
 		if character == "." and previous == ".":
 			return false
+		if is_digit and at_segment_start:
+			return false
+		at_segment_start = character == "."
 		previous = character
 		index += 1
 	return true
