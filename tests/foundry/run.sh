@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROJECT="$ROOT/tests/foundry"
 OUT="$PROJECT/generated"
 FOUNDRY="${FOUNDRY_BIN:-$(command -v foundry || true)}"
+RUN_LOG="$(mktemp)"
 
 if [ -z "$FOUNDRY" ] || [ ! -x "$FOUNDRY" ]; then
   echo "Foundry binary not found on PATH. Install foundry or set FOUNDRY_BIN." >&2
@@ -14,6 +15,7 @@ fi
 cleanup() {
   rm -rf "$OUT" "$PROJECT/.foundry"
   rm -f "$PROJECT"/*.uid
+  rm -f "$RUN_LOG"
 }
 
 trap cleanup EXIT
@@ -67,7 +69,18 @@ fi
 
 # Lint proves the bindings typecheck; only running them proves the bytes are
 # right, which is what main.fs asserts across every supported construct.
-if ! "$FOUNDRY" --headless project run --project "$PROJECT" --script "$PROJECT/main.fs"; then
+#
+# A SCRIPT ERROR aborts only the function that triggered it: the engine logs
+# the error and unwinds to the caller, which carries on. That lets _init reach
+# "round trip ok" and exit 0 even though a construct broke mid-run, so the exit
+# code alone cannot be trusted -- the captured output has to be checked for a
+# SCRIPT ERROR too.
+if ! "$FOUNDRY" --headless project run --project "$PROJECT" --script "$PROJECT/main.fs" 2>&1 | tee "$RUN_LOG"; then
   echo "generated Foundry Script failed its round-trip checks"
+  exit 1
+fi
+
+if grep -q "SCRIPT ERROR" "$RUN_LOG"; then
+  echo "generated Foundry Script emitted a SCRIPT ERROR during the round-trip run"
   exit 1
 fi
