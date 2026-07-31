@@ -857,3 +857,26 @@ func check_json_duration() -> void:
 	## is not something this helper could have produced.
 	var (_underscore_paths, underscore_error) = JsonFieldMask.from_json("foo_bar")
 	check(underscore_error == ProtobufError.JSON_TYPE_MISMATCH, "a JSON path with an underscore is refused")
+
+	## An underscore immediately before a digit has no visible effect once
+	## capitalized, so the conversion would lose it silently.
+	var (_digit_text, digit_error) = JsonFieldMask.to_json(["foo_1"])
+	check(digit_error == ProtobufError.JSON_TYPE_MISMATCH, "an underscore before a digit is refused")
+
+	## An empty segment -- a leading, trailing, or doubled dot -- has nothing
+	## to convert and is refused in both directions.
+	var (_leading_dot_text, leading_dot_error) = JsonFieldMask.to_json([".foo"])
+	check(leading_dot_error == ProtobufError.JSON_TYPE_MISMATCH, "a leading dot is refused")
+
+	var (_double_dot_text, double_dot_error) = JsonFieldMask.to_json(["foo..bar"])
+	check(double_dot_error == ProtobufError.JSON_TYPE_MISMATCH, "a doubled dot is refused")
+
+	## Capitalizing the first letter of a segment is what _to_camel_case does
+	## to a snake_case path; a JSON path that already looks like that could not
+	## have come from this helper, so it is refused rather than re-encoded into
+	## something with a leading underscore.
+	var (_leading_capital_paths, leading_capital_error) = JsonFieldMask.from_json("Foo")
+	check(leading_capital_error == ProtobufError.JSON_TYPE_MISMATCH, "a capitalized first letter is refused")
+
+	var (_leading_capital_segment_paths, leading_capital_segment_error) = JsonFieldMask.from_json("foo.Bar")
+	check(leading_capital_segment_error == ProtobufError.JSON_TYPE_MISMATCH, "a capitalized segment start is refused")
