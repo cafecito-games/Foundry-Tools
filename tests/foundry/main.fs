@@ -266,6 +266,7 @@ func _init() -> void:
 	check_well_known()
 	check_well_known_name_collision()
 	check_json_base64()
+	check_json_timestamp()
 
 	if failures > 0:
 		printerr("round trip failed with ", failures, " error(s)")
@@ -620,3 +621,102 @@ func check_json_base64() -> void:
 
 	var (_base64_over_padded, base64_over_padded_error) = JsonBase64.decode("A===")
 	check(base64_over_padded_error == ProtobufError.JSON_TYPE_MISMATCH, "base64 rejects a quantum with too much padding")
+
+## The RFC 3339 helper behind the canonical JSON mapping of a Timestamp:
+## canonical UTC on the way out, offsets and any fraction width on the way in.
+func check_json_timestamp() -> void:
+	var (epoch_text, epoch_error) = JsonTimestamp.format(0, 0)
+	check(epoch_error == ProtobufError.OK, "epoch formats")
+	check(epoch_text == "1970-01-01T00:00:00Z", "epoch formats canonically")
+
+	var (fraction_text, fraction_error) = JsonTimestamp.format(1136214245, 10000000)
+	check(fraction_error == ProtobufError.OK, "fractional timestamp formats")
+	check(fraction_text == "2006-01-02T15:04:05.010Z", "fraction uses three digits")
+
+	var (micro_text, _micro_error) = JsonTimestamp.format(0, 1000)
+	check(micro_text == "1970-01-01T00:00:00.000001Z", "a microsecond uses six digits")
+
+	var (nano_text, _nano_error) = JsonTimestamp.format(0, 1)
+	check(nano_text == "1970-01-01T00:00:00.000000001Z", "a single nanosecond uses nine digits")
+
+	var (pre_epoch_text, _pre_epoch_error) = JsonTimestamp.format(-62135596800, 0)
+	check(pre_epoch_text == "0001-01-01T00:00:00Z", "the lower bound formats")
+
+	var (upper_text, _upper_error) = JsonTimestamp.format(253402300799, 0)
+	check(upper_text == "9999-12-31T23:59:59Z", "the upper bound formats")
+
+	var (_range_text, range_error) = JsonTimestamp.format(253402300800, 0)
+	check(range_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "an out-of-range second is refused")
+
+	var (_low_text, low_error) = JsonTimestamp.format(-62135596801, 0)
+	check(low_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a second below the lower bound is refused")
+
+	var (_nanos_text, nanos_error) = JsonTimestamp.format(0, 1000000000)
+	check(nanos_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "an out-of-range nanosecond is refused")
+
+	var (_negative_text, negative_error) = JsonTimestamp.format(0, -1)
+	check(negative_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a negative nanosecond is refused")
+
+	var (parsed_seconds, parsed_nanos, parse_error) = JsonTimestamp.parse("2006-01-02T15:04:05.010Z")
+	check(parse_error == ProtobufError.OK, "an RFC 3339 string parses")
+	check(parsed_seconds == 1136214245, "parsed seconds")
+	check(parsed_nanos == 10000000, "parsed nanos")
+
+	var (_one_digit_seconds, one_digit_nanos, one_digit_error) = JsonTimestamp.parse("1970-01-01T00:00:00.5Z")
+	check(one_digit_error == ProtobufError.OK, "a one-digit fraction parses")
+	check(one_digit_nanos == 500000000, "a one-digit fraction scales to nanos")
+
+	var (_nine_digit_seconds, nine_digit_nanos, nine_digit_error) = JsonTimestamp.parse("1970-01-01T00:00:00.123456789Z")
+	check(nine_digit_error == ProtobufError.OK, "a nine-digit fraction parses")
+	check(nine_digit_nanos == 123456789, "a nine-digit fraction keeps every digit")
+
+	var (offset_seconds, _offset_nanos, offset_error) = JsonTimestamp.parse("2006-01-02T16:04:05+01:00")
+	check(offset_error == ProtobufError.OK, "an offset parses")
+	check(offset_seconds == 1136214245, "an offset is folded into UTC")
+
+	var (west_seconds, _west_nanos, west_error) = JsonTimestamp.parse("2006-01-02T14:04:05-01:00")
+	check(west_error == ProtobufError.OK, "a western offset parses")
+	check(west_seconds == 1136214245, "a western offset is folded into UTC")
+
+	var (lowercase_seconds, _lowercase_nanos, lowercase_error) = JsonTimestamp.parse("1970-01-01t00:00:00z")
+	check(lowercase_error == ProtobufError.OK, "lowercase designators parse")
+	check(lowercase_seconds == 0, "lowercase designators give the epoch")
+
+	var (_bad_seconds, _bad_nanos, bad_error) = JsonTimestamp.parse("2006-01-02")
+	check(bad_error == ProtobufError.JSON_TYPE_MISMATCH, "a date alone is refused")
+
+	var (_no_zone_seconds, _no_zone_nanos, no_zone_error) = JsonTimestamp.parse("2006-01-02T15:04:05")
+	check(no_zone_error == ProtobufError.JSON_TYPE_MISMATCH, "a missing zone designator is refused")
+
+	var (_trailing_seconds, _trailing_nanos, trailing_error) = JsonTimestamp.parse("1970-01-01T00:00:00Zjunk")
+	check(trailing_error == ProtobufError.JSON_TYPE_MISMATCH, "trailing text after the designator is refused")
+
+	var (_empty_fraction_seconds, _empty_fraction_nanos, empty_fraction_error) = JsonTimestamp.parse("1970-01-01T00:00:00.Z")
+	check(empty_fraction_error == ProtobufError.JSON_TYPE_MISMATCH, "an empty fraction is refused")
+
+	var (_wide_fraction_seconds, _wide_fraction_nanos, wide_fraction_error) = JsonTimestamp.parse("1970-01-01T00:00:00.1234567890Z")
+	check(wide_fraction_error == ProtobufError.JSON_TYPE_MISMATCH, "a ten-digit fraction is refused")
+
+	var (_alpha_seconds, _alpha_nanos, alpha_error) = JsonTimestamp.parse("20x6-01-02T15:04:05Z")
+	check(alpha_error == ProtobufError.JSON_TYPE_MISMATCH, "a non-digit in the date is refused")
+
+	var (_month_seconds, _month_nanos, month_error) = JsonTimestamp.parse("2006-13-02T15:04:05Z")
+	check(month_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a thirteenth month is refused")
+
+	var (_day_seconds, _day_nanos, day_error) = JsonTimestamp.parse("2006-02-30T15:04:05Z")
+	check(day_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a day past the end of the month is refused")
+
+	## A pre-epoch instant is where a truncating divide would land on the wrong
+	## day, so it is round-tripped through both directions.
+	var (before_text, before_error) = JsonTimestamp.format(-1, 0)
+	check(before_error == ProtobufError.OK, "a pre-epoch instant formats")
+	check(before_text == "1969-12-31T23:59:59Z", "a pre-epoch instant formats on the right day")
+
+	var (before_seconds, before_nanos, before_parse_error) = JsonTimestamp.parse(before_text)
+	check(before_parse_error == ProtobufError.OK, "a pre-epoch instant parses")
+	check(before_seconds == -1 and before_nanos == 0, "a pre-epoch instant round trips")
+
+	var (deep_text, _deep_error) = JsonTimestamp.format(-2208988800, 0)
+	check(deep_text == "1900-01-01T00:00:00Z", "a pre-epoch century boundary formats")
+	var (deep_seconds, _deep_nanos, _deep_parse_error) = JsonTimestamp.parse(deep_text)
+	check(deep_seconds == -2208988800, "a pre-epoch century boundary round trips")
