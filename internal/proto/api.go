@@ -30,6 +30,9 @@ type FileEntry = fsgenerator.FileEntry
 // GeneratedFiles maps generated output paths to source text.
 type GeneratedFiles = fsgenerator.GeneratedFiles
 
+// Options selects what a generation run emits beyond the wire codec.
+type Options = fsgenerator.Options
+
 // ValidationError describes a semantic validation failure.
 type ValidationError = protovalidate.ValidationError
 
@@ -56,16 +59,16 @@ func Validate(file *File, filename string) []ValidationError {
 }
 
 // Generate renders Foundry Script protobuf bindings for file.
-func Generate(file *File, sourceName string, imports []FileEntry) (GeneratedFiles, error) {
-	return fsgenerator.Generate(file, sourceName, imports)
+func Generate(file *File, sourceName string, imports []FileEntry, options Options) (GeneratedFiles, error) {
+	return fsgenerator.Generate(file, sourceName, imports, options)
 }
 
 // GenerateIntoRuntimeNamespace renders bindings without rejecting the namespaces
 // the runtime ships. Only internal/proto/wellknown/gen may use it: it renders
 // the checked-in foundry.proto.wkt bindings, which is what makes that namespace
 // reserved for everyone else.
-func GenerateIntoRuntimeNamespace(file *File, sourceName string, imports []FileEntry) (GeneratedFiles, error) {
-	return fsgenerator.GenerateIntoRuntimeNamespace(file, sourceName, imports)
+func GenerateIntoRuntimeNamespace(file *File, sourceName string, imports []FileEntry, options Options) (GeneratedFiles, error) {
+	return fsgenerator.GenerateIntoRuntimeNamespace(file, sourceName, imports, options)
 }
 
 // FromCodeGeneratorRequest converts protoc plugin descriptors to the internal

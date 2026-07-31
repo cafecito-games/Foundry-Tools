@@ -25,7 +25,7 @@ func TestGenerateAggregatesCurrentFileCollisions(t *testing.T) {
 		}},
 	)
 
-	files, err := Generate(file, "types.proto", nil)
+	files, err := Generate(file, "types.proto", nil, Options{})
 	require.Error(t, err)
 	require.Nil(t, files)
 
@@ -49,7 +49,7 @@ func TestGenerateAggregatesRawDistinctNormalizedMessageCollisions(t *testing.T) 
 		{Position: protoast.Position{Line: 6, Column: 1}, Name: "node"},
 	}, nil)
 
-	files, err := Generate(file, "types.proto", nil)
+	files, err := Generate(file, "types.proto", nil, Options{})
 	require.Error(t, err)
 	require.Nil(t, files)
 
@@ -90,7 +90,7 @@ func TestGenerateAggregatesRawDistinctNestedEnumCollisions(t *testing.T) {
 		},
 	}}, nil)
 
-	files, err := Generate(file, "types.proto", nil)
+	files, err := Generate(file, "types.proto", nil, Options{})
 	require.Error(t, err)
 	require.Nil(t, files)
 
@@ -112,7 +112,8 @@ func TestPrefixResolvesEngineTypeCollisions(t *testing.T) {
 			Name:   "String",
 			Values: []*protoast.EnumValue{{Name: "STRING_UNSPECIFIED", Number: 0}},
 		}},
-	), "types.proto", nil)
+	), "types.proto", nil, Options{})
+
 	require.NoError(t, err)
 
 	require.Contains(t, files, "cafecito/game/v1/GameNode.pb.fs")
@@ -126,7 +127,8 @@ func TestPrefixCanStillProduceEngineTypeCollision(t *testing.T) {
 		"Animation",
 		[]*protoast.Message{{Name: "Node"}},
 		nil,
-	), "types.proto", nil)
+	), "types.proto", nil, Options{})
+
 	require.Error(t, err)
 	require.Nil(t, files)
 	require.Contains(t, err.Error(),
@@ -139,7 +141,8 @@ func TestInternalNonExposedClassRemainsLegal(t *testing.T) {
 	files, err := Generate(namespacedFile(
 		[]*protoast.Message{{Name: "FSNativeClass"}},
 		nil,
-	), "types.proto", nil)
+	), "types.proto", nil, Options{})
+
 	require.NoError(t, err)
 	require.Contains(t, files, "cafecito/game/v1/FSNativeClass.pb.fs")
 	require.Contains(t, files["cafecito/game/v1/FSNativeClass.pb.fs"], "class_name FSNativeClass")
@@ -163,7 +166,8 @@ func TestReferencedDependencyCollisionIsDeduplicatedAndLazy(t *testing.T) {
 
 	files, err := Generate(local, "player.proto", []FileEntry{{
 		File: inventory, Filename: "inventory.proto",
-	}})
+	}}, Options{})
+
 	require.Error(t, err)
 	require.Nil(t, files)
 	require.Equal(t, 1, strings.Count(err.Error(),
@@ -176,7 +180,8 @@ func TestReferencedDependencyCollisionIsDeduplicatedAndLazy(t *testing.T) {
 	}}, nil)
 	files, err = Generate(unreferenced, "player.proto", []FileEntry{{
 		File: inventory, Filename: "inventory.proto",
-	}})
+	}}, Options{})
+
 	require.NoError(t, err)
 	require.Contains(t, files, "cafecito/game/v1/Player.pb.fs")
 }
@@ -200,7 +205,8 @@ func TestReferencedDependencyCollisionUsesExactRawDeclaration(t *testing.T) {
 
 	files, err := Generate(local, "player.proto", []FileEntry{{
 		File: inventory, Filename: "inventory.proto",
-	}})
+	}}, Options{})
+
 	require.Error(t, err)
 	require.Nil(t, files)
 
@@ -271,7 +277,8 @@ func TestReferencedDependencyCollisionPrefersFullPathAcrossPackageAliasOverlap(t
 
 	files, err := Generate(local, "player.proto", []FileEntry{{
 		File: inventory, Filename: "inventory.proto",
-	}})
+	}}, Options{})
+
 	require.Error(t, err)
 	require.Nil(t, files)
 
@@ -316,8 +323,8 @@ func TestReferencedDependencyCollisionUsesFullPathForEveryFieldShape(t *testing.
 			files, err := Generate(
 				namespacedFile([]*protoast.Message{message}, nil),
 				"player.proto",
-				[]FileEntry{{File: packageAliasOverlapFile(), Filename: "inventory.proto"}},
-			)
+				[]FileEntry{{File: packageAliasOverlapFile(), Filename: "inventory.proto"}}, Options{})
+
 			require.Error(t, err)
 			require.Nil(t, files)
 
@@ -372,7 +379,8 @@ func TestReferencedDependencyCollisionsSortAcrossSourceFiles(t *testing.T) {
 
 	files, err := Generate(local, "player.proto", []FileEntry{{
 		File: inventory, Filename: "inventory.proto",
-	}})
+	}}, Options{})
+
 	require.Error(t, err)
 	require.Nil(t, files)
 
@@ -388,7 +396,8 @@ func TestGenerateReportsBuiltInCollisionWithoutUnknownCoordinates(t *testing.T) 
 	files, err := Generate(namespacedFile(nil, []*protoast.Enum{{
 		Name:   "AsyncCallable",
 		Values: []*protoast.EnumValue{{Name: "ASYNC_CALLABLE_UNSPECIFIED", Number: 0}},
-	}}), "types.proto", nil)
+	}}), "types.proto", nil, Options{})
+
 	require.Error(t, err)
 	require.Nil(t, files)
 	require.Contains(t, err.Error(),
@@ -425,7 +434,7 @@ func TestOneofCollisionKeepsEachRawOwnerIdentity(t *testing.T) {
 		},
 	}, nil)
 
-	files, err := Generate(file, "types.proto", nil)
+	files, err := Generate(file, "types.proto", nil, Options{})
 	require.Error(t, err)
 	require.Nil(t, files)
 	require.Equal(t, 1, strings.Count(err.Error(),

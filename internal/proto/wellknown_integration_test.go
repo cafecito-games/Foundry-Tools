@@ -320,5 +320,5 @@ func generateSchemaError(t *testing.T, source string, extra ...schemaFile) (prot
 
 	parsed := parsedFiles[0]
 	require.Empty(t, proto.Validate(parsed.File, parsed.Filename))
-	return proto.Generate(parsed.File, parsed.Filename, proto.ImportsOf(parsed))
+	return proto.Generate(parsed.File, parsed.Filename, proto.ImportsOf(parsed), proto.Options{})
 }

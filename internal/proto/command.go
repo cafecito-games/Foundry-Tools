@@ -66,7 +66,7 @@ func newGenerateCommand(stdout io.Writer) *cobra.Command {
 				if validationErrors := Validate(parsed.File, parsed.Filename); len(validationErrors) != 0 {
 					return validationErrorList(validationErrors)
 				}
-				generatedFiles, err := Generate(parsed.File, parsed.Filename, ImportsOf(parsed))
+				generatedFiles, err := Generate(parsed.File, parsed.Filename, ImportsOf(parsed), Options{})
 				if err != nil {
 					return err
 				}

@@ -80,7 +80,7 @@ func Generate() (map[string]string, error) {
 		// wellknown.Namespace is reserved against every other caller precisely
 		// because this package fills it, so this is the one path that renders
 		// into it. proto.Generate would reject these files.
-		generated, err := proto.GenerateIntoRuntimeNamespace(parsed.File, sourceName, proto.ImportsOf(parsed))
+		generated, err := proto.GenerateIntoRuntimeNamespace(parsed.File, sourceName, proto.ImportsOf(parsed), proto.Options{JSON: true})
 		if err != nil {
 			return nil, err
 		}

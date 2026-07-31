@@ -44,7 +44,7 @@ func requireGolden(t *testing.T, protoPath, goldenPath string) {
 	parsed := parsedFiles[0]
 	require.Empty(t, proto.Validate(parsed.File, parsed.Filename))
 
-	generated, err := proto.Generate(parsed.File, parsed.Filename, proto.ImportsOf(parsed))
+	generated, err := proto.Generate(parsed.File, parsed.Filename, proto.ImportsOf(parsed), proto.Options{})
 	require.NoError(t, err)
 
 	if *updateGolden {
