@@ -818,5 +818,12 @@ func check_json_duration() -> void:
 	var (_over_range_seconds, _over_range_nanos, over_range_parse_error) = JsonDuration.parse("315576000001s")
 	check(over_range_parse_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a parsed second past the upper bound is refused")
 
+	## Syntactically valid but numerically out of range, so the error names the
+	## range rather than the shape.
 	var (_too_wide_seconds, _too_wide_nanos, too_wide_error) = JsonDuration.parse("9999999999999s")
-	check(too_wide_error == ProtobufError.JSON_TYPE_MISMATCH, "a whole part wider than the range can hold is refused")
+	check(too_wide_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a whole part wider than the range can hold is out of range")
+
+	## A run too wide to accumulate into a 64-bit integer without overflowing
+	## is refused before it is ever computed.
+	var (_unsafe_wide_seconds, _unsafe_wide_nanos, unsafe_wide_error) = JsonDuration.parse("9999999999999999999s")
+	check(unsafe_wide_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a whole part too wide to accumulate safely is out of range")

@@ -19,14 +19,15 @@ const MAXIMUM_SECONDS: int = 315576000000
 
 const MAXIMUM_NANOS: int = 999999999
 
-## Digits in the decimal spelling of MAXIMUM_SECONDS. A whole-seconds run wider
-## than this cannot be in range, so it is refused before it is parsed into a
-## number rather than being allowed to overflow on the way there.
-const MAXIMUM_SECONDS_DIGITS: int = 12
+## The widest whole-seconds run that fits in a signed 64-bit integer without
+## overflowing while it is accumulated. A run this wide or narrower is safe to
+## parse into a number and then compare against MAXIMUM_SECONDS; a wider one is
+## reported as out of range without ever being parsed into a value.
+const MAXIMUM_SAFE_DIGITS: int = 18
 
-## The longest well-formed text: a sign, twelve digits of seconds (matching
-## MAXIMUM_SECONDS_DIGITS), a point, a nine-digit fraction, and the suffix.
-const MAXIMUM_TEXT_LENGTH: int = 24
+## The longest well-formed text: a sign, eighteen digits of seconds (matching
+## MAXIMUM_SAFE_DIGITS), a point, a nine-digit fraction, and the suffix.
+const MAXIMUM_TEXT_LENGTH: int = 30
 
 static func format(seconds: int, nanos: int) -> (String, ProtobufError):
 	if seconds > MAXIMUM_SECONDS or seconds < -MAXIMUM_SECONDS:
@@ -89,8 +90,6 @@ static func parse(text: String) -> (int, int, ProtobufError):
 			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
 	if whole_text.length() == 0 and (not has_point or fraction_text.length() == 0):
 		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
-	if whole_text.length() > MAXIMUM_SECONDS_DIGITS:
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
 
 	var whole: int = 0
 	if whole_text.length() > 0:
@@ -100,6 +99,13 @@ static func parse(text: String) -> (int, int, ProtobufError):
 		## zero-padded "1s".
 		if whole_text.length() > 1 and whole_text.substr(0, 1) == "0":
 			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		if not _is_digit_run(whole_text):
+			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		## A syntactically valid run wider than fits safely in a 64-bit integer
+		## is numerically out of range rather than malformed, so it is reported
+		## that way without ever being accumulated into a value.
+		if whole_text.length() > MAXIMUM_SAFE_DIGITS:
+			return (0, 0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
 		var (whole_value, whole_ok) = _digits(whole_text)
 		if not whole_ok:
 			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
@@ -121,6 +127,15 @@ static func parse(text: String) -> (int, int, ProtobufError):
 	if negative:
 		return (-whole, -nanos, ProtobufError.OK)
 	return (whole, nanos, ProtobufError.OK)
+
+static func _is_digit_run(text: String) -> bool:
+	var index: int = 0
+	while index < text.length():
+		var character: String = text.substr(index, 1)
+		if character < "0" or character > "9":
+			return false
+		index += 1
+	return true
 
 static func _digits(text: String) -> (int, bool):
 	if text.length() == 0:
