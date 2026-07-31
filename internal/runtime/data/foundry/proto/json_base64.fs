@@ -24,21 +24,23 @@ static func decode(text: String) -> (PackedByteArray, ProtobufError):
 		return (PackedByteArray(), ProtobufError.JSON_TYPE_MISMATCH)
 	return (Marshalls.base64_to_raw(normalized), ProtobufError.OK)
 
-## The engine decoder does not report a bad character, so the alphabet is
-## checked here rather than being told about a silently truncated result.
+## The engine decoder does not report a bad character or a bad padding count,
+## so both are checked here rather than being told about a silently truncated
+## or silently emptied result. A quantum has at most two padding characters,
+## and once padding starts nothing but more padding may follow.
 static func _is_base64(text: String) -> bool:
 	var index: int = 0
-	var padding_started: bool = false
+	var padding_count: int = 0
 	while index < text.length():
 		var character: String = text.substr(index, 1)
 		if character == "=":
-			padding_started = true
-		elif padding_started:
+			padding_count += 1
+		elif padding_count > 0:
 			return false
 		elif not _is_base64_character(character):
 			return false
 		index += 1
-	return true
+	return padding_count <= 2
 
 static func _is_base64_character(character: String) -> bool:
 	if character >= "A" and character <= "Z":

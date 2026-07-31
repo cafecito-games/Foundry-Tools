@@ -617,3 +617,6 @@ func check_json_base64() -> void:
 
 	var (_base64_bad, base64_bad_error) = JsonBase64.decode("not base64!")
 	check(base64_bad_error == ProtobufError.JSON_TYPE_MISMATCH, "base64 rejects a stray character")
+
+	var (_base64_over_padded, base64_over_padded_error) = JsonBase64.decode("A===")
+	check(base64_over_padded_error == ProtobufError.JSON_TYPE_MISMATCH, "base64 rejects a quantum with too much padding")
