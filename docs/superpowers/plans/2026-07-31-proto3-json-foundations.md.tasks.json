@@ -1,0 +1,60 @@
+{
+  "planPath": "docs/superpowers/plans/2026-07-31-proto3-json-foundations.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 1: Thread a generation Options value through the generator API",
+      "status": "pending",
+      "description": "**Goal:** `Generate` takes an `Options` value that reaches `generateFiles`, with every caller passing an explicit value. No behavior changes.\n\n**Verify:** `go build ./... && go test -race -count=1 ./...`\n\n```json:metadata\n{\"files\": [\"internal/proto/internal/foundryscript/generator/options.go\", \"internal/proto/internal/foundryscript/generator/generator.go\", \"internal/proto/api.go\", \"internal/proto/command.go\", \"internal/plugin/plugin.go\", \"internal/proto/wellknown/gen/gen.go\"], \"verifyCommand\": \"go build ./... && go test -race -count=1 ./...\", \"acceptanceCriteria\": [\"fsgenerator.Options exists with a documented JSON bool field\", \"Generate and GenerateIntoRuntimeNamespace take Options as a final parameter\", \"proto.Options aliases it\", \"The well-known binding generator passes Options{JSON: true}\", \"Every existing test passes with no golden file changed\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Parse the protoc plugin parameter",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** `protoc --foundryscript_opt=json` turns JSON on; an unrecognized key is reported as a plugin error rather than ignored.\n\n**Verify:** `go test -race -count=1 ./internal/plugin/`\n\n```json:metadata\n{\"files\": [\"internal/plugin/parameter.go\", \"internal/plugin/plugin.go\", \"internal/plugin/plugin_test.go\"], \"verifyCommand\": \"go test -race -count=1 ./internal/plugin/\", \"acceptanceCriteria\": [\"An empty parameter yields the zero Options\", \"json yields Options{JSON: true}\", \"Keys are comma-separated and whitespace-trimmed\", \"An unknown key produces a CodeGeneratorResponse.Error naming the key\", \"The error is written as a response, not returned from Run\"]}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Add the anvil --json flag",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** `anvil proto generate --json` turns JSON on for the direct CLI, matching the plugin.\n\n**Verify:** `go test -race -count=1 ./internal/proto/`\n\n```json:metadata\n{\"files\": [\"internal/proto/command.go\", \"internal/proto/command_test.go\"], \"verifyCommand\": \"go test -race -count=1 ./internal/proto/\", \"acceptanceCriteria\": [\"--json is registered on the generate command with help text\", \"Its value reaches Generate\", \"Omitting it leaves output identical to today\"]}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: Add the JSON error cases to ProtobufError",
+      "status": "pending",
+      "description": "**Goal:** The five error cases the JSON paths return exist in the runtime enum, with existing numbering untouched.\n\n**Verify:** `go test -race -count=1 ./internal/runtime/` then `task foundry:test`\n\n```json:metadata\n{\"files\": [\"internal/runtime/data/foundry/proto/protobuf_error.fs\", \"internal/runtime/runtime_test.go\"], \"verifyCommand\": \"go test -race -count=1 ./internal/runtime/ && task foundry:test\", \"acceptanceCriteria\": [\"Cases 7 through 11 are JSON_PARSE_FAILED, JSON_TYPE_MISMATCH, JSON_UNKNOWN_FIELD, JSON_VALUE_OUT_OF_RANGE, JSON_ANY_UNSUPPORTED\", \"Cases 0 through 6 keep their existing numbers\", \"The enum still lints in the engine\"]}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: Add the base64 runtime helper",
+      "status": "pending",
+      "blockedBy": [4],
+      "description": "**Goal:** bytes fields can move to and from a JSON base64 string, accepting both the standard and URL-safe alphabets and tolerating missing padding.\n\n**Verify:** `task foundry:test`\n\n```json:metadata\n{\"files\": [\"internal/runtime/data/foundry/proto/json_base64.fs\", \"tests/foundry/main.fs\"], \"verifyCommand\": \"task foundry:test\", \"acceptanceCriteria\": [\"JsonBase64.encode produces standard-alphabet padded base64\", \"JsonBase64.decode accepts standard and URL-safe input with or without padding\", \"decode returns JSON_TYPE_MISMATCH for a character outside both alphabets\", \"Round-tripping an arbitrary byte string returns the same bytes\"]}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: Add the RFC-3339 timestamp helper",
+      "status": "pending",
+      "blockedBy": [4],
+      "description": "**Goal:** A Timestamp's seconds and nanos convert to and from an RFC-3339 string, canonical on the way out and accepting offsets on the way in.\n\n**Verify:** `task foundry:test`\n\n```json:metadata\n{\"files\": [\"internal/runtime/data/foundry/proto/json_timestamp.fs\", \"tests/foundry/main.fs\"], \"verifyCommand\": \"task foundry:test\", \"acceptanceCriteria\": [\"format emits UTC with a Z suffix and 0, 3, 6, or 9 fractional digits\", \"format returns JSON_VALUE_OUT_OF_RANGE outside the representable range\", \"parse accepts Z, z, and a offset suffix\", \"parse accepts any fractional digit count from 1 to 9\", \"parse returns JSON_TYPE_MISMATCH for a malformed string\", \"A pre-epoch instant round-trips\"]}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: Add the duration text helper",
+      "status": "pending",
+      "blockedBy": [4],
+      "description": "**Goal:** A Duration's seconds and nanos convert to and from the canonical \"1.000000001s\" form, including negative durations.\n\n**Verify:** `task foundry:test`\n\n```json:metadata\n{\"files\": [\"internal/runtime/data/foundry/proto/json_duration.fs\", \"tests/foundry/main.fs\"], \"verifyCommand\": \"task foundry:test\", \"acceptanceCriteria\": [\"format emits 0, 3, 6, or 9 fractional digits and always the s suffix\", \"A negative duration formats with a single leading minus sign\", \"format refuses a seconds/nanos pair whose signs disagree\", \"parse requires the s suffix\", \"parse(-0.5s) yields seconds 0 and nanos -500000000\"]}\n```"
+    },
+    {
+      "id": 8,
+      "subject": "Task 8: Add the field-mask path helper",
+      "status": "pending",
+      "blockedBy": [4],
+      "description": "**Goal:** A FieldMask's paths convert between proto snake_case and JSON lowerCamelCase, refusing a path that cannot round-trip.\n\n**Verify:** `task foundry:test`, then `task test && task integration && task foundry:test`\n\n```json:metadata\n{\"files\": [\"internal/runtime/data/foundry/proto/json_field_mask.fs\", \"tests/foundry/main.fs\"], \"verifyCommand\": \"task test && task integration && task foundry:test\", \"acceptanceCriteria\": [\"to_json joins paths with a comma and camelCases each dot-separated segment\", \"to_json returns JSON_TYPE_MISMATCH for a path containing an uppercase letter\", \"from_json splits on comma and reverses the conversion\", \"from_json of an empty string yields an empty array\", \"foo_bar.baz_qux and fooBar.bazQux convert to each other\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-07-31"
+}
