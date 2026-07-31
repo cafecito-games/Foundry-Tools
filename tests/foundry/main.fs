@@ -827,3 +827,20 @@ func check_json_duration() -> void:
 	## is refused before it is ever computed.
 	var (_unsafe_wide_seconds, _unsafe_wide_nanos, unsafe_wide_error) = JsonDuration.parse("9999999999999999999s")
 	check(unsafe_wide_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a whole part too wide to accumulate safely is out of range")
+
+	## Splitting the empty string on "," naively yields one empty element rather
+	## than none, so an empty mask is checked before anything with paths in it.
+	var (empty_paths, empty_paths_error) = JsonFieldMask.from_json("")
+	check(empty_paths_error == ProtobufError.OK, "an empty mask parses")
+	check(empty_paths.size() == 0, "an empty mask has no paths")
+
+	var (mask_text, mask_error) = JsonFieldMask.to_json(["foo_bar.baz_qux", "user"])
+	check(mask_error == ProtobufError.OK, "a field mask converts to JSON")
+	check(mask_text == "fooBar.bazQux,user", "a field mask camelCases each segment")
+
+	var (_upper_text, upper_error) = JsonFieldMask.to_json(["fooBar"])
+	check(upper_error == ProtobufError.JSON_TYPE_MISMATCH, "an uppercase path is refused")
+
+	var (mask_paths, mask_paths_error) = JsonFieldMask.from_json("fooBar.bazQux,user")
+	check(mask_paths_error == ProtobufError.OK, "a field mask parses")
+	check(mask_paths == ["foo_bar.baz_qux", "user"], "a field mask restores snake_case")

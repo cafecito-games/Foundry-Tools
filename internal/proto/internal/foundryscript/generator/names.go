@@ -183,8 +183,8 @@ func normalizeTypeName(name string) string {
 // the runtime source, so a type added there cannot be forgotten here.
 var runtimeTypeNames = map[string]bool{
 	"BytesRead": true, "Codec": true, "FixedRead": true, "FloatRead": true,
-	"JsonBase64": true, "JsonDuration": true, "JsonTimestamp": true, "Message": true, "ProtobufError": true,
-	"SkipRead": true, "StringRead": true, "VarintRead": true, "Wire": true,
+	"JsonBase64": true, "JsonDuration": true, "JsonFieldMask": true, "JsonTimestamp": true, "Message": true,
+	"ProtobufError": true, "SkipRead": true, "StringRead": true, "VarintRead": true, "Wire": true,
 }
 
 func escapeIdentifier(name string) string {
