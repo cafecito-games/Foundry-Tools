@@ -58,25 +58,21 @@ silently drop it either way. Failing loudly at least catches a misspelled name.
 Two facts in the repository make this landable now that were not true when #39 and
 #43 were written.
 
-**The `extend` blocker does not apply.** #43 is blocked because it attached
+**The `extend` blocker does not apply.** #43 was blocked because it attached
 well-known type semantics to generated bindings via retroactive conformance, and
 cafecito-games/Foundry#1376 and #1377 make that unworkable. The well-known bindings
 are now checked-in generator *output* (`internal/runtime/data/foundry/proto/wkt/*.pb.fs`,
 produced by `internal/proto/wellknown/gen`). The emitter can therefore special-case
 the seven well-known files directly and the bindings stay regenerable. No `extend`,
-no engine fix required.
+no engine fix required. The same table serves the conversions #43 still wants, so
+that issue is unblocked as a side effect rather than superseded.
 
 **No JSON lexer is needed.** The engine exposes `JSON` and `Marshalls` as native
-classes (`engine_reserved_types.gen.go`). Serialization builds a `Variant` tree and
-hands it to `JSON.stringify`; deserialization runs `JSON.parse_string` and walks the
-resulting `Variant`. `bytes` to and from base64 falls out of `Marshalls`.
-
-This assumption is load-bearing and unverified: the reserved-type table records only
-the class names, not their members. A spike against the pinned engine must confirm
-`JSON.stringify` / `JSON.parse_string` and `Marshalls.raw_to_base64` /
-`Marshalls.base64_to_raw` before implementation starts. If they are absent, the whole
-design needs revisiting — the runtime-codec alternative does not rescue it, because
-that approach would have to write a JSON lexer in Foundry Script too.
+classes (`engine_reserved_types.gen.go`) with the same surface Godot gives them.
+Serialization builds a `Variant` tree and hands it to `JSON.stringify`;
+deserialization runs `JSON.parse_string` and walks the resulting `Variant`. `bytes` to
+and from base64 falls out of `Marshalls`. Godot's parser returning every number as a
+float is what forces the 64-bit precision decision above.
 
 ## Generated surface
 
@@ -194,8 +190,11 @@ number loses precision past 2^53, because the engine's JSON parser returns float
 ## Out of scope
 
 **`Any` pack, unpack, and JSON.** Needs `Message.type_name()` on the trait plus a
-runtime type-URL registry that bindings self-register into. Independently landable
-once this ships; filed separately.
+runtime type-URL registry. Filed as #48, ordered after this.
+
+**`Struct` <-> `Variant` and `Timestamp`/`Duration` <-> float seconds.** #43. Further
+entries in the same well-known-type emitter table, but conversions rather than a JSON
+form, and landable in either order.
 
 **Applying a `FieldMask` to a message**, and mask union and intersection. Not a JSON
 problem — it needs runtime reflection over generated messages: field lookup by name,
