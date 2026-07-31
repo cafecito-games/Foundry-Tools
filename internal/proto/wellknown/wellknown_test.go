@@ -21,6 +21,17 @@ func TestIsWellKnownNormalizesSeparatorsAndTraversal(t *testing.T) {
 // so it is still the well-known type. Treating it as a project file instead
 // would generate a second Timestamp the runtime does not recognize, which is
 // precisely the duplicate this package exists to prevent.
+// Import resolution matches exactly, unlike classification of a file on disk.
+func TestIsWellKnownImportMatchesOnlyTheExactPath(t *testing.T) {
+	require.True(t, IsWellKnownImport("google/protobuf/timestamp.proto"))
+	require.False(t, IsWellKnownImport("myorg/google/protobuf/timestamp.proto"))
+	require.False(t, IsWellKnownImport("vendor/google/protobuf/timestamp.proto"))
+	require.False(t, IsWellKnownImport("google/protobuf/descriptor.proto"))
+
+	// The same vendored path a file-on-disk classification does accept.
+	require.True(t, IsWellKnown("vendor/google/protobuf/timestamp.proto"))
+}
+
 func TestIsWellKnownMatchesVendoredAndAbsoluteCopies(t *testing.T) {
 	require.True(t, IsWellKnown("google/protobuf/timestamp.proto"))
 	require.True(t, IsWellKnown("vendor/google/protobuf/timestamp.proto"))

@@ -43,6 +43,19 @@ func IsWellKnown(filename string) bool {
 	return supported[importPath(filename)]
 }
 
+// IsWellKnownImport reports whether an import statement's path names a
+// well-known file, matching the path exactly.
+//
+// This is deliberately stricter than IsWellKnown. That function classifies a
+// file the caller already has, where a vendored or absolute path is merely a
+// different spelling of the same schema. An import path is instead a literal
+// reference to be resolved: "myorg/google/protobuf/timestamp.proto" names a
+// file that may simply not exist, and answering it with the bundled schema
+// would turn a missing or misspelled import into a silent substitution.
+func IsWellKnownImport(importedPath string) bool {
+	return supported[normalize(importedPath)]
+}
+
 // Check rejects a google/protobuf file the runtime does not ship. Falling back
 // to generic generation would silently produce a second, incompatible copy of a
 // type the runtime already defines, so an unshipped file is an error rather

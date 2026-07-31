@@ -82,6 +82,19 @@ message Timestamp {
 	require.NotContains(t, string(source), "nanos")
 }
 
+// An import path is a literal reference, not a spelling of a file the caller
+// already holds. A path that merely ends in a well-known name is a different
+// file, and standing in for it would turn a typo into a silent substitution.
+func TestWellKnownFSDoesNotSatisfyAnImportThatOnlyEndsInAWellKnownPath(t *testing.T) {
+	fs := WellKnownFS{Next: &OSFS{BaseDir: t.TempDir()}}
+
+	require.False(t, fs.Exists("myorg/google/protobuf/timestamp.proto"))
+	_, err := fs.Read("myorg/google/protobuf/timestamp.proto")
+	require.Error(t, err)
+
+	require.True(t, fs.Exists("google/protobuf/timestamp.proto"))
+}
+
 func TestParseFilesRejectsAnUnsupportedGoogleFile(t *testing.T) {
 	_, err := ParseFiles([]string{"google/protobuf/descriptor.proto"}, nil)
 	require.Error(t, err)

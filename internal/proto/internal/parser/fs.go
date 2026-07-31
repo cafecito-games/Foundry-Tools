@@ -80,15 +80,19 @@ type WellKnownFS struct {
 
 // Read returns the import's contents, falling back to the vendored copy.
 func (f WellKnownFS) Read(path string) ([]byte, error) {
-	if !f.Next.Exists(path) && wellknown.IsWellKnown(path) {
+	if !f.Next.Exists(path) && wellknown.IsWellKnownImport(path) {
 		return wellknown.Source(path)
 	}
 	return f.Next.Read(path)
 }
 
 // Exists reports whether the import resolves, vendored copies included.
+//
+// The import path is matched exactly. A path that merely ends in a well-known
+// spelling names a different file, and standing in for it here would report a
+// missing import as present.
 func (f WellKnownFS) Exists(path string) bool {
-	return f.Next.Exists(path) || wellknown.IsWellKnown(path)
+	return f.Next.Exists(path) || wellknown.IsWellKnownImport(path)
 }
 
 func statOK(path string) bool {
