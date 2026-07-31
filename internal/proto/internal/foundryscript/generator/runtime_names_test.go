@@ -99,3 +99,15 @@ func TestReservedNamespacesAreEveryNamespaceTheRuntimeDeclares(t *testing.T) {
 		require.ErrorContains(t, ValidateNamespace(namespace), "is reserved")
 	}
 }
+
+// The collision is on the output path, and macOS and Windows default to
+// case-insensitive filesystems, so a differently-cased spelling writes over the
+// runtime's file rather than beside it.
+func TestReservedNamespacesIgnoreCase(t *testing.T) {
+	require.ErrorContains(t, ValidateNamespace("Foundry.proto.wkt"), "is reserved")
+	require.ErrorContains(t, ValidateNamespace("FOUNDRY.PROTO"), "is reserved")
+
+	// A namespace that cannot occupy a runtime path is still accepted.
+	require.NoError(t, ValidateNamespace("Foundry.proto.wkt.mine"))
+	require.NoError(t, ValidateNamespace("foundrytools.game.v1"))
+}

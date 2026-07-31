@@ -3,6 +3,7 @@ package fsgenerator
 import (
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
@@ -49,6 +50,23 @@ var runtimeNamespaces = sync.OnceValue(func() map[string]bool {
 	}
 	return namespaces
 })
+
+// isRuntimeNamespace reports whether a namespace resolves to one the runtime
+// ships, ignoring case.
+//
+// The comparison folds case because the collision is on the output path, not on
+// the spelling: macOS and Windows default to case-insensitive filesystems, so a
+// schema in `Foundry.proto.wkt` writes `Foundry/proto/wkt/Timestamp.pb.fs` over
+// the runtime's `foundry/proto/wkt/Timestamp.pb.fs`, and one of the two is
+// silently lost.
+func isRuntimeNamespace(namespace string) bool {
+	for reserved := range runtimeNamespaces() {
+		if strings.EqualFold(reserved, namespace) {
+			return true
+		}
+	}
+	return false
+}
 
 // sortedRuntimeNamespaces lists the reserved namespaces in stable order so a
 // diagnostic reads the same way on every run.

@@ -50,7 +50,7 @@ func ValidateNamespace(namespace string) error {
 	// foundry.proto.wkt.mine generates into its own directory and so cannot
 	// shadow a runtime file, and reserving the whole `foundry.` prefix would
 	// reject schemas that merely start with the same word.
-	if runtimeNamespaces()[namespace] {
+	if isRuntimeNamespace(namespace) {
 		return reservedNamespaceError(namespace)
 	}
 	return nil

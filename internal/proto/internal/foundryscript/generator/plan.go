@@ -396,7 +396,7 @@ func newResolver(file *protoast.ProtoFile, sourceName string, imports []FileEntr
 		// so a reference to one resolves to a type that does not declare what
 		// the schema asked for. Generating the dependency itself is rejected
 		// outright; reaching it only as an import has to say the same thing.
-		if !isWellKnown && runtimeNamespaces()[namespace] {
+		if !isWellKnown && isRuntimeNamespace(namespace) {
 			resolve.dependencyErrors[imports[i].Filename] = reservedNamespaceError(namespace)
 			continue
 		}
