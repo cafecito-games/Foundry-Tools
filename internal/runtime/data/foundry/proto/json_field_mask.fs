@@ -3,10 +3,12 @@ namespace foundry.proto
 ## Path conversion for the canonical JSON mapping of google.protobuf.FieldMask.
 ##
 ## A mask serializes as one string of comma-joined paths, each path a
-## dot-separated chain of field names carried in lowerCamelCase. The conversion
-## is only reversible when the proto field names are lower_snake_case, so a path
-## that already contains an uppercase letter is refused rather than emitted as
-## something that would come back different.
+## dot-separated chain of field names carried in lowerCamelCase. Only a path
+## built from lower_snake_case field names round-trips through that mapping
+## without changing meaning, so anything else -- an out-of-alphabet character,
+## an empty segment, or an underscore placed where it cannot survive the
+## conversion -- is refused rather than emitted as something that would come
+## back different.
 class_name JsonFieldMask extends RefCounted
 
 static func to_json(paths: Array[String]) -> (String, ProtobufError):
@@ -55,15 +57,14 @@ static func _to_snake_case(path: String) -> String:
 		index += 1
 	return result
 
-## A dot separating segments and a digit inside a name are both fine. An
-## uppercase letter, an empty segment (a leading, trailing, or doubled dot),
-## and a stray underscore all make a path unable to survive the round trip:
-## an underscore at either end of a segment, or two in a row, is silently
-## swallowed by _to_camel_case rather than reproduced by _to_snake_case, and
-## so is an underscore immediately before a digit, because to_upper() on a
-## digit is the identity -- capitalize_next fires but leaves no visible mark
-## to reverse. Each is refused up front instead of being emitted as a path
-## that would come back different.
+## Only a lower_snake_case identifier character set survives the round trip.
+## A leading underscore, or one right after a dot, is fine -- "_foo" and
+## "Foo" convert to each other cleanly -- but a trailing underscore, a
+## doubled one, or one immediately before a digit or a dot is swallowed by
+## _to_camel_case without leaving a mark _to_snake_case can recover, and
+## anything outside [a-z0-9_.], a comma above all, is not a protobuf
+## identifier character to begin with. Each is refused up front instead of
+## being emitted as a path that would come back different.
 static func _is_lower_snake_case(path: String) -> bool:
 	if path.length() == 0:
 		return false
@@ -73,13 +74,13 @@ static func _is_lower_snake_case(path: String) -> bool:
 	var index: int = 0
 	while index < path.length():
 		var character: String = path.substr(index, 1)
-		if character >= "A" and character <= "Z":
+		var is_lowercase_letter: bool = character >= "a" and character <= "z"
+		var is_digit: bool = character >= "0" and character <= "9"
+		if not (is_lowercase_letter or is_digit or character == "_" or character == "."):
 			return false
 		if character == "." and previous == ".":
 			return false
 		if character == "_":
-			if previous == "" or previous == "_" or previous == ".":
-				return false
 			if index + 1 >= path.length():
 				return false
 			var next_character: String = path.substr(index + 1, 1)
@@ -91,31 +92,26 @@ static func _is_lower_snake_case(path: String) -> bool:
 
 ## The canonical form never carries an underscore -- that is the marker that
 ## survives the round trip in the other direction -- so a path that contains
-## one is not a JSON field mask this helper produced. Neither is one that
-## opens or closes a segment with an empty name, or that capitalizes the
-## first letter of a segment: _to_snake_case would turn that leading capital
-## into a leading or post-dot underscore, which _is_lower_snake_case refuses
-## to re-encode, so the mismatch is caught here instead.
+## one is not a JSON field mask this helper produced. Neither is a path with
+## an empty segment (a leading, trailing, or doubled dot) or a character
+## outside a protobuf identifier's alphabet; a capitalized segment start such
+## as "Foo" is fine, because that is exactly what _to_camel_case produces
+## from a leading underscore.
 static func _is_lower_camel_case(path: String) -> bool:
 	if path.length() == 0:
 		return false
+	if path.substr(0, 1) == "." or path.substr(path.length() - 1, 1) == ".":
+		return false
 	var previous: String = ""
-	var at_segment_start: bool = true
 	var index: int = 0
 	while index < path.length():
 		var character: String = path.substr(index, 1)
-		if character == "_":
+		var is_letter: bool = (character >= "a" and character <= "z") or (character >= "A" and character <= "Z")
+		var is_digit: bool = character >= "0" and character <= "9"
+		if not (is_letter or is_digit or character == "."):
 			return false
-		if character == ".":
-			if previous == "" or previous == ".":
-				return false
-			at_segment_start = true
-			previous = character
-			index += 1
-			continue
-		if at_segment_start and character >= "A" and character <= "Z":
+		if character == "." and previous == ".":
 			return false
-		at_segment_start = false
 		previous = character
 		index += 1
-	return previous != "."
+	return true

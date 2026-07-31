@@ -871,12 +871,21 @@ func check_json_duration() -> void:
 	var (_double_dot_text, double_dot_error) = JsonFieldMask.to_json(["foo..bar"])
 	check(double_dot_error == ProtobufError.JSON_TYPE_MISMATCH, "a doubled dot is refused")
 
-	## Capitalizing the first letter of a segment is what _to_camel_case does
-	## to a snake_case path; a JSON path that already looks like that could not
-	## have come from this helper, so it is refused rather than re-encoded into
-	## something with a leading underscore.
-	var (_leading_capital_paths, leading_capital_error) = JsonFieldMask.from_json("Foo")
-	check(leading_capital_error == ProtobufError.JSON_TYPE_MISMATCH, "a capitalized first letter is refused")
+	## An underscore at the start of a segment is different from one in the
+	## middle: it round-trips cleanly, becoming a capitalized first letter.
+	var (leading_underscore_text, leading_underscore_error) = JsonFieldMask.to_json(["_foo.bar._baz"])
+	check(leading_underscore_error == ProtobufError.OK, "a segment-initial underscore converts")
+	check(leading_underscore_text == "Foo.bar.Baz", "a segment-initial underscore becomes a capital")
 
-	var (_leading_capital_segment_paths, leading_capital_segment_error) = JsonFieldMask.from_json("foo.Bar")
-	check(leading_capital_segment_error == ProtobufError.JSON_TYPE_MISMATCH, "a capitalized segment start is refused")
+	var (leading_underscore_paths, leading_underscore_parse_error) = JsonFieldMask.from_json("Foo.bar.Baz")
+	check(leading_underscore_parse_error == ProtobufError.OK, "a capitalized segment start parses")
+	check(leading_underscore_paths == ["_foo.bar._baz"], "a capitalized segment start restores its underscore")
+
+	## A comma inside a path would be indistinguishable from the delimiter
+	## that joins paths, so it is refused rather than accepted and later
+	## split into paths that were never there.
+	var (_comma_text, comma_error) = JsonFieldMask.to_json(["foo,bar"])
+	check(comma_error == ProtobufError.JSON_TYPE_MISMATCH, "a comma inside a path is refused")
+
+	var (_comma_paths, comma_parse_error) = JsonFieldMask.from_json("foo!bar")
+	check(comma_parse_error == ProtobufError.JSON_TYPE_MISMATCH, "a non-identifier character is refused")
