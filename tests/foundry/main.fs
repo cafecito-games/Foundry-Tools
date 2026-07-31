@@ -267,6 +267,7 @@ func _init() -> void:
 	check_well_known_name_collision()
 	check_json_base64()
 	check_json_timestamp()
+	check_json_duration()
 
 	if failures > 0:
 		printerr("round trip failed with ", failures, " error(s)")
@@ -720,3 +721,84 @@ func check_json_timestamp() -> void:
 	check(deep_text == "1900-01-01T00:00:00Z", "a pre-epoch century boundary formats")
 	var (deep_seconds, _deep_nanos, _deep_parse_error) = JsonTimestamp.parse(deep_text)
 	check(deep_seconds == -2208988800, "a pre-epoch century boundary round trips")
+
+## The duration text helper behind the canonical JSON mapping of a Duration:
+## the sign is carried once, even when it can only be read from the nanos,
+## because the whole seconds are zero.
+func check_json_duration() -> void:
+	var (duration_text, duration_error) = JsonDuration.format(3, 1)
+	check(duration_error == ProtobufError.OK, "a duration formats")
+	check(duration_text == "3.000000001s", "a duration uses nine digits when it must")
+
+	var (micro_text, _micro_error) = JsonDuration.format(3, 10000)
+	check(micro_text == "3.000010s", "a duration uses six digits when it must")
+
+	var (whole_text, _whole_error) = JsonDuration.format(3, 0)
+	check(whole_text == "3s", "a whole duration has no fraction")
+
+	var (zero_text, _zero_error) = JsonDuration.format(0, 0)
+	check(zero_text == "0s", "a zero duration formats")
+
+	var (negative_whole_text, _negative_whole_error) = JsonDuration.format(-3, -1)
+	check(negative_whole_text == "-3.000000001s", "a negative duration keeps one leading sign")
+
+	## The case to get right: the seconds are zero, so only the nanos carry the
+	## sign, and a check that reads the sign off seconds alone would miss it.
+	var (negative_text, _negative_error) = JsonDuration.format(0, -500000000)
+	check(negative_text == "-0.500s", "a sub-second negative duration keeps its sign")
+
+	var (_mixed_text, mixed_error) = JsonDuration.format(1, -1)
+	check(mixed_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "disagreeing signs are refused")
+
+	var (_mixed_negative_text, mixed_negative_error) = JsonDuration.format(-1, 1)
+	check(mixed_negative_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "disagreeing signs are refused either way round")
+
+	var (_over_range_text, over_range_error) = JsonDuration.format(315576000001, 0)
+	check(over_range_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "seconds past the upper bound are refused")
+
+	var (_under_range_text, under_range_error) = JsonDuration.format(-315576000001, 0)
+	check(under_range_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "seconds past the lower bound are refused")
+
+	var (_wide_nanos_text, wide_nanos_error) = JsonDuration.format(0, 1000000000)
+	check(wide_nanos_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "an out-of-range nanosecond is refused")
+
+	var (duration_seconds, duration_nanos, duration_parse_error) = JsonDuration.parse("-0.5s")
+	check(duration_parse_error == ProtobufError.OK, "a negative duration parses")
+	check(duration_seconds == 0, "a sub-second duration has zero seconds")
+	check(duration_nanos == -500000000, "a sub-second duration carries the sign in nanos")
+
+	var (positive_seconds, positive_nanos, positive_parse_error) = JsonDuration.parse("3.000000001s")
+	check(positive_parse_error == ProtobufError.OK, "a nine-digit fraction parses")
+	check(positive_seconds == 3, "parsed whole seconds")
+	check(positive_nanos == 1, "a nine-digit fraction keeps every digit")
+
+	var (one_digit_seconds, one_digit_nanos, one_digit_error) = JsonDuration.parse("3.5s")
+	check(one_digit_error == ProtobufError.OK, "a one-digit fraction parses")
+	check(one_digit_seconds == 3, "a one-digit fraction keeps the whole part")
+	check(one_digit_nanos == 500000000, "a one-digit fraction scales to nanos")
+
+	var (whole_only_seconds, whole_only_nanos, whole_only_error) = JsonDuration.parse("3s")
+	check(whole_only_error == ProtobufError.OK, "a whole duration parses")
+	check(whole_only_seconds == 3, "a whole duration has no fraction to parse")
+	check(whole_only_nanos == 0, "a whole duration parses to zero nanos")
+
+	var (_no_suffix_seconds, _no_suffix_nanos, no_suffix_error) = JsonDuration.parse("3")
+	check(no_suffix_error == ProtobufError.JSON_TYPE_MISMATCH, "a missing suffix is refused")
+
+	var (_empty_seconds, _empty_nanos, empty_error) = JsonDuration.parse("")
+	check(empty_error == ProtobufError.JSON_TYPE_MISMATCH, "an empty string is refused")
+
+	var (_empty_fraction_seconds, _empty_fraction_nanos, empty_fraction_error) = JsonDuration.parse("3.s")
+	check(empty_fraction_error == ProtobufError.JSON_TYPE_MISMATCH, "an empty fraction is refused")
+
+	var (_wide_fraction_seconds, _wide_fraction_nanos, wide_fraction_error) = JsonDuration.parse("3.1234567890s")
+	check(wide_fraction_error == ProtobufError.JSON_TYPE_MISMATCH, "a ten-digit fraction is refused")
+
+	var (_alpha_seconds, _alpha_nanos, alpha_error) = JsonDuration.parse("3xs")
+	check(alpha_error == ProtobufError.JSON_TYPE_MISMATCH, "a non-digit in the whole part is refused")
+
+	var (_over_range_seconds, _over_range_nanos, over_range_parse_error) = JsonDuration.parse("315576000001s")
+	check(over_range_parse_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a parsed second past the upper bound is refused")
+
+	var (_too_wide_seconds, _too_wide_nanos, too_wide_error) = JsonDuration.parse("9999999999999s")
+	check(too_wide_error == ProtobufError.JSON_TYPE_MISMATCH, "a whole part wider than the range can hold is refused")
