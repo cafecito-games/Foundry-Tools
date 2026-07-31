@@ -443,8 +443,21 @@ func (c *converter) convertField(
 	if opts := f.GetOptions(); opts != nil && opts.Packed != nil {
 		field.Options["packed"] = opts.GetPacked()
 	}
+	applyJSONName(field.Options, f)
 
 	return field
+}
+
+// applyJSONName carries a descriptor's effective JSON name into an options
+// map. protoc always populates FieldDescriptorProto.JsonName -- with an
+// explicit `[json_name = "..."]` override when the schema declares one, or
+// its own camelCase derivation otherwise -- so trusting it here rather than
+// re-deriving it keeps the descriptor path and the hand-written parser path
+// agreeing on the same effective name.
+func applyJSONName(options map[string]any, f *descriptorpb.FieldDescriptorProto) {
+	if f.JsonName != nil {
+		options["json_name"] = f.GetJsonName()
+	}
 }
 
 func (c *converter) convertEnum(
@@ -505,6 +518,7 @@ func (c *converter) convertMapField(
 		Number:   int(f.GetNumber()),
 		Options:  map[string]any{},
 	}
+	applyJSONName(mf.Options, f)
 
 	if name, ok := scalarTypeNames[keyDescriptor.GetType()]; ok {
 		mf.KeyType = name

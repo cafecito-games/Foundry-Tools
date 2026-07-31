@@ -173,6 +173,43 @@ func normalizeTypeName(name string) string {
 	return builder.String()
 }
 
+// jsonNameOptionKey is the field option carrying an explicit JSON name, as it
+// appears in a parsed field's option map.
+const jsonNameOptionKey = "json_name"
+
+// jsonFieldName is the name a field is read and written as in proto3 canonical
+// JSON. An explicit `[json_name = "..."]` wins outright; otherwise the name is
+// derived from the proto field name by the specification's algorithm, which
+// removes each underscore and capitalizes the letter that followed it.
+func jsonFieldName(protoName string, options map[string]any) string {
+	if raw, ok := options[jsonNameOptionKey]; ok {
+		if explicit, isString := raw.(string); isString {
+			return explicit
+		}
+	}
+	return deriveJSONName(protoName)
+}
+
+// deriveJSONName implements the proto3 canonical JSON name derivation: strip
+// underscores and capitalize the letter following each one.
+func deriveJSONName(protoName string) string {
+	var builder strings.Builder
+	capitalizeNext := false
+	for _, char := range protoName {
+		if char == '_' {
+			capitalizeNext = true
+			continue
+		}
+		if capitalizeNext {
+			builder.WriteRune(unicode.ToUpper(char))
+			capitalizeNext = false
+		} else {
+			builder.WriteRune(char)
+		}
+	}
+	return builder.String()
+}
+
 // runtimeTypeNames are the types foundry.proto exports. Every generated file
 // imports that namespace, so a schema type of the same name would make the
 // spelling ambiguous -- Foundry refuses to resolve a name two imported
