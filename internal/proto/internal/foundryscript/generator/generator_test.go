@@ -2273,7 +2273,13 @@ func TestJSONDecodeAcceptsAllThreeCasesForA64BitField(t *testing.T) {
 	require.Contains(t, source,
 		"static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):")
 	require.Contains(t, source, "_pb_value = _pb_text.to_int()")
-	require.Contains(t, source, "if _pb_float >= 9223372036854775808.0 or _pb_float < -9223372036854775808.0:")
+	// The largest int64 arrives as exactly 2^63, because the parser produces a
+	// double; refusing it would refuse a conformant document, so it is the
+	// documented lossy case instead.
+	require.Contains(t, source, "if _pb_float > 9223372036854775808.0 or _pb_float < -9223372036854775808.0:")
+	// A string the host int cannot hold wraps rather than reporting, so the
+	// text has to be exactly what the value prints as.
+	require.Contains(t, source, "if str(_pb_value) != _pb_text:")
 	// An unsigned 64-bit field shares the signed reader, matching what the
 	// serializer writes for it.
 	require.Contains(t, source, "var (_pb_seed_value, _pb_seed_error) = _pb_json_read_int64(_pb_member, _pb_member_path)")
@@ -2382,6 +2388,43 @@ func TestJSONDecodeParsesMapKeysOutOfTheirText(t *testing.T) {
 	require.Contains(t, source, `if _pb_flags_key == "true":`)
 	require.Contains(t, source,
 		`return JsonDecodeError.create("JSON_TYPE_MISMATCH: a bool map key takes \"true\" or \"false\"", _pb_flags_key_path)`)
+}
+
+// proto3 JSON has no merge semantics for a repeated key, so a document naming
+// one logical field twice is refused rather than resolved by member order.
+func TestJSONDecodeRefusesOneFieldGivenTwice(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "string", Name: "display_name", Number: 1},
+		&protoast.Field{FieldType: "string", Name: "name", Number: 2},
+	)
+
+	require.Contains(t, source, "var _pb_display_name_seen: bool = false")
+	require.Contains(t, source, "if _pb_display_name_seen:")
+	require.Contains(t, source,
+		`return JsonDecodeError.create("JSON_PARSE_FAILED: display_name was given more than once", _pb_member_path)`)
+	require.Contains(t, source, "_pb_display_name_seen = true")
+	// A field whose two spellings agree cannot be named twice by one object.
+	require.NotContains(t, source, "_pb_name_seen")
+}
+
+// A oneof holds one member, so a document setting two of them has no reading
+// that does not silently discard one.
+func TestJSONDecodeRefusesTwoMembersOfOneOneof(t *testing.T) {
+	files := generateJSON(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Oneofs: []*protoast.Oneof{{
+			Name: "payload",
+			Fields: []*protoast.Field{
+				{FieldType: "string", Name: "text", Number: 1},
+				{FieldType: "int32", Name: "amount", Number: 2},
+			},
+		}},
+	}}, nil), "player.proto")
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "var _pb_payload_seen: bool = false")
+	require.Contains(t, source,
+		`return JsonDecodeError.create("JSON_PARSE_FAILED: payload has more than one member set", _pb_member_path)`)
 }
 
 // A oneof member is an ordinary JSON member; reading it sets the union case.

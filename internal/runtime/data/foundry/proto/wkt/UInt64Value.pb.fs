@@ -102,13 +102,15 @@ static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (int, J
 		JsonNode.Float(var _pb_float):
 			if _pb_float != floor(_pb_float):
 				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take a fractional number", _pb_path))
-			if _pb_float >= 9223372036854775808.0 or _pb_float < -9223372036854775808.0:
+			if _pb_float > 9223372036854775808.0 or _pb_float < -9223372036854775808.0:
 				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field cannot hold this value", _pb_path))
 			_pb_value = int(_pb_float)
 		JsonNode.Str(var _pb_text):
 			if not _pb_text.is_valid_int():
 				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take this string", _pb_path))
 			_pb_value = _pb_text.to_int()
+			if str(_pb_value) != _pb_text:
+				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field takes a decimal string it can hold exactly", _pb_path))
 		_:
 			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field takes a number or a string", _pb_path))
 	var _pb_error: JsonDecodeError? = null

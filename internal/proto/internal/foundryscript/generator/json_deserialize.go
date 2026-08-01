@@ -52,6 +52,7 @@ const jsonRootPath = `"$"`
 // themselves stay in the enum for numbering and are never returned; using their
 // names here is what keeps the categories greppable across both halves.
 const (
+	jsonParseFailedPrefix     = "JSON_PARSE_FAILED: "
 	jsonTypeMismatchPrefix    = "JSON_TYPE_MISMATCH: "
 	jsonUnknownFieldPrefix    = "JSON_UNKNOWN_FIELD: "
 	jsonValueOutOfRangePrefix = "JSON_VALUE_OUT_OF_RANGE: "
@@ -132,6 +133,9 @@ func mergeFromJSONFunction(plan *messagePlan, form wellKnownJSONForm) fsast.Func
 // preservation, so silently dropping one would lose it on the way back out.
 func messageFromJSONBody(plan *messagePlan) []fsast.Node {
 	body := jsonObjectGuard(0, plan.Name, jsonNodeParameter, jsonEntriesLocal, jsonRootPath)
+	for _, flag := range jsonSeenFlags(plan) {
+		body = append(body, line(0, fmt.Sprintf("var %s: bool = false", flag)))
+	}
 	body = append(body, line(0, fmt.Sprintf("for %s: String in %s:", jsonKeyLocal, jsonEntriesLocal)))
 	arms := jsonFieldArms(plan)
 	if len(arms) > 0 {
@@ -181,9 +185,64 @@ func jsonFieldArms(plan *messagePlan) []fsast.Node {
 	for i := range plan.Fields {
 		field := &plan.Fields[i]
 		arms = append(arms, line(2, jsonMemberPatterns(field)+":"))
+		arms = append(arms, jsonSeenGuard(plan, field)...)
 		arms = append(arms, jsonMergeField(plan.Name, field)...)
 	}
 	return arms
+}
+
+// jsonSeenFlags are the flags this message needs to catch a document that names
+// one logical field twice. Only two shapes can do that, so only those carry a
+// flag: a field whose two accepted spellings differ, since a JSON object cannot
+// repeat one key but can carry both spellings of one field, and a oneof, whose
+// members are distinct keys naming one member slot.
+func jsonSeenFlags(plan *messagePlan) []string {
+	var flags []string
+	seen := map[string]bool{}
+	for i := range plan.Fields {
+		flag := jsonSeenFlag(plan, &plan.Fields[i])
+		if flag == "" || seen[flag] {
+			continue
+		}
+		seen[flag] = true
+		flags = append(flags, flag)
+	}
+	return flags
+}
+
+func jsonSeenFlag(plan *messagePlan, field *fieldPlan) string {
+	if field.OneofCase != "" {
+		oneof := findOneof(plan.Oneofs, field.OneofField)
+		if oneof == nil {
+			return ""
+		}
+		return localName(oneof.RawField, "seen")
+	}
+	if field.JSONName == field.RawName {
+		return ""
+	}
+	return field.Local("seen")
+}
+
+// jsonSeenGuard refuses a second member for a field already read. proto3 JSON
+// has no merge semantics for a repeated key: taking the last one would make the
+// decode depend on member order, and a oneof would silently lose whichever
+// alternative the document listed first.
+func jsonSeenGuard(plan *messagePlan, field *fieldPlan) []fsast.Node {
+	flag := jsonSeenFlag(plan, field)
+	if flag == "" {
+		return nil
+	}
+	report := jsonParseFailedPrefix + field.RawName + " was given more than once"
+	if field.OneofCase != "" {
+		oneof := findOneof(plan.Oneofs, field.OneofField)
+		report = jsonParseFailedPrefix + oneof.RawField + " has more than one member set"
+	}
+	return []fsast.Node{
+		line(3, "if "+flag+":"),
+		line(4, "return "+jsonFail(report, jsonMemberPathLocal)),
+		line(3, flag+" = true"),
+	}
 }
 
 // jsonMemberPatterns are the spellings this field answers to: the JSON name it
@@ -927,7 +986,8 @@ func jsonIntegerReaderBody(description, minimum, maximum, floatMinimum, floatBou
 		line(2, fmt.Sprintf("if %s != floor(%s):", jsonFloatLocal, jsonFloatLocal)),
 		line(3, "return (0, "+jsonFail(
 			jsonTypeMismatchPrefix+description+" field cannot take a fractional number", jsonPathParameter)+")"),
-		line(2, fmt.Sprintf("if %s >= %s or %s < %s:", jsonFloatLocal, floatBound, jsonFloatLocal, floatMinimum)),
+		line(2, fmt.Sprintf("if %s %s %s or %s < %s:",
+			jsonFloatLocal, jsonFloatComparison(minimum), floatBound, jsonFloatLocal, floatMinimum)),
 		line(3, "return (0, "+jsonFail(
 			jsonValueOutOfRangePrefix+description+" field cannot hold this value", jsonPathParameter)+")"),
 		line(2, fmt.Sprintf("%s = int(%s)", jsonValueLocal, jsonFloatLocal)),
@@ -936,10 +996,24 @@ func jsonIntegerReaderBody(description, minimum, maximum, floatMinimum, floatBou
 		line(3, "return (0, "+jsonFail(
 			jsonTypeMismatchPrefix+description+" field cannot take this string", jsonPathParameter)+")"),
 		line(2, fmt.Sprintf("%s = %s.to_int()", jsonValueLocal, jsonTextLocal)),
+	}
+	if minimum == "" {
+		// A 64-bit field has no range check after the match to catch a string
+		// the host int cannot hold, and to_int() wraps rather than reporting.
+		// Requiring the text to be exactly what the value prints as is what
+		// separates a value that survived from one that came back different.
+		body = append(body,
+			line(2, fmt.Sprintf("if str(%s) != %s:", jsonValueLocal, jsonTextLocal)),
+			line(3, "return (0, "+jsonFail(
+				jsonValueOutOfRangePrefix+description+" field takes a decimal string it can hold exactly",
+				jsonPathParameter)+")"),
+		)
+	}
+	body = append(body, []fsast.Node{
 		line(1, "_:"),
 		line(2, "return (0, "+jsonFail(
 			jsonTypeMismatchPrefix+description+" field takes a number or a string", jsonPathParameter)+")"),
-	}
+	}...)
 	if minimum != "" {
 		body = append(body,
 			line(0, fmt.Sprintf("if %s < %s or %s > %s:", jsonValueLocal, minimum, jsonValueLocal, maximum)),
@@ -1041,4 +1115,16 @@ func jsonReaderSuccess(valueLocal string) []fsast.Node {
 		line(0, fmt.Sprintf("var %s: %s? = null", jsonErrorLocal, jsonDecodeErrorType)),
 		fsast.Return{Value: fmt.Sprintf("(%s, %s)", valueLocal, jsonErrorLocal)},
 	}
+}
+
+// jsonFloatComparison bounds the float arm of an integer reader. A 32-bit field
+// is bounded by the first value it cannot hold, while a 64-bit one is bounded
+// by the first value past the host int: the engine's parser produces a double,
+// so the largest int64 arrives as exactly 2^63 and is the documented lossy case
+// rather than a value to refuse.
+func jsonFloatComparison(minimum string) string {
+	if minimum == "" {
+		return ">"
+	}
+	return ">="
 }
