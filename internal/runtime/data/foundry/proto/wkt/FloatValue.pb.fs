@@ -5,7 +5,7 @@ import foundry.proto
 ## The JSON representation for `FloatValue` is JSON number.
 ## Not recommended for use in new APIs, but still useful for legacy APIs and
 ## has no plan to be removed.
-final class_name FloatValue extends RefCounted uses Message
+final class_name FloatValue extends RefCounted uses Message, JsonSerializable
 
 ## The float value.
 var value: float = 0.0
@@ -55,3 +55,32 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					return _pb_skipped.error
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
+
+## Returns this message as a proto3 canonical JSON document.
+##
+## JSON.stringify(message, "", false) renders it as text; the third argument
+## turns off key sorting, which keeps members in field declaration order.
+func to_json() -> JsonNode:
+	return _pb_json_float(Wire.narrow_float32(value))
+
+## Decodes a proto3 canonical JSON document into a new FloatValue message.
+##
+## Not generated yet: this reports a failure for every document. The
+## conformance it completes is what makes to_json reachable through
+## JSON.stringify, which is why the member exists ahead of the decoder.
+static func from_json(_pb_node: JsonNode) -> JsonResult[FloatValue]:
+	return JsonResult[FloatValue].fail("JSON_PARSE_FAILED: FloatValue cannot be decoded from JSON yet", "$")
+
+## Returns one float as canonical proto3 JSON.
+##
+## A non-finite value never reaches the Float case: the encoder writes NaN as
+## null and the infinities as ±1e99999, none of which is canonical, so the
+## three specified string forms are produced here instead.
+static func _pb_json_float(_pb_value: float) -> JsonNode:
+	if is_nan(_pb_value):
+		return JsonNode.Str("NaN")
+	if is_inf(_pb_value):
+		if _pb_value > 0.0:
+			return JsonNode.Str("Infinity")
+		return JsonNode.Str("-Infinity")
+	return JsonNode.Float(_pb_value)

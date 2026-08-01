@@ -189,10 +189,12 @@ func TestPlanMemberNameEscapesEngineJSONBuiltins(t *testing.T) {
 }
 
 func TestGeneratedMethodNamesAreFreshAndReserved(t *testing.T) {
-	want := []string{"from_bytes", "to_bytes", "merge_from_bytes"}
+	want := []string{"from_bytes", "to_bytes", "merge_from_bytes", "to_json", "from_json"}
 	require.Equal(t, "from_bytes", fromBytesMethod)
 	require.Equal(t, "to_bytes", toBytesMethod)
 	require.Equal(t, "merge_from_bytes", mergeFromBytesMethod)
+	require.Equal(t, "to_json", toJSONMethod)
+	require.Equal(t, "from_json", fromJSONMethod)
 	require.Equal(t, want, generatedMethodNames())
 
 	mutated := generatedMethodNames()

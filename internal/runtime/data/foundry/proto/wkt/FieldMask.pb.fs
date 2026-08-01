@@ -152,7 +152,7 @@ import foundry.proto
 ## The implementation of any API method which has a FieldMask type field in the
 ## request should verify the included field paths, and return an
 ## `INVALID_ARGUMENT` error if any path is unmappable.
-final class_name FieldMask extends RefCounted uses Message
+final class_name FieldMask extends RefCounted uses Message, JsonSerializable
 
 ## The set of field mask paths.
 var paths: Array[String] = []
@@ -204,3 +204,22 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					return _pb_skipped.error
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
+
+## Returns this message as a proto3 canonical JSON document.
+##
+## JSON.stringify(message, "", false) renders it as text; the third argument
+## turns off key sorting, which keeps members in field declaration order.
+func to_json() -> JsonNode:
+	var (_pb_text, _pb_error) = JsonFieldMask.to_json(paths)
+	if _pb_error != ProtobufError.OK:
+		push_error("JSON_VALUE_OUT_OF_RANGE: FieldMask cannot be written as canonical JSON")
+		return JsonNode.Null
+	return JsonNode.Str(_pb_text)
+
+## Decodes a proto3 canonical JSON document into a new FieldMask message.
+##
+## Not generated yet: this reports a failure for every document. The
+## conformance it completes is what makes to_json reachable through
+## JSON.stringify, which is why the member exists ahead of the decoder.
+static func from_json(_pb_node: JsonNode) -> JsonResult[FieldMask]:
+	return JsonResult[FieldMask].fail("JSON_PARSE_FAILED: FieldMask cannot be decoded from JSON yet", "$")
