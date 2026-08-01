@@ -1824,7 +1824,8 @@ func TestJSONScalarsFollowTheCanonicalTable(t *testing.T) {
 	require.Contains(t, source, `_pb_json["score"] = JsonNode.Str(str(score))`)
 	require.Contains(t, source, `_pb_json["seed"] = JsonNode.Str(str(seed))`)
 	require.Contains(t, source, `_pb_json["ratio"] = _pb_json_float(ratio)`)
-	require.Contains(t, source, `_pb_json["speed"] = _pb_json_float(speed)`)
+	// A proto float is binary32; the member holding it is not.
+	require.Contains(t, source, `_pb_json["speed"] = _pb_json_float(Wire.narrow_float32(speed))`)
 	require.Contains(t, source, `_pb_json["active"] = JsonNode.Bool(active)`)
 	require.Contains(t, source, `_pb_json["name"] = JsonNode.Str(name)`)
 	require.Contains(t, source, `_pb_json["blob"] = JsonNode.Str(JsonBase64.encode(blob))`)
@@ -2143,4 +2144,38 @@ func TestWellKnownFormsAreKeyedOnTheImportPath(t *testing.T) {
 
 	require.NotContains(t, source, "JsonTimestamp")
 	require.Contains(t, source, `_pb_json["seconds"] = JsonNode.Str(str(seconds))`)
+}
+
+// A field named after a generated member would replace it rather than sit
+// beside it, so the JSON members are reserved for the same reason to_bytes is.
+// The escaping does not depend on the option: a member that changed name when
+// JSON was switched on would break every caller of the binding.
+func TestJSONMethodNamesAreReservedForGeneratedMembers(t *testing.T) {
+	fields := []*protoast.Field{
+		{FieldType: "string", Name: "to_json", Number: 1},
+		{FieldType: "string", Name: "from_json", Number: 2},
+	}
+
+	source := jsonPlayerSource(t, fields...)
+	require.Contains(t, source, "var to_json_: String")
+	require.Contains(t, source, "var from_json_: String")
+	require.Contains(t, source, "func to_json() -> JsonNode:")
+	require.Contains(t, source, `_pb_json["toJson"] = JsonNode.Str(to_json_)`)
+
+	require.Contains(t, playerSource(t, fields), "var to_json_: String")
+}
+
+// Foundry's float is binary64 while a proto float is binary32, so a member may
+// carry precision the field cannot. The encoder drops it on the way to the
+// wire; canonical JSON has to drop it too, or a wire round trip and a JSON one
+// disagree about the same value.
+func TestJSONNarrowsAProtoFloatToBinary32(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "float", Name: "speed", Number: 1},
+		&protoast.Field{FieldType: "double", Name: "ratio", Number: 2},
+	)
+
+	require.Contains(t, source, `_pb_json["speed"] = _pb_json_float(Wire.narrow_float32(speed))`)
+	// A double is already binary64; narrowing it would destroy the value.
+	require.Contains(t, source, `_pb_json["ratio"] = _pb_json_float(ratio)`)
 }

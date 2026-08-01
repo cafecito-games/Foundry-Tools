@@ -85,3 +85,12 @@ func TestWellKnownBindingsAreUpToDate(t *testing.T) {
 		require.Contains(t, embedded[name], "namespace "+wellknown.Namespace+"\n", "%s must declare the shared namespace", name)
 	}
 }
+
+// The narrowing a proto float needs is the encoder's own, so it lives beside
+// the encoder rather than being restated by each emitter that needs it.
+func TestWireNarrowsAProtoFloatToBinary32(t *testing.T) {
+	source := runtime.Files()["foundry/proto/wire.fs"]
+
+	require.Contains(t, source, "static func narrow_float32(value: float) -> float:")
+	require.Contains(t, source, "narrowed.encode_float(0, value)")
+}

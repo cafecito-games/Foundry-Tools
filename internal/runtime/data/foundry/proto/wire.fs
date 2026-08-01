@@ -98,10 +98,20 @@ static func is_default_float(value: float) -> bool:
 static func is_default_float32(value: float) -> bool:
 	if is_default_float(value):
 		return true
+	return is_default_float(narrow_float32(value))
+
+## Narrows value to the binary32 a proto float actually carries.
+##
+## A member holding a proto float is a Foundry float, which is binary64, so it
+## can carry precision the field cannot. The encoder drops that precision on
+## the way to the wire; anything else that reports the field's value -- the
+## canonical JSON mapping above all -- has to drop it the same way, or two
+## renderings of one field disagree about what it holds.
+static func narrow_float32(value: float) -> float:
 	var narrowed: PackedByteArray = PackedByteArray()
 	narrowed.resize(4)
 	narrowed.encode_float(0, value)
-	return is_default_float(narrowed.decode_float(0))
+	return narrowed.decode_float(0)
 
 ## Encodes value as a zig-zag varint over 32 bits. Zig-zag maps small negatives
 ## onto small unsigned numbers, so -1 costs one byte instead of the ten a plain

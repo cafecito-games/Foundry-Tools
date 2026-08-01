@@ -61,7 +61,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 ## JSON.stringify(message, "", false) renders it as text; the third argument
 ## turns off key sorting, which keeps members in field declaration order.
 func to_json() -> JsonNode:
-	return _pb_json_float(value)
+	return _pb_json_float(Wire.narrow_float32(value))
 
 ## Decodes a proto3 canonical JSON document into a new FloatValue message.
 ##

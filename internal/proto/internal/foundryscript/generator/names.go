@@ -310,11 +310,18 @@ const (
 
 // generatedMethodNames returns a fresh ordered inventory for naming and
 // collision collection.
+//
+// The JSON pair is listed whether or not the option is on. A member that
+// changed its name when JSON was switched on would rename a field out from
+// under every caller of the binding, so the reserved set is a property of the
+// generator rather than of one run's options.
 func generatedMethodNames() []string {
 	return []string{
 		fromBytesMethod,
 		toBytesMethod,
 		mergeFromBytesMethod,
+		toJSONMethod,
+		fromJSONMethod,
 	}
 }
 

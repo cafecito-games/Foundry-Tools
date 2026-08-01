@@ -251,7 +251,13 @@ func jsonValueExpression(value valuePlan, expression string) string {
 		return jsonNodeType + ".Str(" + expression + ")"
 	case "bytes":
 		return jsonNodeType + ".Str(JsonBase64.encode(" + expression + "))"
-	case "float", "double":
+	case "float":
+		// A proto float is binary32 and the member holding it is binary64, so
+		// what the field carries is the narrowed value. Writing the wider one
+		// would put precision in the document that a wire round trip of the
+		// same message does not have.
+		return jsonFloatMethod + "(Wire.narrow_float32(" + expression + "))"
+	case "double":
 		return jsonFloatMethod + "(" + expression + ")"
 	case "int64", "uint64", "sint64", "fixed64", "sfixed64":
 		// A 64-bit integer is written as a string because that is the only form
