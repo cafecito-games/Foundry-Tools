@@ -2337,9 +2337,12 @@ func TestJSONDecodeReadsAnUnsigned64BitFieldThroughItsOwnReader(t *testing.T) {
 	require.Contains(t, source,
 		"static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):")
 	require.Contains(t, source, "var (_pb_unsigned, _pb_unsigned_error) = JsonUint64.parse(_pb_text)")
-	// A bare number is bounded by the first value the field cannot hold, and a
-	// negative one is not a uint64 at all.
-	require.Contains(t, source, "if _pb_float >= 18446744073709551616.0 or _pb_float < 0.0:")
+	// The widest value has no double of its own and arrives rounded to 2^64, so
+	// that bound is the documented lossy edge rather than a value to refuse; a
+	// negative number is not a uint64 at all.
+	require.Contains(t, source, "if _pb_float > 18446744073709551616.0 or _pb_float < 0.0:")
+	require.Contains(t, source, "if _pb_float == 18446744073709551616.0:")
+	require.Contains(t, source, "_pb_value = JsonUint64.WIDEST_BITS")
 	require.Contains(t, source, "if _pb_int < 0:")
 	// The signed reader is not emitted when no signed 64-bit field asks for it.
 	require.NotContains(t, source, "_pb_json_read_int64")

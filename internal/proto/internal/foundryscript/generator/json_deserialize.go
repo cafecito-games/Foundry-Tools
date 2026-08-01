@@ -967,7 +967,8 @@ func jsonUnsignedWideIntegerReaderDoc() []string {
 		"the smallest signed value there. A bare number is accepted because the",
 		"canonical mapping requires it, and is lossy past 2^53: the engine's",
 		"parser produces a double, so a value that large does not even arrive as",
-		"a JsonNode.Int.",
+		"a JsonNode.Int. The widest value rounds to 2^64 on the way in and is",
+		"read as the value it rounded from rather than refused.",
 	}
 }
 
@@ -978,7 +979,10 @@ func jsonUnsignedWideIntegerReaderDoc() []string {
 // The float arm is bounded before it is converted, for the same reason the
 // signed reader's is, and the top half is shifted down by 2^64 first: the
 // subtraction is exact for a double in that range, and converting it directly
-// would leave the host int saturated instead.
+// would leave the host int saturated instead. Exactly 2^64 is the widest value
+// having been rounded rather than a value out of range -- no double holds those
+// twenty digits -- so it is the documented lossy edge the signed reader has at
+// 2^63, not a document to refuse.
 func jsonUnsignedWideIntegerReaderBody() []fsast.Node {
 	const description = "an unsigned 64-bit integer"
 	outOfRange := "return (0, " + jsonFail(
@@ -998,9 +1002,11 @@ func jsonUnsignedWideIntegerReaderBody() []fsast.Node {
 		line(2, fmt.Sprintf("if %s != floor(%s):", jsonFloatLocal, jsonFloatLocal)),
 		line(3, "return (0, "+jsonFail(
 			jsonTypeMismatchPrefix+description+" field cannot take a fractional number", jsonPathParameter)+")"),
-		line(2, fmt.Sprintf("if %s >= 18446744073709551616.0 or %s < 0.0:", jsonFloatLocal, jsonFloatLocal)),
+		line(2, fmt.Sprintf("if %s > 18446744073709551616.0 or %s < 0.0:", jsonFloatLocal, jsonFloatLocal)),
 		line(3, outOfRange),
-		line(2, fmt.Sprintf("if %s >= 9223372036854775808.0:", jsonFloatLocal)),
+		line(2, fmt.Sprintf("if %s == 18446744073709551616.0:", jsonFloatLocal)),
+		line(3, fmt.Sprintf("%s = %s.WIDEST_BITS", jsonValueLocal, jsonUint64Type)),
+		line(2, fmt.Sprintf("elif %s >= 9223372036854775808.0:", jsonFloatLocal)),
 		line(3, fmt.Sprintf("%s = int(%s - 18446744073709551616.0)", jsonValueLocal, jsonFloatLocal)),
 		line(2, "else:"),
 		line(3, fmt.Sprintf("%s = int(%s)", jsonValueLocal, jsonFloatLocal)),

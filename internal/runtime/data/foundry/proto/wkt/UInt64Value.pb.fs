@@ -93,7 +93,8 @@ func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
 ## the smallest signed value there. A bare number is accepted because the
 ## canonical mapping requires it, and is lossy past 2^53: the engine's
 ## parser produces a double, so a value that large does not even arrive as
-## a JsonNode.Int.
+## a JsonNode.Int. The widest value rounds to 2^64 on the way in and is
+## read as the value it rounded from rather than refused.
 static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
 	var _pb_value: int = 0
 	match _pb_node:
@@ -106,9 +107,11 @@ static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (int, 
 		JsonNode.Float(var _pb_float):
 			if _pb_float != floor(_pb_float):
 				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field cannot take a fractional number", _pb_path))
-			if _pb_float >= 18446744073709551616.0 or _pb_float < 0.0:
+			if _pb_float > 18446744073709551616.0 or _pb_float < 0.0:
 				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
-			if _pb_float >= 9223372036854775808.0:
+			if _pb_float == 18446744073709551616.0:
+				_pb_value = JsonUint64.WIDEST_BITS
+			elif _pb_float >= 9223372036854775808.0:
 				_pb_value = int(_pb_float - 18446744073709551616.0)
 			else:
 				_pb_value = int(_pb_float)

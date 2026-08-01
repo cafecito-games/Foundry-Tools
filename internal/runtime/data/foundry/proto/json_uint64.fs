@@ -26,6 +26,12 @@ const MAXIMUM_TEXT: String = "18446744073709551615"
 ## shift the unsigned halving needs.
 const WITHOUT_SIGN_BIT: int = 0x7FFFFFFFFFFFFFFF
 
+## The bit pattern of 18446744073709551615, the widest value. A bare JSON number
+## can only reach it by rounding -- no double holds those digits exactly, and the
+## nearest one is 2^64 -- so a reader that accepts a bare number needs the value
+## the rounding stands for spelled out.
+const WIDEST_BITS: int = -1
+
 ## Returns the unsigned decimal the given signed bit pattern stands for.
 static func format(value: int) -> String:
 	if value >= 0:
