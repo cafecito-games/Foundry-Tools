@@ -4,7 +4,14 @@
 
 **Goal:** Generated messages gain proto3 canonical JSON in and out, behind the `json` option that already exists but currently does nothing.
 
-**Architecture:** A `JsonNode` tagged union in the runtime models a JSON document over six closed cases and owns the only `Variant` boundary in the system. Two new emitters beside `serialize.go` and `deserialize.go` walk the same field model `plan.go` already builds, producing per-message `to_json_node`/`merge_from_json_node` plus their string conveniences. A seven-entry table special-cases the well-known types, three of whose helpers already shipped in the foundations epic.
+**Architecture:** The engine's builtin `JsonNode` tagged union models a JSON document over seven closed cases, and its `JsonSerializable` trait is the generated surface. Two new emitters beside `serialize.go` and `deserialize.go` walk the same field model `plan.go` already builds, producing per-message `to_json`/`from_json`. A seven-entry table special-cases the well-known types, three of whose helpers already shipped in the foundations epic.
+
+> **Amended 2026-08-01 for engine `0.1.alpha19`.** This plan was written against
+> `alpha14`, where a runtime-defined `JsonNode` and a runtime-owned `Variant` boundary
+> were necessary. The engine now ships `JsonNode`, `JsonSerializable`, `JsonResult`,
+> and `JsonDecodeError` as builtins, and both JSON boundaries are typed. Task 1 is
+> rewritten and shrunk accordingly; tasks 3, 4, and 7 inherit the new surface and error
+> type. The reasoning is on #71 and in the amended spec.
 
 **Tech Stack:** Go 1.26 with testify, Foundry Script for the runtime. Engine checks run through `tests/foundry/run.sh`; the full gate is `task test && task integration && task foundry:test`.
 
@@ -39,11 +46,10 @@ Read these on `main` before starting; they are the precedent to match.
 
 | File | Responsibility |
 |---|---|
-| `internal/runtime/data/foundry/proto/json_node.fs` | New. The `JsonNode` union and its two `Variant` conversions. |
-| `internal/runtime/runtime_test.go` | Modify. Narrow the `Variant` assertion to exempt `json_node.fs` only. |
-| `internal/proto/internal/foundryscript/generator/names.go` | Modify. `JsonNode` in `runtimeTypeNames`. |
-| `internal/proto/internal/foundryscript/generator/json_serialize.go` | New. Emits `to_json_node` and `to_json_string`. |
-| `internal/proto/internal/foundryscript/generator/json_deserialize.go` | New. Emits `merge_from_json_node` and `from_json_string`. |
+| `internal/proto/internal/foundryscript/generator/engine_reserved_types.gen.go` | Regenerate. Stale at `alpha14`, which fails `task foundry:test` outright. |
+| `internal/proto/internal/foundryscript/generator/names.go` | Modify. Reserve the four JSON builtins, which `extension_api.json` does not carry. |
+| `internal/proto/internal/foundryscript/generator/json_serialize.go` | New. Emits `to_json` and the `uses JsonSerializable` conformance. |
+| `internal/proto/internal/foundryscript/generator/json_deserialize.go` | New. Emits `from_json` and `_pb_merge_from_json`. |
 | `internal/proto/internal/foundryscript/generator/json_wellknown.go` | New. The seven-entry well-known form table, shared by both emitters. |
 | `internal/proto/internal/foundryscript/generator/plan.go` | Modify, if the field model lacks a JSON name. See task 2. |
 | `internal/proto/wellknown/gen/gen.go` | Already forces `Options{JSON: true}`; regenerating is the task, not a code change. |
@@ -54,10 +60,10 @@ Read these on `main` before starting; they are the precedent to match.
 
 ## Ownership and ordering
 
-`json_node.fs` gates everything: neither emitter can be written before it exists.
-After it, serialization and deserialization are independent and can run in parallel —
-they touch disjoint files. Both must land before the golden corpus, because the
-corpus is their output.
+Task 1 gates everything: it lands the engine type table both emitters typecheck
+against, and pins the engine behavior they assume. After it, serialization and
+deserialization are independent and can run in parallel — they touch disjoint files.
+Both must land before the golden corpus, because the corpus is their output.
 
 Three files are serialization points where more than one task writes. Anything
 touching them runs sequentially, not in parallel:
@@ -68,44 +74,50 @@ touching them runs sequentially, not in parallel:
 
 ## Assumptions
 
-Foundry Script's payload-carrying `enum_name`, `Dictionary[K, V]`, `Array[T]`, and
-recursion through them all work. This is not speculative: `ValueKindCase.pb.fs`,
-`Struct.pb.fs:14`, and `ListValue.pb.fs:9` already prove every one of them in
-checked-in runtime output. If `JsonNode`'s *direct* self-recursion
-(`List(values: Array[JsonNode])`) turns out to differ from `Value`'s mutual recursion
-through a class, the engine lint reports it by name and task 1 stops there rather
-than working around it.
+All of these were run against `0.1.alpha19.gh.7a86a1464` while re-planning #71, not
+inferred. Re-verify if the engine moves.
+
+- Direct self-recursion in a tagged union constructs and matches at run time
+  (`List(values: Array[Self])` and `Object(fields: Dictionary[String, Self])`). This
+  is what blocked the plan on `alpha14`.
+- A `final class ... extends RefCounted uses Message, JsonSerializable` conforms to
+  both traits, inside a namespace, and `JSON.stringify` reaches its `to_json`.
+- `JSON.stringify` sorts keys unless passed `sort_keys = false`.
+- `JSON.stringify` mangles non-finite floats (`NaN` to `null`, infinities to
+  `±1e99999`), so the emitter produces their string forms itself.
+- `JSON.parse_to_node` returns a `Float`, not an `Int`, for an integer literal too
+  large for a double to hold exactly.
 
 ---
 
-## Task 1 — `JsonNode` and its `Variant` boundary
+## Task 1 — the engine JSON types
 
-Nothing else in this plan can start until this lands.
+Nothing else in this plan can start until this lands. Originally "define a runtime
+`JsonNode` union and its `Variant` boundary"; the engine now owns both, so what is
+left is the type table, the reserved names, and pinning the behavior tasks 3 and 4
+depend on.
 
-**Files:** `internal/runtime/data/foundry/proto/json_node.fs` (new),
-`internal/proto/internal/foundryscript/generator/names.go`,
-`internal/runtime/runtime_test.go`, `tests/foundry/main.fs`.
+**Files:** `generator/engine_reserved_types.gen.go`, `generator/names.go`,
+`tests/foundry/main.fs`.
 
-- [ ] Define the union with exactly six cases: `Null`, `Bool(value: bool)`,
-      `Number(value: float)`, `Text(value: String)`, `List(values: Array[JsonNode])`,
-      `Object(fields: Dictionary[String, JsonNode])`.
-- [ ] `static func to_variant(_pb_node: JsonNode) -> Variant`, total over all six.
-- [ ] `static func from_variant(_pb_value: Variant) -> (JsonNode?, ProtobufError)`,
-      returning `JSON_TYPE_MISMATCH` for anything outside the six shapes.
-- [ ] Add `JsonNode` to `runtimeTypeNames` in `names.go`, or `task test` fails on
-      `TestRuntimeTypeNamesCoverEveryExportedRuntimeType`.
-- [ ] Narrow the assertion in `runtime_test.go:21` so it exempts
-      `foundry/proto/json_node.fs` **by file name** and still fails on a `Variant`
-      anywhere else in the runtime. Do not delete the check, and do not widen it
-      beyond that one file.
-- [ ] Round-trip assertions in `tests/foundry/main.fs`: every case survives
-      `to_variant` then `from_variant`; a nested `Object` containing a `List`
-      containing an `Object` survives; `from_variant` on an unsupported dynamic
-      value returns `JSON_TYPE_MISMATCH`.
-
-**Acceptance:** `task build && task foundry:test && task test` pass. The runtime
-`Variant` assertion still fails if you temporarily add `-> Variant` to `wire.fs` —
-verify that by doing it and reverting, the way #65 was verified.
+- [ ] Regenerate the engine type table with `task gen-engine-types`. It is stale at
+      `alpha14`, and `sync-foundry-engine-types.sh check` runs at the top of
+      `tests/foundry/run.sh`, so `task foundry:test` fails on `main` until this lands.
+      The diff should be the version constant alone — if it is not, say what else moved.
+- [ ] Reserve `JsonNode`, `JsonResult`, `JsonDecodeError`, and `JsonSerializable` in
+      `names.go`. They are builtin *script* classes, absent from `extension_api.json`,
+      so the regenerated table does not contain them and a proto message of the same
+      name would silently shadow the builtin. Add a test that a message named
+      `JsonNode` is escaped.
+- [ ] Assertions in `tests/foundry/main.fs` pinning what the emitters assume: a
+      nested `Object` containing an `Array` containing an `Object` constructs and
+      round-trips; `Int` and `Float` stay distinct through `JSON.stringify`
+      (`1` versus `1.0`); a 64-bit integer survives as a `Str` and does not as a bare
+      number; `JSON.parse_to_node` on a malformed document reports through
+      `JsonResult` rather than raising.
+- [ ] Do **not** touch `internal/runtime/runtime_test.go` or `tests/foundry/run.sh`.
+      No `Variant` enters the runtime or the generated surface, so both gates stay as
+      they are — the carve-outs the earlier design needed are unnecessary.
 
 **Verify:** `task build && task test && task foundry:test`
 
@@ -133,10 +145,14 @@ Depends on task 1. Parallel with task 4.
 **Files:** `generator/json_serialize.go` (new), `generator/json_wellknown.go` (new),
 `generator/generator_test.go`.
 
-- [ ] Emit `to_json_node() -> JsonNode` and `to_json_string() -> String`, gated on
-      `Options.JSON`, beside the existing `to_bytes`.
-- [ ] Scalars per the spec table: 32-bit as number, 64-bit as string, `float`/`double`
-      as number or `"NaN"`/`"Infinity"`/`"-Infinity"`, `bytes` through `JsonBase64`.
+- [ ] Emit `func to_json() -> JsonNode` and add `JsonSerializable` to the class's
+      `uses` list, both gated on `Options.JSON`, beside the existing `to_bytes`.
+      Conformance is what teaches `JSON.stringify` to lower the message, so a message
+      without it has no route to JSON text; there is no emitted `to_json_string`.
+- [ ] Scalars per the spec table: 32-bit to `Int`, 64-bit to `Str`, `float`/`double`
+      to `Float` when finite and to `Str("NaN")`/`Str("Infinity")`/`Str("-Infinity")`
+      when not — never hand a non-finite float to `Float`, since the encoder turns it
+      into `null` or `1e99999`. `bytes` through `JsonBase64`.
 - [ ] Output presence: proto3 zero values omitted; `optional`, message, and oneof
       members emitted only when present; a present-but-null wrapper writes `Null`.
 - [ ] Enums as case names. `repeated` to `List`, `map` to `Object` with keys
@@ -158,14 +174,23 @@ rewriting it.
 
 **Files:** `generator/json_deserialize.go` (new), `generator/generator_test.go`.
 
-- [ ] Emit `merge_from_json_node(_pb_node: JsonNode) -> ProtobufError` and
-      `static func from_json_string(_pb_text: String) -> (X?, ProtobufError)`.
-- [ ] `from_json_string` is `JSON.parse_string`, then `JsonNode.from_variant`, then
-      `merge_from_json_node`. A malformed document is `JSON_PARSE_FAILED`.
-- [ ] Accept both name spellings from task 2. A member matching no field is
-      `JSON_UNKNOWN_FIELD`.
-- [ ] 64-bit integers accepted from number or string; a 32-bit field given an
-      out-of-domain value is `JSON_VALUE_OUT_OF_RANGE`.
+- [ ] Emit `static func from_json(_pb_node: JsonNode) -> JsonResult[X]` and a private
+      `func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?`. `from_json`
+      is construct-then-merge; decoding `repeated`, `map`, and `oneof` members is
+      merge-shaped, so a second implementation would duplicate it. There is no emitted
+      `from_json_string` — the caller passes `JSON.parse_to_node(text).value`, and a
+      malformed document already comes back as a `JsonResult` failure.
+- [ ] Failures are `JsonDecodeError`, not `ProtobufError`. Set `path` to the JSONPath
+      of the offending value and use `JsonResult.nested(error, key)` to re-root a
+      nested failure, so a field decoder reports from the document root. Lead the
+      `message` with the matching `ProtobufError` case name — `JSON_TYPE_MISMATCH`,
+      `JSON_UNKNOWN_FIELD`, `JSON_VALUE_OUT_OF_RANGE` — so categories stay greppable.
+- [ ] Accept both name spellings from task 2. A member matching no field fails.
+- [ ] Accept per the spec table, not per the case a value "should" be in: a 64-bit
+      field takes `Str` (exact), `Int`, and `Float` (lossy, and the only case a large
+      bare number arrives in); a 32-bit field takes `Int`, `Str`, and an integral
+      `Float`, and fails out-of-domain values; a `float`/`double` field takes `Float`,
+      `Int`, and the three non-finite strings.
 - [ ] Enums read from a case name or a number; an unrecognized number takes the
       default rather than erroring.
 - [ ] Errors are returned, never thrown, matching the wire path.
@@ -184,8 +209,11 @@ Depends on tasks 3 and 4. Touches `wkt/*.pb.fs`, a serialization point.
       it is not, say so rather than editing generated files by hand.
 - [ ] The drift test in `internal/runtime/runtime_test.go` keeps the checked-in output
       honest — it must pass without being relaxed.
-- [ ] `Value`'s JSON form maps onto `JsonNode` directly; confirm the two agree rather
-      than each having its own notion of a JSON value.
+- [ ] `Value`'s JSON form maps onto the engine's `JsonNode` directly; confirm the two
+      agree rather than each having its own notion of a JSON value. `ValueKindCase`
+      has no `Int` case, so a `Value` holding a whole number decides between
+      `JsonNode.Int` and `JsonNode.Float` — pick `Float`, since `Value.number_value`
+      is a `double`, and assert it.
 
 **Verify:** `task build && task test && task foundry:test`
 
@@ -198,7 +226,8 @@ Depends on tasks 3, 4, 5.
       keeps covering the option's off-path. This is the point of a separate corpus —
       do not regenerate the existing one.
 - [ ] Round-trip assertions in `tests/foundry/main.fs`: a message with every field
-      kind survives `to_json_string` then `from_json_string`.
+      kind survives `JSON.stringify(msg, "", false)` then
+      `X.from_json(JSON.parse_to_node(text).value)`.
 
 **Verify:** `task test && task integration && task foundry:test`
 
@@ -208,10 +237,14 @@ Depends on nothing; can land any time after task 4. Last for reporting reasons.
 
 - [ ] README, beside the existing open-enum note: a JSON round trip is lossy where a
       wire round trip is not — no unknown-member preservation, an unrecognized enum
-      number becomes the default, a bare 64-bit JSON number loses precision past 2^53.
+      number becomes the default, and a bare 64-bit JSON number loses precision past
+      2^53, arriving as a `JsonNode.Float` rather than an `Int`. Our own output emits
+      64-bit integers as strings, so it round-trips exactly.
 - [ ] `Any` has no JSON form yet; link #48.
-- [ ] Note the `JsonNode` surface and why it is a union rather than a `Variant`, so
-      the next reader does not "simplify" it back.
+- [ ] Note that the JSON surface is the engine's `JsonSerializable` trait, that
+      failures come back as `JsonDecodeError` with a JSONPath while the wire path keeps
+      `ProtobufError`, and that `ProtobufError`'s five JSON cases are vestigial —
+      retained for numbering, used only as message prefixes.
 
 **Verify:** `task ci`
 
@@ -234,6 +267,14 @@ repair a pre-existing failure on `main`.
 
 - **`names.go`.** Every new runtime type needs a `runtimeTypeNames` entry or
   `task test` fails. This cost the foundations epic a cycle.
+- **The engine type table gates `task foundry:test`.** `sync-foundry-engine-types.sh check`
+  runs before anything else in `run.sh`, so a table generated against a different engine
+  build fails the whole gate with an unrelated-looking message.
+- **`JSON.stringify` sorts keys by default.** Pass `sort_keys = false` to keep field
+  declaration order, or golden files will disagree with the emitted field ordering.
+- **`JSON.stringify` on a bare `JsonNode` gives the raw tagged array.** The marshaller
+  only fires for objects that conform to `JsonSerializable`; there is no `JsonNode` to
+  text API. Text always goes through a conforming message.
 - **The runtime is embedded in `bin/anvil`.** `task foundry:test` now depends on
   `task build` (#65), but run `task build` explicitly anyway rather than trusting it.
 - **`@warning_ignore_start` is file-scoped.** A function-level `@warning_ignore` does
