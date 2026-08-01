@@ -268,6 +268,7 @@ func _init() -> void:
 	check_json_base64()
 	check_json_timestamp()
 	check_json_duration()
+	check_engine_json_types()
 
 	if failures > 0:
 		printerr("round trip failed with ", failures, " error(s)")
@@ -900,3 +901,120 @@ func check_json_duration() -> void:
 
 	var (_leading_digit_paths, leading_digit_parse_error) = JsonFieldMask.from_json("1foo")
 	check(leading_digit_parse_error == ProtobufError.JSON_TYPE_MISMATCH, "a JSON path opening on a digit is refused")
+
+## A JsonNode on its own has no route to JSON text: the native marshaller fires
+## for objects that conform to JsonSerializable, and stringifying a bare node
+## yields its raw tagged array instead. So the encoder assertions below go
+## through a conforming carrier, which is also the shape the generated JSON
+## surface will take.
+class JsonCarrier extends RefCounted uses JsonSerializable:
+	var node: JsonNode = JsonNode.Null
+
+	func to_json() -> JsonNode:
+		return node
+
+	static func from_json(parsed: JsonNode) -> JsonResult[JsonCarrier]:
+		var carrier: JsonCarrier = JsonCarrier.new()
+		carrier.node = parsed
+		return JsonResult[JsonCarrier].ok(carrier)
+
+## The engine owns JsonNode, JsonSerializable, JsonResult and JsonDecodeError,
+## so the JSON emitters are built on behavior this repository does not implement
+## and cannot see change. These pin the parts they depend on, so an engine bump
+## that moves any of them fails here rather than in someone's generated bindings.
+func check_engine_json_types() -> void:
+	## Directly self-recursive construction: an object holding an array holding
+	## an object. Key order survives because sort_keys is passed false, which is
+	## what will keep emitted output in field declaration order.
+	var item: JsonNode = JsonNode.object_of({"name": JsonNode.Str("axe"), "quantity": JsonNode.Int(2)})
+	var document: JsonNode = JsonNode.object_of({"items": JsonNode.array_of([item]), "count": JsonNode.Int(1)})
+	var document_text: String = json_text(document)
+	check(document_text == '{"items":[{"name":"axe","quantity":2}],"count":1}', "a nested JSON document encodes in declaration order")
+
+	var reparsed: JsonResult[JsonNode] = JSON.parse_to_node(document_text)
+	check(reparsed.is_ok(), "a nested JSON document parses back")
+	check(json_text(reparsed.value) == document_text, "a nested JSON document round trips")
+	check(json_entry_name(reparsed.value) == "axe", "a nested JSON document keeps its innermost object")
+
+	## int32 must render as 1 and double as 1.0, so the two cases have to stay
+	## distinguishable through the encoder rather than collapsing to one number.
+	check(json_text(JsonNode.Int(1)) == "1", "an Int encodes without a fraction")
+	check(json_text(JsonNode.Float(1.0)) == "1.0", "a Float encodes with a fraction")
+
+	## A 64-bit integer is emitted as a string because that is the only form
+	## that survives: sent as a bare JSON number it comes back in a different
+	## case entirely, so a decoder cannot assume Int for a 64-bit field.
+	var widest: int = 9223372036854775807
+	check(json_text(JsonNode.Str(str(widest))) == '"9223372036854775807"', "a 64-bit integer encodes as a string")
+
+	var parsed_string: JsonResult[JsonNode] = JSON.parse_to_node('"9223372036854775807"')
+	check(parsed_string.is_ok(), "a 64-bit integer sent as a string parses")
+	match parsed_string.value:
+		JsonNode.Str(var text):
+			check(text.to_int() == widest, "a 64-bit integer sent as a string survives exactly")
+		_:
+			printerr("FAIL: a 64-bit integer sent as a string did not parse as Str")
+			failures += 1
+
+	var parsed_number: JsonResult[JsonNode] = JSON.parse_to_node("9223372036854775807")
+	check(parsed_number.is_ok(), "a bare 64-bit JSON number parses")
+	match parsed_number.value:
+		JsonNode.Float(_value):
+			pass
+		_:
+			printerr("FAIL: a bare 64-bit JSON number did not parse as Float")
+			failures += 1
+
+	## Handing a non-finite float to JsonNode.Float produces output that is not
+	## canonical proto3 and, for NaN, not even valid JSON. That is why the
+	## emitter substitutes the string forms itself rather than passing the value
+	## through. The NaN case logs an engine warning, which is expected.
+	check(json_text(JsonNode.Float(NAN)) == "null", "NaN is mangled to null by the encoder")
+	check(json_text(JsonNode.Float(INF)) == "1e99999", "positive infinity is mangled by the encoder")
+	check(json_text(JsonNode.Float(-INF)) == "-1e99999", "negative infinity is mangled by the encoder")
+
+	## A malformed document reports through JsonResult rather than raising, so
+	## the decoders can surface it as a value instead of aborting their caller.
+	var malformed: JsonResult[JsonNode] = JSON.parse_to_node("{")
+	check(not malformed.is_ok(), "a malformed JSON document does not parse")
+	check(malformed.value == null, "a failed parse carries no value")
+	check(malformed.error != null, "a failed parse carries a decode error")
+	if malformed.error != null:
+		check(malformed.error.message != "", "a decode error explains itself")
+
+func json_text(node: JsonNode) -> String:
+	var carrier: JsonCarrier = JsonCarrier.new()
+	carrier.node = node
+	return JSON.stringify(carrier, "", false)
+
+func json_entry_name(document: JsonNode) -> String:
+	var items: Array[JsonNode] = json_items(json_member(document, "items"))
+	if items.is_empty():
+		return ""
+	return json_string(json_member(items[0], "name"))
+
+func json_member(node: JsonNode, key: String) -> JsonNode:
+	match node:
+		JsonNode.Object(var entries):
+			if entries.has(key):
+				return entries[key]
+		_:
+			pass
+	return JsonNode.Null
+
+func json_items(node: JsonNode) -> Array[JsonNode]:
+	match node:
+		JsonNode.Array(var items):
+			return items
+		_:
+			pass
+	var empty: Array[JsonNode] = []
+	return empty
+
+func json_string(node: JsonNode) -> String:
+	match node:
+		JsonNode.Str(var text):
+			return text
+		_:
+			pass
+	return ""

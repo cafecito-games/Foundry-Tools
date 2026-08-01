@@ -224,12 +224,26 @@ var runtimeTypeNames = map[string]bool{
 	"ProtobufError": true, "SkipRead": true, "StringRead": true, "VarintRead": true, "Wire": true,
 }
 
+// engineJSONBuiltinTypeNames are the engine's JSON types. They are global
+// *script* classes rather than native ones, so extension_api.json does not
+// describe them and foundryEngineReservedTypes -- which is generated from that
+// file -- cannot carry them; the list has to be written by hand.
+//
+// Every generated binding names all four unqualified, so a schema type of the
+// same spelling would resolve ahead of the global class inside the very file
+// that references it, and the JSON surface would silently bind to the schema's
+// type instead. Escaping is the same remedy runtimeTypeNames applies for the
+// same reason, and it is applied to declarations and references alike.
+var engineJSONBuiltinTypeNames = map[string]bool{
+	"JsonDecodeError": true, "JsonNode": true, "JsonResult": true, "JsonSerializable": true,
+}
+
 func escapeIdentifier(name string) string {
 	switch name {
 	case "Class", "ClassName", "Enum", "EnumName", "Extends", "Func", "Import", "Namespace", "Trait", "TraitName", "Uses", "Var":
 		return name + "_"
 	}
-	if runtimeTypeNames[name] {
+	if runtimeTypeNames[name] || engineJSONBuiltinTypeNames[name] {
 		return name + "_"
 	}
 	return name
@@ -345,6 +359,13 @@ func planMemberName(name string) plannedMemberName {
 		return plannedMemberName{
 			Generated: name + "_",
 			Escape:    memberEscape{Kind: kind, ReservedName: name},
+		}
+	}
+
+	if engineJSONBuiltinTypeNames[name] {
+		return plannedMemberName{
+			Generated: name + "_",
+			Escape:    memberEscape{Kind: memberEscapeEngineBuiltin, ReservedName: name},
 		}
 	}
 
