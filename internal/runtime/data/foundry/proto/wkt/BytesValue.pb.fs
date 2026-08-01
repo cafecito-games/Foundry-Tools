@@ -66,8 +66,42 @@ func to_json() -> JsonNode:
 
 ## Decodes a proto3 canonical JSON document into a new BytesValue message.
 ##
-## Not generated yet: this reports a failure for every document. The
-## conformance it completes is what makes to_json reachable through
-## JSON.stringify, which is why the member exists ahead of the decoder.
+## JSON.parse_to_node(text).value produces the document; a malformed one is
+## already reported through that JsonResult, so no text entry point is
+## generated here.
 static func from_json(_pb_node: JsonNode) -> JsonResult[BytesValue]:
-	return JsonResult[BytesValue].fail("JSON_PARSE_FAILED: BytesValue cannot be decoded from JSON yet", "$")
+	var _pb_message: BytesValue = BytesValue.new()
+	var _pb_error: JsonDecodeError? = _pb_message._pb_merge_from_json(_pb_node)
+	if _pb_error is JsonDecodeError:
+		return JsonResult[BytesValue].fail(_pb_error.message, _pb_error.path)
+	return JsonResult[BytesValue].ok(_pb_message)
+
+## Merges a proto3 canonical JSON document into this message.
+##
+## A failure is returned rather than raised, matching the wire path, and
+## carries the JSONPath of the value that could not be read.
+func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
+	var (_pb_value_value, _pb_value_error) = _pb_json_read_bytes(_pb_node, "$")
+	if _pb_value_error is JsonDecodeError:
+		return _pb_value_error
+	value = _pb_value_value
+	return null
+
+## Reads a bytes field out of a JSON value.
+##
+## The runtime helper accepts the URL-safe alphabet and optional padding as
+## well as the standard form, which is what the mapping asks a parser for.
+static func _pb_json_read_bytes(_pb_node: JsonNode, _pb_path: String) -> (PackedByteArray, JsonDecodeError?):
+	var _pb_value: PackedByteArray = PackedByteArray()
+	match _pb_node:
+		JsonNode.Null:
+			pass
+		JsonNode.Str(var _pb_text):
+			var (_pb_bytes, _pb_bytes_error) = JsonBase64.decode(_pb_text)
+			if _pb_bytes_error != ProtobufError.OK:
+				return (PackedByteArray(), JsonDecodeError.create("JSON_TYPE_MISMATCH: a bytes field takes base64 text", _pb_path))
+			_pb_value = _pb_bytes
+		_:
+			return (PackedByteArray(), JsonDecodeError.create("JSON_TYPE_MISMATCH: a bytes field takes base64 text", _pb_path))
+	var _pb_error: JsonDecodeError? = null
+	return (_pb_value, _pb_error)

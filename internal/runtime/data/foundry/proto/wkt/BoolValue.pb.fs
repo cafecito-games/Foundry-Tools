@@ -65,8 +65,36 @@ func to_json() -> JsonNode:
 
 ## Decodes a proto3 canonical JSON document into a new BoolValue message.
 ##
-## Not generated yet: this reports a failure for every document. The
-## conformance it completes is what makes to_json reachable through
-## JSON.stringify, which is why the member exists ahead of the decoder.
+## JSON.parse_to_node(text).value produces the document; a malformed one is
+## already reported through that JsonResult, so no text entry point is
+## generated here.
 static func from_json(_pb_node: JsonNode) -> JsonResult[BoolValue]:
-	return JsonResult[BoolValue].fail("JSON_PARSE_FAILED: BoolValue cannot be decoded from JSON yet", "$")
+	var _pb_message: BoolValue = BoolValue.new()
+	var _pb_error: JsonDecodeError? = _pb_message._pb_merge_from_json(_pb_node)
+	if _pb_error is JsonDecodeError:
+		return JsonResult[BoolValue].fail(_pb_error.message, _pb_error.path)
+	return JsonResult[BoolValue].ok(_pb_message)
+
+## Merges a proto3 canonical JSON document into this message.
+##
+## A failure is returned rather than raised, matching the wire path, and
+## carries the JSONPath of the value that could not be read.
+func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
+	var (_pb_value_value, _pb_value_error) = _pb_json_read_bool(_pb_node, "$")
+	if _pb_value_error is JsonDecodeError:
+		return _pb_value_error
+	value = _pb_value_value
+	return null
+
+## Reads a bool field out of a JSON value.
+static func _pb_json_read_bool(_pb_node: JsonNode, _pb_path: String) -> (bool, JsonDecodeError?):
+	var _pb_value: bool = false
+	match _pb_node:
+		JsonNode.Null:
+			pass
+		JsonNode.Bool(var _pb_bool):
+			_pb_value = _pb_bool
+		_:
+			return (false, JsonDecodeError.create("JSON_TYPE_MISMATCH: a bool field takes true or false", _pb_path))
+	var _pb_error: JsonDecodeError? = null
+	return (_pb_value, _pb_error)

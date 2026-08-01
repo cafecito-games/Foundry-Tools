@@ -218,8 +218,29 @@ func to_json() -> JsonNode:
 
 ## Decodes a proto3 canonical JSON document into a new FieldMask message.
 ##
-## Not generated yet: this reports a failure for every document. The
-## conformance it completes is what makes to_json reachable through
-## JSON.stringify, which is why the member exists ahead of the decoder.
+## JSON.parse_to_node(text).value produces the document; a malformed one is
+## already reported through that JsonResult, so no text entry point is
+## generated here.
 static func from_json(_pb_node: JsonNode) -> JsonResult[FieldMask]:
-	return JsonResult[FieldMask].fail("JSON_PARSE_FAILED: FieldMask cannot be decoded from JSON yet", "$")
+	var _pb_message: FieldMask = FieldMask.new()
+	var _pb_error: JsonDecodeError? = _pb_message._pb_merge_from_json(_pb_node)
+	if _pb_error is JsonDecodeError:
+		return JsonResult[FieldMask].fail(_pb_error.message, _pb_error.path)
+	return JsonResult[FieldMask].ok(_pb_message)
+
+## Merges a proto3 canonical JSON document into this message.
+##
+## A failure is returned rather than raised, matching the wire path, and
+## carries the JSONPath of the value that could not be read.
+func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
+	match _pb_node:
+		JsonNode.Null:
+			pass
+		JsonNode.Str(var _pb_text):
+			var (_pb_paths, _pb_error) = JsonFieldMask.from_json(_pb_text)
+			if _pb_error != ProtobufError.OK:
+				return JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: FieldMask cannot be decoded from this JSON string", "$")
+			paths = _pb_paths
+		_:
+			return JsonDecodeError.create("JSON_TYPE_MISMATCH: FieldMask expects a JSON string", "$")
+	return null

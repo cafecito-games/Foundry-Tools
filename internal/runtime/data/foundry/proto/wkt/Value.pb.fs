@@ -159,14 +159,6 @@ func to_json() -> JsonNode:
 		_:
 			return JsonNode.Null
 
-## Decodes a proto3 canonical JSON document into a new Value message.
-##
-## Not generated yet: this reports a failure for every document. The
-## conformance it completes is what makes to_json reachable through
-## JSON.stringify, which is why the member exists ahead of the decoder.
-static func from_json(_pb_node: JsonNode) -> JsonResult[Value]:
-	return JsonResult[Value].fail("JSON_PARSE_FAILED: Value cannot be decoded from JSON yet", "$")
-
 ## Returns one float as canonical proto3 JSON.
 ##
 ## A non-finite value never reaches the Float case: the encoder writes NaN as
@@ -180,3 +172,53 @@ static func _pb_json_float(_pb_value: float) -> JsonNode:
 			return JsonNode.Str("Infinity")
 		return JsonNode.Str("-Infinity")
 	return JsonNode.Float(_pb_value)
+
+## Decodes a proto3 canonical JSON document into a new Value message.
+##
+## JSON.parse_to_node(text).value produces the document; a malformed one is
+## already reported through that JsonResult, so no text entry point is
+## generated here.
+static func from_json(_pb_node: JsonNode) -> JsonResult[Value]:
+	var _pb_message: Value = Value.new()
+	var _pb_error: JsonDecodeError? = _pb_message._pb_merge_from_json(_pb_node)
+	if _pb_error is JsonDecodeError:
+		return JsonResult[Value].fail(_pb_error.message, _pb_error.path)
+	return JsonResult[Value].ok(_pb_message)
+
+## Merges a proto3 canonical JSON document into this message.
+##
+## A failure is returned rather than raised, matching the wire path, and
+## carries the JSONPath of the value that could not be read.
+func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
+	match _pb_node:
+		JsonNode.Null:
+			kind = ValueKindCase.NullValue(NullValue.NULL_VALUE)
+		JsonNode.Bool(var _pb_bool):
+			kind = ValueKindCase.BoolValue(_pb_bool)
+		JsonNode.Int(var _pb_int):
+			kind = ValueKindCase.NumberValue(_pb_int)
+		JsonNode.Float(var _pb_float):
+			kind = ValueKindCase.NumberValue(_pb_float)
+		JsonNode.Str(var _pb_text):
+			kind = ValueKindCase.StringValue(_pb_text)
+		JsonNode.Array(var _pb_items):
+			var _pb_kind_list_value_result: JsonResult[ListValue] = ListValue.from_json(JsonNode.array_of(_pb_items))
+			var _pb_kind_list_value_error: JsonDecodeError? = _pb_kind_list_value_result.error
+			if _pb_kind_list_value_error is JsonDecodeError:
+				return _pb_kind_list_value_error
+			var _pb_kind_list_value_value: ListValue? = _pb_kind_list_value_result.value
+			if not (_pb_kind_list_value_value is ListValue):
+				return JsonDecodeError.create("JSON_TYPE_MISMATCH: ListValue decoded to no value", "$")
+			kind = ValueKindCase.ListValue(_pb_kind_list_value_value)
+		JsonNode.Object(var _pb_object):
+			var _pb_kind_struct_value_result: JsonResult[Struct] = Struct.from_json(JsonNode.object_of(_pb_object))
+			var _pb_kind_struct_value_error: JsonDecodeError? = _pb_kind_struct_value_result.error
+			if _pb_kind_struct_value_error is JsonDecodeError:
+				return _pb_kind_struct_value_error
+			var _pb_kind_struct_value_value: Struct? = _pb_kind_struct_value_result.value
+			if not (_pb_kind_struct_value_value is Struct):
+				return JsonDecodeError.create("JSON_TYPE_MISMATCH: Struct decoded to no value", "$")
+			kind = ValueKindCase.StructValue(_pb_kind_struct_value_value)
+		_:
+			return JsonDecodeError.create("JSON_TYPE_MISMATCH: Value cannot represent this JSON value", "$")
+	return null

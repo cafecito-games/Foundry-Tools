@@ -119,8 +119,37 @@ func to_json() -> JsonNode:
 
 ## Decodes a proto3 canonical JSON document into a new Struct message.
 ##
-## Not generated yet: this reports a failure for every document. The
-## conformance it completes is what makes to_json reachable through
-## JSON.stringify, which is why the member exists ahead of the decoder.
+## JSON.parse_to_node(text).value produces the document; a malformed one is
+## already reported through that JsonResult, so no text entry point is
+## generated here.
 static func from_json(_pb_node: JsonNode) -> JsonResult[Struct]:
-	return JsonResult[Struct].fail("JSON_PARSE_FAILED: Struct cannot be decoded from JSON yet", "$")
+	var _pb_message: Struct = Struct.new()
+	var _pb_error: JsonDecodeError? = _pb_message._pb_merge_from_json(_pb_node)
+	if _pb_error is JsonDecodeError:
+		return JsonResult[Struct].fail(_pb_error.message, _pb_error.path)
+	return JsonResult[Struct].ok(_pb_message)
+
+## Merges a proto3 canonical JSON document into this message.
+##
+## A failure is returned rather than raised, matching the wire path, and
+## carries the JSONPath of the value that could not be read.
+func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
+	var _pb_entries: Dictionary[String, JsonNode] = {}
+	match _pb_node:
+		JsonNode.Object(var _pb_object):
+			_pb_entries = _pb_object
+		JsonNode.Null:
+			pass
+		_:
+			return JsonDecodeError.create("JSON_TYPE_MISMATCH: Struct expects a JSON object", "$")
+	fields = {}
+	for _pb_fields_key: String in _pb_entries:
+		var _pb_fields_result: JsonResult[Value] = Value.from_json(_pb_entries[_pb_fields_key])
+		var _pb_fields_error: JsonDecodeError? = _pb_fields_result.error
+		if _pb_fields_error is JsonDecodeError:
+			return JsonResult[Struct].nested(_pb_fields_error, _pb_fields_key).error
+		var _pb_fields_value: Value? = _pb_fields_result.value
+		if not (_pb_fields_value is Value):
+			return JsonDecodeError.create("JSON_TYPE_MISMATCH: Value decoded to no value", "$." + _pb_fields_key)
+		fields[_pb_fields_key] = _pb_fields_value
+	return null

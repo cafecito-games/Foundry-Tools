@@ -65,8 +65,53 @@ func to_json() -> JsonNode:
 
 ## Decodes a proto3 canonical JSON document into a new UInt64Value message.
 ##
-## Not generated yet: this reports a failure for every document. The
-## conformance it completes is what makes to_json reachable through
-## JSON.stringify, which is why the member exists ahead of the decoder.
+## JSON.parse_to_node(text).value produces the document; a malformed one is
+## already reported through that JsonResult, so no text entry point is
+## generated here.
 static func from_json(_pb_node: JsonNode) -> JsonResult[UInt64Value]:
-	return JsonResult[UInt64Value].fail("JSON_PARSE_FAILED: UInt64Value cannot be decoded from JSON yet", "$")
+	var _pb_message: UInt64Value = UInt64Value.new()
+	var _pb_error: JsonDecodeError? = _pb_message._pb_merge_from_json(_pb_node)
+	if _pb_error is JsonDecodeError:
+		return JsonResult[UInt64Value].fail(_pb_error.message, _pb_error.path)
+	return JsonResult[UInt64Value].ok(_pb_message)
+
+## Merges a proto3 canonical JSON document into this message.
+##
+## A failure is returned rather than raised, matching the wire path, and
+## carries the JSONPath of the value that could not be read.
+func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
+	var (_pb_value_value, _pb_value_error) = _pb_json_read_int64(_pb_node, "$")
+	if _pb_value_error is JsonDecodeError:
+		return _pb_value_error
+	value = _pb_value_value
+	return null
+
+## Reads a 64-bit integer field out of a JSON value.
+##
+## A string is exact and is what this emitter writes. A bare number is
+## accepted because the canonical mapping requires it, and is lossy past
+## 2^53: the engine's parser produces a double, so a value that large does
+## not even arrive as a JsonNode.Int.
+static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
+	var _pb_value: int = 0
+	match _pb_node:
+		JsonNode.Null:
+			pass
+		JsonNode.Int(var _pb_int):
+			_pb_value = _pb_int
+		JsonNode.Float(var _pb_float):
+			if _pb_float != floor(_pb_float):
+				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take a fractional number", _pb_path))
+			if _pb_float > 9223372036854775808.0 or _pb_float < -9223372036854775808.0:
+				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field cannot hold this value", _pb_path))
+			_pb_value = int(_pb_float)
+		JsonNode.Str(var _pb_text):
+			if not _pb_text.is_valid_int():
+				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take this string", _pb_path))
+			_pb_value = _pb_text.to_int()
+			if str(_pb_value) != _pb_text:
+				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field takes a decimal string it can hold exactly", _pb_path))
+		_:
+			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field takes a number or a string", _pb_path))
+	var _pb_error: JsonDecodeError? = null
+	return (_pb_value, _pb_error)
