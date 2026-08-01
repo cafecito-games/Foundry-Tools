@@ -796,6 +796,7 @@ const (
 	jsonReaderInt32
 	jsonReaderUint32
 	jsonReaderInt64
+	jsonReaderUint64
 	jsonReaderFloat
 	jsonReaderBool
 	jsonReaderString
@@ -805,13 +806,14 @@ const (
 // jsonReaderOrder is the order readers are emitted in, so the output of two
 // runs over the same schema is identical.
 var jsonReaderOrder = []jsonReader{
-	jsonReaderInt32, jsonReaderUint32, jsonReaderInt64,
+	jsonReaderInt32, jsonReaderUint32, jsonReaderInt64, jsonReaderUint64,
 	jsonReaderFloat, jsonReaderBool, jsonReaderString, jsonReaderBytes,
 }
 
 // jsonReaderFor is the reader one value is read through. The two unsigned
-// 64-bit types share the signed reader, matching what the serializer writes for
-// them: both halves treat a 64-bit integer as the signed value the host int is.
+// 64-bit types get a reader of their own, matching what the serializer writes
+// for them: the top half of their range has no signed spelling, so neither the
+// bounds nor the text conversion of the signed reader applies to them.
 func jsonReaderFor(value valuePlan) jsonReader {
 	if value.Kind != kindScalar {
 		return jsonReaderNone
@@ -821,8 +823,10 @@ func jsonReaderFor(value valuePlan) jsonReader {
 		return jsonReaderInt32
 	case "uint32", "fixed32":
 		return jsonReaderUint32
-	case "int64", "sint64", "sfixed64", "uint64", "fixed64":
+	case "int64", "sint64", "sfixed64":
 		return jsonReaderInt64
+	case "uint64", "fixed64":
+		return jsonReaderUint64
 	case "float", "double":
 		return jsonReaderFloat
 	case "bool":
@@ -845,6 +849,8 @@ func (r jsonReader) Method() string {
 		return generatedPrefix + "json_read_uint32"
 	case jsonReaderInt64:
 		return generatedPrefix + "json_read_int64"
+	case jsonReaderUint64:
+		return generatedPrefix + "json_read_uint64"
 	case jsonReaderFloat:
 		return generatedPrefix + "json_read_float"
 	case jsonReaderBool:
@@ -914,6 +920,8 @@ func jsonReaderShape(reader jsonReader) (doc []string, resultType string, body [
 		return jsonWideIntegerReaderDoc(),
 			"int",
 			jsonIntegerReaderBody("a 64-bit integer", "", "", "-9223372036854775808.0", "9223372036854775808.0")
+	case jsonReaderUint64:
+		return jsonUnsignedWideIntegerReaderDoc(), "int", jsonUnsignedWideIntegerReaderBody()
 	case jsonReaderFloat:
 		return jsonFloatReaderDoc(), "float", jsonFloatReaderBody()
 	case jsonReaderBool:
@@ -948,6 +956,72 @@ func jsonWideIntegerReaderDoc() []string {
 		"2^53: the engine's parser produces a double, so a value that large does",
 		"not even arrive as a JsonNode.Int.",
 	}
+}
+
+func jsonUnsignedWideIntegerReaderDoc() []string {
+	return []string{
+		"Reads an unsigned 64-bit integer field out of a JSON value.",
+		"",
+		"The top half of the range has no signed spelling, so the text goes",
+		"through the runtime helper rather than String.to_int(), which wraps to",
+		"the smallest signed value there. A bare number is accepted because the",
+		"canonical mapping requires it, and is lossy past 2^53: the engine's",
+		"parser produces a double, so a value that large does not even arrive as",
+		"a JsonNode.Int. The widest value rounds to 2^64 on the way in and is",
+		"read as the value it rounded from rather than refused.",
+	}
+}
+
+// jsonUnsignedWideIntegerReaderBody reads a uint64 or fixed64. The value is
+// kept as the bit pattern the host int carries, which is what the field holds
+// and what the serializer writes back out through the same helper.
+//
+// The float arm is bounded before it is converted, for the same reason the
+// signed reader's is, and the top half is shifted down by 2^64 first: the
+// subtraction is exact for a double in that range, and converting it directly
+// would leave the host int saturated instead. Exactly 2^64 is the widest value
+// having been rounded rather than a value out of range -- no double holds those
+// twenty digits -- so it is the documented lossy edge the signed reader has at
+// 2^63, not a document to refuse.
+func jsonUnsignedWideIntegerReaderBody() []fsast.Node {
+	const description = "an unsigned 64-bit integer"
+	outOfRange := "return (0, " + jsonFail(
+		jsonValueOutOfRangePrefix+description+" field cannot hold this value", jsonPathParameter) + ")"
+	unsigned := generatedPrefix + "unsigned"
+	unsignedError := generatedPrefix + "unsigned_error"
+	return append([]fsast.Node{
+		line(0, fmt.Sprintf("var %s: int = 0", jsonValueLocal)),
+		line(0, "match "+jsonNodeParameter+":"),
+		line(1, jsonNodeType+".Null:"),
+		line(2, "pass"),
+		line(1, fmt.Sprintf("%s.Int(var %s):", jsonNodeType, jsonIntLocal)),
+		line(2, fmt.Sprintf("if %s < 0:", jsonIntLocal)),
+		line(3, outOfRange),
+		line(2, jsonValueLocal+" = "+jsonIntLocal),
+		line(1, fmt.Sprintf("%s.Float(var %s):", jsonNodeType, jsonFloatLocal)),
+		line(2, fmt.Sprintf("if %s != floor(%s):", jsonFloatLocal, jsonFloatLocal)),
+		line(3, "return (0, "+jsonFail(
+			jsonTypeMismatchPrefix+description+" field cannot take a fractional number", jsonPathParameter)+")"),
+		line(2, fmt.Sprintf("if %s > 18446744073709551616.0 or %s < 0.0:", jsonFloatLocal, jsonFloatLocal)),
+		line(3, outOfRange),
+		line(2, fmt.Sprintf("if %s == 18446744073709551616.0:", jsonFloatLocal)),
+		line(3, fmt.Sprintf("%s = %s.WIDEST_BITS", jsonValueLocal, jsonUint64Type)),
+		line(2, fmt.Sprintf("elif %s >= 9223372036854775808.0:", jsonFloatLocal)),
+		line(3, fmt.Sprintf("%s = int(%s - 18446744073709551616.0)", jsonValueLocal, jsonFloatLocal)),
+		line(2, "else:"),
+		line(3, fmt.Sprintf("%s = int(%s)", jsonValueLocal, jsonFloatLocal)),
+		line(1, fmt.Sprintf("%s.Str(var %s):", jsonNodeType, jsonTextLocal)),
+		line(2, fmt.Sprintf("var (%s, %s) = %s.parse(%s)", unsigned, unsignedError, jsonUint64Type, jsonTextLocal)),
+		line(2, fmt.Sprintf("if %s == ProtobufError.JSON_VALUE_OUT_OF_RANGE:", unsignedError)),
+		line(3, outOfRange),
+		line(2, fmt.Sprintf("if %s != ProtobufError.OK:", unsignedError)),
+		line(3, "return (0, "+jsonFail(
+			jsonTypeMismatchPrefix+description+" field cannot take this string", jsonPathParameter)+")"),
+		line(2, jsonValueLocal+" = "+unsigned),
+		line(1, "_:"),
+		line(2, "return (0, "+jsonFail(
+			jsonTypeMismatchPrefix+description+" field takes a number or a string", jsonPathParameter)+")"),
+	}, jsonReaderSuccess(jsonValueLocal)...)
 }
 
 func jsonFloatReaderDoc() []string {

@@ -216,14 +216,15 @@ decoder accepts.
 | Proto | Emit | Accept |
 |---|---|---|
 | `int32`, `uint32`, `fixed32`, `sfixed32`, `sint32` | `Int` | `Int`, `Str`, integral `Float` |
-| `int64`, `uint64`, `fixed64`, `sfixed64`, `sint64` | `Str(str(value))` | `Str` (exact), `Int`, `Float` (lossy) |
+| `int64`, `sint64`, `sfixed64` | `Str(str(value))` | `Str` (exact), `Int`, `Float` (lossy) |
+| `uint64`, `fixed64` | `Str(JsonUint64.format(value))` | `Str` via `JsonUint64.parse` (exact), non-negative `Int`, `Float` (lossy) |
 | `float`, `double`, finite | `Float` | `Float`, `Int` |
 | `float`, `double`, non-finite | `Str("NaN")` / `Str("Infinity")` / `Str("-Infinity")` | those three strings |
 | `bool` | `Bool` | `Bool` |
 | `string` | `Str` | `Str` |
 | `bytes` | `Str`, base64 via `JsonBase64` | `Str`, base64 |
 
-Two rows are forced by measured engine behavior rather than by the specification
+Three rows are forced by measured engine behavior rather than by the specification
 alone.
 
 **A non-finite float must never reach the `Float` case.**
@@ -238,6 +239,18 @@ a `Float`, because the parser produces a double and only folds a whole number in
 `Int` when an `int64_t` can hold the *rounded* double — which that value cannot. Sent
 as a JSON string it round-trips exactly through `String.to_int()`. So a decoder for a
 64-bit field must accept `Float` and document the loss; it cannot assume `Int`.
+
+**An unsigned 64-bit value has no signed spelling above 2^63, so neither `str()` nor
+`String.to_int()` may carry it.** A Foundry `int` is signed and the binding holds a
+`uint64` in one, so the widest value is the bit pattern `-1` and `str()` prints it as
+`"-1"` — a document no conformant peer agrees with across the whole top half of the
+range. `String.to_int("9223372036854775808")` wraps to the smallest signed value
+rather than reporting, so the same trap is on the way back in. Both directions
+therefore go through the `JsonUint64` runtime helper, which reads and writes the bit
+pattern as the unsigned value it stands for: it splits the value into its quotient by
+ten and its last digit, neither of which overflows a signed int, and reassembles it
+with a shift. `uint64` and `fixed64` are the only two types this applies to; `int64`,
+`sint64`, and `sfixed64` are signed, and `str()` is exact for them.
 
 `JsonNode.Float(1.0)` stringifies as `1.0`, where protobuf's own emitters write `1`
 for a whole double. Both are accepted by conformant parsers, and `1.0` is kept: it is
@@ -335,6 +348,11 @@ default rather than being retained. A 64-bit integer that arrives as a bare JSON
 number loses precision past 2^53, because the engine's parser produces a double; past
 that point it does not even arrive as a `JsonNode.Int`. Emitting 64-bit integers as
 strings, which the canonical mapping requires, is what keeps our own output exact.
+
+The wire path is a separate surface and is not covered by this. A `uint64` at or
+above 2^63 reads back from `to_bytes`/`from_bytes` as a negative `int`, because that
+is the bit pattern the member holds; the JSON text is unsigned regardless, so the two
+should not be read as the same limitation.
 
 `Any` has no JSON form yet.
 
