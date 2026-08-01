@@ -17,6 +17,10 @@ const (
 	jsonSerializableName = "JsonSerializable"
 )
 
+// jsonUint64Type is the runtime helper both halves of the unsigned 64-bit
+// mapping go through, named unqualified like the rest of foundry.proto.
+const jsonUint64Type = "JsonUint64"
+
 // The JSON members a binding declares.
 const (
 	toJSONMethod     = "to_json"
@@ -226,7 +230,12 @@ func jsonValueExpression(value valuePlan, expression string) string {
 		return jsonFloatMethod + "(Wire.narrow_float32(" + expression + "))"
 	case "double":
 		return jsonFloatMethod + "(" + expression + ")"
-	case "int64", "uint64", "sint64", "fixed64", "sfixed64":
+	case "uint64", "fixed64":
+		// An unsigned 64-bit value is carried in a signed host int, so str()
+		// prints everything at or above 2^63 as a negative decimal. The runtime
+		// helper reads the same bit pattern as the unsigned value it stands for.
+		return jsonNodeType + ".Str(" + jsonUint64Type + ".format(" + expression + "))"
+	case "int64", "sint64", "sfixed64":
 		// A 64-bit integer is written as a string because that is the only form
 		// that survives a round trip: sent as a bare JSON number, a value past
 		// 2^53 comes back from the engine's parser as a Float, having lost
@@ -246,6 +255,10 @@ func jsonKeyExpression(key valuePlan, expression string) string {
 		return expression
 	case "bool":
 		return `"true" if ` + expression + ` else "false"`
+	case "uint64", "fixed64":
+		// An unsigned 64-bit key has the same signedness problem the value form
+		// does, and the member name it becomes is what a peer matches on.
+		return jsonUint64Type + ".format(" + expression + ")"
 	default:
 		return "str(" + expression + ")"
 	}

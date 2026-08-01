@@ -61,7 +61,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 ## JSON.stringify(message, "", false) renders it as text; the third argument
 ## turns off key sorting, which keeps members in field declaration order.
 func to_json() -> JsonNode:
-	return JsonNode.Str(str(value))
+	return JsonNode.Str(JsonUint64.format(value))
 
 ## Decodes a proto3 canonical JSON document into a new UInt64Value message.
 ##
@@ -80,38 +80,46 @@ static func from_json(_pb_node: JsonNode) -> JsonResult[UInt64Value]:
 ## A failure is returned rather than raised, matching the wire path, and
 ## carries the JSONPath of the value that could not be read.
 func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
-	var (_pb_value_value, _pb_value_error) = _pb_json_read_int64(_pb_node, "$")
+	var (_pb_value_value, _pb_value_error) = _pb_json_read_uint64(_pb_node, "$")
 	if _pb_value_error is JsonDecodeError:
 		return _pb_value_error
 	value = _pb_value_value
 	return null
 
-## Reads a 64-bit integer field out of a JSON value.
+## Reads an unsigned 64-bit integer field out of a JSON value.
 ##
-## A string is exact and is what this emitter writes. A bare number is
-## accepted because the canonical mapping requires it, and is lossy past
-## 2^53: the engine's parser produces a double, so a value that large does
-## not even arrive as a JsonNode.Int.
-static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
+## The top half of the range has no signed spelling, so the text goes
+## through the runtime helper rather than String.to_int(), which wraps to
+## the smallest signed value there. A bare number is accepted because the
+## canonical mapping requires it, and is lossy past 2^53: the engine's
+## parser produces a double, so a value that large does not even arrive as
+## a JsonNode.Int.
+static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
 	var _pb_value: int = 0
 	match _pb_node:
 		JsonNode.Null:
 			pass
 		JsonNode.Int(var _pb_int):
+			if _pb_int < 0:
+				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
 			_pb_value = _pb_int
 		JsonNode.Float(var _pb_float):
 			if _pb_float != floor(_pb_float):
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take a fractional number", _pb_path))
-			if _pb_float > 9223372036854775808.0 or _pb_float < -9223372036854775808.0:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field cannot hold this value", _pb_path))
-			_pb_value = int(_pb_float)
+				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field cannot take a fractional number", _pb_path))
+			if _pb_float >= 18446744073709551616.0 or _pb_float < 0.0:
+				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
+			if _pb_float >= 9223372036854775808.0:
+				_pb_value = int(_pb_float - 18446744073709551616.0)
+			else:
+				_pb_value = int(_pb_float)
 		JsonNode.Str(var _pb_text):
-			if not _pb_text.is_valid_int():
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take this string", _pb_path))
-			_pb_value = _pb_text.to_int()
-			if str(_pb_value) != _pb_text:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field takes a decimal string it can hold exactly", _pb_path))
+			var (_pb_unsigned, _pb_unsigned_error) = JsonUint64.parse(_pb_text)
+			if _pb_unsigned_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE:
+				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
+			if _pb_unsigned_error != ProtobufError.OK:
+				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field cannot take this string", _pb_path))
+			_pb_value = _pb_unsigned
 		_:
-			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field takes a number or a string", _pb_path))
+			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field takes a number or a string", _pb_path))
 	var _pb_error: JsonDecodeError? = null
 	return (_pb_value, _pb_error)

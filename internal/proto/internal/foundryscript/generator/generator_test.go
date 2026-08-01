@@ -1822,7 +1822,9 @@ func TestJSONScalarsFollowTheCanonicalTable(t *testing.T) {
 	// A 64-bit one renders as a string: a bare number past 2^53 does not
 	// survive the engine's parser.
 	require.Contains(t, source, `_pb_json["score"] = JsonNode.Str(str(score))`)
-	require.Contains(t, source, `_pb_json["seed"] = JsonNode.Str(str(seed))`)
+	// An unsigned one is held in a signed host int, so its decimal digits come
+	// from the runtime helper rather than from str().
+	require.Contains(t, source, `_pb_json["seed"] = JsonNode.Str(JsonUint64.format(seed))`)
 	require.Contains(t, source, `_pb_json["ratio"] = _pb_json_float(ratio)`)
 	// A proto float is binary32; the member holding it is not.
 	require.Contains(t, source, `_pb_json["speed"] = _pb_json_float(Wire.narrow_float32(speed))`)
@@ -1830,6 +1832,44 @@ func TestJSONScalarsFollowTheCanonicalTable(t *testing.T) {
 	require.Contains(t, source, `_pb_json["name"] = JsonNode.Str(name)`)
 	require.Contains(t, source, `_pb_json["blob"] = JsonNode.Str(JsonBase64.encode(blob))`)
 	require.Contains(t, source, "return JsonNode.object_of(_pb_json)")
+}
+
+// A host int is signed, so an unsigned 64-bit value at or above 2^63 is held as
+// a negative bit pattern and str() would print it with a minus sign. The
+// canonical mapping wants its unsigned decimal digits -- 18446744073709551615,
+// not -1 -- so the unsigned types go through the runtime helper and the signed
+// ones keep str().
+func TestJSONUnsigned64BitScalarsAreWrittenAsUnsignedDecimal(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "uint64", Name: "seed", Number: 1},
+		&protoast.Field{FieldType: "fixed64", Name: "handle", Number: 2},
+		&protoast.Field{FieldType: "int64", Name: "score", Number: 3},
+		&protoast.Field{FieldType: "sint64", Name: "delta", Number: 4},
+		&protoast.Field{FieldType: "sfixed64", Name: "offset", Number: 5},
+	)
+
+	require.Contains(t, source, `_pb_json["seed"] = JsonNode.Str(JsonUint64.format(seed))`)
+	require.Contains(t, source, `_pb_json["handle"] = JsonNode.Str(JsonUint64.format(handle))`)
+	require.Contains(t, source, `_pb_json["score"] = JsonNode.Str(str(score))`)
+	require.Contains(t, source, `_pb_json["delta"] = JsonNode.Str(str(delta))`)
+	require.Contains(t, source, `_pb_json["offset"] = JsonNode.Str(str(offset))`)
+}
+
+// A map key is stringified into the object's member name, so an unsigned 64-bit
+// key has the same problem the value does.
+func TestJSONUnsigned64BitMapKeysAreWrittenAsUnsignedDecimal(t *testing.T) {
+	files := generateJSON(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Maps: []*protoast.MapField{
+			{KeyType: "uint64", ValueType: "string", Name: "labels", Number: 1},
+			{KeyType: "sfixed64", ValueType: "string", Name: "notes", Number: 2},
+		},
+	}}, nil), "player.proto")
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source,
+		"_pb_labels_fields[JsonUint64.format(_pb_labels_key)] = JsonNode.Str(labels[_pb_labels_key])")
+	require.Contains(t, source, "_pb_notes_fields[str(_pb_notes_key)] = JsonNode.Str(notes[_pb_notes_key])")
 }
 
 // JSON.stringify turns NaN into null and the infinities into ±1e99999, none of
@@ -2280,10 +2320,29 @@ func TestJSONDecodeAcceptsAllThreeCasesForA64BitField(t *testing.T) {
 	// A string the host int cannot hold wraps rather than reporting, so the
 	// text has to be exactly what the value prints as.
 	require.Contains(t, source, "if str(_pb_value) != _pb_text:")
-	// An unsigned 64-bit field shares the signed reader, matching what the
-	// serializer writes for it.
-	require.Contains(t, source, "var (_pb_seed_value, _pb_seed_error) = _pb_json_read_int64(_pb_member, _pb_member_path)")
-	require.NotContains(t, source, "_pb_json_read_uint64")
+	// An unsigned 64-bit field spans a range the signed reader cannot express,
+	// so it gets a reader of its own, matching what the serializer writes.
+	require.Contains(t, source, "var (_pb_seed_value, _pb_seed_error) = _pb_json_read_uint64(_pb_member, _pb_member_path)")
+}
+
+// The top half of the uint64 range has no signed spelling, so the reader parses
+// the decimal text through the runtime helper instead of String.to_int(), which
+// wraps to int64 min there.
+func TestJSONDecodeReadsAnUnsigned64BitFieldThroughItsOwnReader(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "uint64", Name: "seed", Number: 1},
+		&protoast.Field{FieldType: "fixed64", Name: "handle", Number: 2},
+	)
+
+	require.Contains(t, source,
+		"static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):")
+	require.Contains(t, source, "var (_pb_unsigned, _pb_unsigned_error) = JsonUint64.parse(_pb_text)")
+	// A bare number is bounded by the first value the field cannot hold, and a
+	// negative one is not a uint64 at all.
+	require.Contains(t, source, "if _pb_float >= 18446744073709551616.0 or _pb_float < 0.0:")
+	require.Contains(t, source, "if _pb_int < 0:")
+	// The signed reader is not emitted when no signed 64-bit field asks for it.
+	require.NotContains(t, source, "_pb_json_read_int64")
 }
 
 // The three non-finite strings are the only spelling canonical JSON has for
