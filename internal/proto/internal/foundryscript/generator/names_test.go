@@ -156,6 +156,38 @@ func TestPlanMemberNameKeepsExistingEscapePolicies(t *testing.T) {
 	}
 }
 
+// The engine's JSON builtins are script classes, so extension_api.json does not
+// describe them and the generated engine type table cannot carry them. A schema
+// type spelled the same way would resolve ahead of the global class inside the
+// very file that names it, so the escape has to be listed by hand.
+func TestEngineJSONBuiltinTypeNamesAreEscaped(t *testing.T) {
+	for _, name := range []string{"JsonNode", "JsonResult", "JsonDecodeError", "JsonSerializable"} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, name+"_", TypeName(name))
+			require.Equal(t, name+"_", TypeReference(name))
+			require.NotContains(t, foundryEngineReservedTypes, name,
+				"the generated engine table now carries this name, so the hand-written escape is redundant")
+		})
+	}
+
+	// A schema name that merely starts the same way keeps its spelling.
+	require.Equal(t, "JsonNodeList", TypeName("JsonNodeList"))
+}
+
+// A field named after one of the JSON builtins shadows the global class inside
+// the generated class body, exactly as a field named after a native class does.
+func TestPlanMemberNameEscapesEngineJSONBuiltins(t *testing.T) {
+	for _, name := range []string{"JsonNode", "JsonResult", "JsonDecodeError", "JsonSerializable"} {
+		t.Run(name, func(t *testing.T) {
+			got := planMemberName(name)
+			require.Equal(t, name+"_", got.Generated)
+			require.Equal(t, memberEscapeEngineBuiltin, got.Escape.Kind)
+			require.Equal(t, `built-in type "`+name+`"`, got.Escape.description())
+			require.Equal(t, name+"_", FieldName(name))
+		})
+	}
+}
+
 func TestGeneratedMethodNamesAreFreshAndReserved(t *testing.T) {
 	want := []string{"from_bytes", "to_bytes", "merge_from_bytes"}
 	require.Equal(t, "from_bytes", fromBytesMethod)

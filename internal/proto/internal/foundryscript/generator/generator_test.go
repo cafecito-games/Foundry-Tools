@@ -455,6 +455,19 @@ func TestGenerateMessageAndEnumSkeletons(t *testing.T) {
 	require.NotContains(t, enumSource, "{")
 }
 
+// The JSON surface names the engine's builtins unqualified, so a message that
+// claims one of those spellings has to be renamed rather than emitted verbatim.
+func TestMessageNamedAfterAnEngineJSONBuiltinIsEscaped(t *testing.T) {
+	files := generate(t, namespacedFile([]*protoast.Message{{
+		Name:   "JsonNode",
+		Fields: []*protoast.Field{{FieldType: "string", Name: "label", Number: 1}},
+	}}, nil))
+
+	source := files["cafecito/game/v1/JsonNode_.pb.fs"]
+	require.NotEmpty(t, source, "expected the escaped path, got %v", files)
+	require.Contains(t, source, "final class_name JsonNode_ extends RefCounted uses Message\n")
+}
+
 // The trait is inert unless generated messages actually declare conformance.
 func TestGeneratedMessagesConformToMessageTrait(t *testing.T) {
 	source := playerSource(t, []*protoast.Field{{FieldType: "string", Name: "name", Number: 1}})
