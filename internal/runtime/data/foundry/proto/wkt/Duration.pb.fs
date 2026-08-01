@@ -125,6 +125,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 func to_json() -> JsonNode:
 	var (_pb_text, _pb_error) = JsonDuration.format(seconds, nanos)
 	if _pb_error != ProtobufError.OK:
+		push_error("JSON_VALUE_OUT_OF_RANGE: Duration cannot be written as canonical JSON")
 		return JsonNode.Null
 	return JsonNode.Str(_pb_text)
 

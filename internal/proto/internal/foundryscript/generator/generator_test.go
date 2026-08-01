@@ -2035,6 +2035,11 @@ func TestWellKnownTimestampAndDurationSerializeThroughTheirRuntimeHelpers(t *tes
 		&protoast.Message{Name: "Timestamp", Fields: secondsAndNanos})
 	require.Contains(t, timestamp, "var (_pb_text, _pb_error) = JsonTimestamp.format(seconds, nanos)")
 	require.Contains(t, timestamp, "return JsonNode.Str(_pb_text)")
+	// to_json has no error channel, so a value the helper refuses has to be
+	// reported rather than quietly written as a null the caller cannot tell
+	// from a successful one.
+	require.Contains(t, timestamp,
+		`push_error("JSON_VALUE_OUT_OF_RANGE: Timestamp cannot be written as canonical JSON")`)
 	// The seconds field is not written as a member of its own.
 	require.NotContains(t, timestamp, `_pb_json["seconds"]`)
 

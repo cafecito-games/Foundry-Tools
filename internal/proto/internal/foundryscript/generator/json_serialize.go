@@ -400,7 +400,7 @@ func wellKnownSecondsBody(form wellKnownJSONForm, plan *messagePlan) []fsast.Nod
 	if seconds == nil || nanos == nil {
 		return nil
 	}
-	return jsonTextBody(fmt.Sprintf("%s.format(%s, %s)", form.Helper(), seconds.Name, nanos.Name))
+	return jsonTextBody(plan.Name, fmt.Sprintf("%s.format(%s, %s)", form.Helper(), seconds.Name, nanos.Name))
 }
 
 func wellKnownFieldMaskBody(form wellKnownJSONForm, plan *messagePlan) []fsast.Node {
@@ -408,20 +408,28 @@ func wellKnownFieldMaskBody(form wellKnownJSONForm, plan *messagePlan) []fsast.N
 	if paths == nil {
 		return nil
 	}
-	return jsonTextBody(fmt.Sprintf("%s.%s(%s)", form.Helper(), toJSONMethod, paths.Name))
+	return jsonTextBody(plan.Name, fmt.Sprintf("%s.%s(%s)", form.Helper(), toJSONMethod, paths.Name))
 }
 
-// jsonTextBody writes the string a runtime helper produced. to_json has no
-// error channel of its own, so a value the helper refuses -- a timestamp
-// outside the representable range, a mask path that is not lower_snake_case --
-// is written as null, which is at least a value the decoder rejects rather than
-// silently accepts as a valid one.
-func jsonTextBody(call string) []fsast.Node {
+// jsonTextBody writes the string a runtime helper produced.
+//
+// to_json has no error channel of its own, so a value the helper refuses -- a
+// timestamp outside the representable range, a mask path that is not
+// lower_snake_case -- is reported and then written as null. Reporting is what
+// keeps the failure distinguishable: a bare null is a value the decoder
+// rejects, but nothing in the document says the value was refused rather than
+// absent, and the caller would otherwise have no way to find out.
+func jsonTextBody(typeName, call string) []fsast.Node {
 	text := generatedPrefix + "text"
 	failure := generatedPrefix + "error"
+	report := fmt.Sprintf(
+		"JSON_VALUE_OUT_OF_RANGE: %s cannot be written as canonical JSON",
+		typeName,
+	)
 	return []fsast.Node{
 		line(0, fmt.Sprintf("var (%s, %s) = %s", text, failure, call)),
 		line(0, fmt.Sprintf("if %s != ProtobufError.OK:", failure)),
+		line(1, "push_error("+strconv.Quote(report)+")"),
 		line(1, "return "+jsonNodeType+".Null"),
 		fsast.Return{Value: jsonNodeType + ".Str(" + text + ")"},
 	}
