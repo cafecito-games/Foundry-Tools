@@ -937,7 +937,7 @@ func (r *resolver) namedValuePlan(use typeUse, scope string) (valuePlan, error) 
 		return valuePlan{}, fmt.Errorf("enum %s has no value to default to", use.ProtoType)
 	}
 	plan.Kind = kindEnum
-	plan.ZeroValue = lexical + "." + info.ZeroCase
+	plan.ZeroValue = lexical + "." + EnumValueName(info.ZeroCase)
 	plan.WireType = wireVarint
 	return plan, nil
 }
@@ -1123,6 +1123,7 @@ func planMessage(
 			Name: resolve.localNamer.Name(enum.Name),
 			Enum: enum,
 		})
+		resolve.memberCollisions.addEnum(resolve.sourceName, protoOwnerIdentity+"."+enum.Name, enum)
 	}
 
 	nested := make([]messagePlan, 0, len(message.NestedMessages))

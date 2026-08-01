@@ -66,6 +66,7 @@ func generateFiles(
 			Name: localNamer.Name(enum.Name),
 			Enum: enum,
 		})
+		resolve.memberCollisions.addEnum(sourceName, qualifiedProtoName(file.Package, enum.Name), enum)
 	}
 	messagePlans := make([]messagePlan, 0, len(file.Messages))
 	for _, message := range file.Messages {

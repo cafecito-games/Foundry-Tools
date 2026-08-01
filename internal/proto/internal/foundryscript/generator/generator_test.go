@@ -623,6 +623,34 @@ func TestGenerateEnumFieldsUseHostedWireConversion(t *testing.T) {
 	require.Contains(t, messageSource, "var _pb_status_unknown: PackedByteArray = PackedByteArray()")
 }
 
+// A field's proto default is its enum's zero-valued case; when that case
+// itself is spelled the same as a hosted function, the default expression has
+// to follow the escaped case name too, or it would reference a declaration
+// that does not exist.
+func TestGenerateEscapesEnumZeroValueInFieldDefault(t *testing.T) {
+	files := generate(t, namespacedFile(
+		[]*protoast.Message{{
+			Name:   "Player",
+			Fields: []*protoast.Field{{FieldType: "Transport", Name: "transport", Number: 1}},
+		}},
+		[]*protoast.Enum{{
+			Name: "Transport",
+			Values: []*protoast.EnumValue{
+				{Name: "to_wire", Number: 0},
+				{Name: "TRANSPORT_ALT", Number: 1},
+			},
+		}},
+	))
+
+	enumSource := files["cafecito/game/v1/Transport.pb.fs"]
+	require.Contains(t, enumSource, "\tto_wire_ = 0\n")
+
+	messageSource := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, messageSource, "var transport: Transport = Transport.to_wire_")
+	require.NotContains(t, messageSource, "Transport.to_wire\n")
+	require.Contains(t, messageSource, "transport = Transport.to_wire_")
+}
+
 // An enum value spelled the same as one of the functions the enum hosts
 // beside it -- to_wire, from_wire, to_json_name, from_json_name -- would
 // otherwise declare that name twice: once as a case, once as a function. The
