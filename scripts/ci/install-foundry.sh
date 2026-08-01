@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FOUNDRY_RELEASE_TAG="${FOUNDRY_RELEASE_TAG:-v0.1.0-alpha.14}"
+FOUNDRY_RELEASE_TAG="${FOUNDRY_RELEASE_TAG:-v0.1.0-alpha.19}"
 FOUNDRY_ASSET_PATTERN="${FOUNDRY_ASSET_PATTERN:-linux.x86_64.zip}"
 FOUNDRY_CACHE_DIR="${FOUNDRY_CACHE_DIR:-.cache/foundry}"
 FOUNDRY_REPO="${FOUNDRY_REPO:-cafecito-games/Foundry}"
