@@ -13,7 +13,7 @@ type engineTypeEntry struct {
 	kind engineTypeKind
 }
 
-const foundryEngineTypeSourceVersion = "0.1.alpha14.gh.b9a5e66c2"
+const foundryEngineTypeSourceVersion = "0.1.alpha19.gh.7a86a1464"
 
 var foundryEngineReservedTypes = map[string]engineTypeEntry{
 	"AABB":                                {kind: engineTypeBuiltin},
