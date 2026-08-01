@@ -1762,7 +1762,385 @@ func TestGenerateAcceptsOptions(t *testing.T) {
 	withoutJSON, err := Generate(file, "probe.proto", nil, Options{})
 	require.NoError(t, err)
 
-	// The option is threaded but nothing consumes it yet, so both runs agree.
-	// This assertion inverts when the JSON emitter lands.
-	require.Equal(t, withoutJSON, withJSON)
+	// The option is what the JSON surface is gated on, so the two runs differ
+	// by exactly that surface and by nothing else.
+	require.NotEqual(t, withoutJSON, withJSON)
+	require.NotContains(t, withoutJSON["cafecito/game/v1/Probe.pb.fs"], "to_json")
+	require.Contains(t, withJSON["cafecito/game/v1/Probe.pb.fs"], "func to_json() -> JsonNode:")
+}
+
+func generateJSON(t *testing.T, file *protoast.ProtoFile, sourceName string) GeneratedFiles {
+	t.Helper()
+	files, err := Generate(file, sourceName, nil, Options{JSON: true})
+	require.NoError(t, err)
+	return files
+}
+
+func jsonPlayerSource(t *testing.T, fields ...*protoast.Field) string {
+	t.Helper()
+	files := generateJSON(t, namespacedFile([]*protoast.Message{{Name: "Player", Fields: fields}}, nil), "player.proto")
+	return files["cafecito/game/v1/Player.pb.fs"]
+}
+
+// Conforming to the engine's trait is what teaches JSON.stringify to lower a
+// message, so a binding without it has no route to JSON text at all.
+func TestJSONOptionAddsTheSerializableConformance(t *testing.T) {
+	source := jsonPlayerSource(t, &protoast.Field{FieldType: "string", Name: "name", Number: 1})
+
+	require.Contains(t, source, "final class_name Player extends RefCounted uses Message, JsonSerializable\n")
+	require.Contains(t, source, "func to_json() -> JsonNode:")
+	// Text conversion is JSON.stringify(msg, "", false); no method is emitted.
+	require.NotContains(t, source, "to_json_string")
+}
+
+// The option is opt-in because it roughly doubles a generated file, so the
+// off-path has to stay exactly what it was.
+func TestJSONSurfaceIsAbsentWithoutTheOption(t *testing.T) {
+	source := playerSource(t, []*protoast.Field{{FieldType: "string", Name: "name", Number: 1}})
+
+	require.NotContains(t, source, "JsonSerializable")
+	require.NotContains(t, source, "to_json")
+	require.NotContains(t, source, "JsonNode")
+}
+
+func TestJSONScalarsFollowTheCanonicalTable(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "int32", Name: "level", Number: 1},
+		&protoast.Field{FieldType: "sfixed32", Name: "offset", Number: 2},
+		&protoast.Field{FieldType: "int64", Name: "score", Number: 3},
+		&protoast.Field{FieldType: "uint64", Name: "seed", Number: 4},
+		&protoast.Field{FieldType: "double", Name: "ratio", Number: 5},
+		&protoast.Field{FieldType: "float", Name: "speed", Number: 6},
+		&protoast.Field{FieldType: "bool", Name: "active", Number: 7},
+		&protoast.Field{FieldType: "string", Name: "name", Number: 8},
+		&protoast.Field{FieldType: "bytes", Name: "blob", Number: 9},
+	)
+
+	// A 32-bit integer renders as a JSON number.
+	require.Contains(t, source, `_pb_json["level"] = JsonNode.Int(level)`)
+	require.Contains(t, source, `_pb_json["offset"] = JsonNode.Int(offset)`)
+	// A 64-bit one renders as a string: a bare number past 2^53 does not
+	// survive the engine's parser.
+	require.Contains(t, source, `_pb_json["score"] = JsonNode.Str(str(score))`)
+	require.Contains(t, source, `_pb_json["seed"] = JsonNode.Str(str(seed))`)
+	require.Contains(t, source, `_pb_json["ratio"] = _pb_json_float(ratio)`)
+	require.Contains(t, source, `_pb_json["speed"] = _pb_json_float(speed)`)
+	require.Contains(t, source, `_pb_json["active"] = JsonNode.Bool(active)`)
+	require.Contains(t, source, `_pb_json["name"] = JsonNode.Str(name)`)
+	require.Contains(t, source, `_pb_json["blob"] = JsonNode.Str(JsonBase64.encode(blob))`)
+	require.Contains(t, source, "return JsonNode.object_of(_pb_json)")
+}
+
+// JSON.stringify turns NaN into null and the infinities into ±1e99999, none of
+// which is canonical proto3, so a non-finite float never reaches the Float case.
+func TestJSONNonFiniteFloatsAreEmittedAsTheirStringForms(t *testing.T) {
+	source := jsonPlayerSource(t, &protoast.Field{FieldType: "double", Name: "ratio", Number: 1})
+
+	require.Contains(t, source, "static func _pb_json_float(_pb_value: float) -> JsonNode:")
+	require.Contains(t, source, "if is_nan(_pb_value):")
+	require.Contains(t, source, `return JsonNode.Str("NaN")`)
+	require.Contains(t, source, "if is_inf(_pb_value):")
+	require.Contains(t, source, `return JsonNode.Str("Infinity")`)
+	require.Contains(t, source, `return JsonNode.Str("-Infinity")`)
+	require.Contains(t, source, "return JsonNode.Float(_pb_value)")
+}
+
+func TestJSONFloatHelperIsEmittedOnlyWhereAFloatIsWritten(t *testing.T) {
+	require.NotContains(t, jsonPlayerSource(t,
+		&protoast.Field{FieldType: "string", Name: "name", Number: 1},
+	), "_pb_json_float")
+	require.Contains(t, jsonPlayerSource(t,
+		&protoast.Field{FieldType: "float", Name: "speed", Number: 1, Repeated: true},
+	), "static func _pb_json_float(")
+}
+
+// proto3 has no presence for a plain scalar, so its default is indistinguishable
+// from unset and canonical JSON leaves it out.
+func TestJSONOmitsProto3ZeroValues(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "int32", Name: "level", Number: 1},
+		&protoast.Field{FieldType: "string", Name: "name", Number: 2},
+		&protoast.Field{FieldType: "bool", Name: "active", Number: 3},
+		&protoast.Field{FieldType: "bytes", Name: "blob", Number: 4},
+		&protoast.Field{FieldType: "double", Name: "ratio", Number: 5},
+	)
+
+	require.Contains(t, source, "if level != 0:")
+	require.Contains(t, source, "if name != \"\":")
+	require.Contains(t, source, "if active:")
+	require.Contains(t, source, "if blob.size() > 0:")
+	// A float has two zeroes and protobuf treats only one as the default.
+	require.Contains(t, source, "if not Wire.is_default_float(ratio):")
+}
+
+// An explicit-presence field carries its own default, so the zero-value rule
+// does not apply to it: only nullness decides.
+func TestJSONWritesPresentMembersOnly(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "int32", Name: "level", Number: 1, Optional: true},
+		&protoast.Field{FieldType: "Slot", Name: "slot", Number: 2},
+	)
+
+	require.Contains(t, source, "if level is int:")
+	require.Contains(t, source, `_pb_json["level"] = JsonNode.Int(level)`)
+	require.Contains(t, source, "if slot is Slot:")
+	require.Contains(t, source, `_pb_json["slot"] = slot.to_json()`)
+}
+
+// The JSON name comes from the field model, which honours an explicit
+// [json_name] and derives camelCase otherwise.
+func TestJSONWritesTheResolvedJSONFieldName(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "string", Name: "display_name", Number: 1},
+		&protoast.Field{FieldType: "string", Name: "raw_label", Number: 2, Options: map[string]any{"json_name": "wire"}},
+	)
+
+	require.Contains(t, source, `_pb_json["displayName"] = JsonNode.Str(display_name)`)
+	require.Contains(t, source, `_pb_json["wire"] = JsonNode.Str(raw_label)`)
+	require.NotContains(t, source, `_pb_json["rawLabel"]`)
+}
+
+// Canonical JSON writes an enum as its declared case name, so the conversion is
+// hosted on the enum for the same reason to_wire is.
+func TestJSONEnumsAreWrittenAsCaseNames(t *testing.T) {
+	files := generateJSON(t, namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "Tier", Name: "tier", Number: 1}},
+	}}, []*protoast.Enum{{
+		Name: "Tier",
+		Values: []*protoast.EnumValue{
+			{Name: "TIER_BRONZE", Number: 0},
+			{Name: "TIER_GOLD", Number: 1},
+		},
+	}}), "player.proto")
+
+	enumSource := files["cafecito/game/v1/Tier.pb.fs"]
+	require.Contains(t, enumSource, "func to_json_name() -> String:")
+	require.Contains(t, enumSource, `return "TIER_BRONZE"`)
+	require.Contains(t, enumSource, `return "TIER_GOLD"`)
+
+	source := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, source, "if tier != Tier.TIER_BRONZE:")
+	require.Contains(t, source, `_pb_json["tier"] = JsonNode.Str(tier.to_json_name())`)
+}
+
+func TestEnumJSONNameIsAbsentWithoutTheOption(t *testing.T) {
+	files := generate(t, namespacedFile(nil, []*protoast.Enum{{
+		Name:   "Tier",
+		Values: []*protoast.EnumValue{{Name: "TIER_BRONZE", Number: 0}},
+	}}))
+
+	require.NotContains(t, files["cafecito/game/v1/Tier.pb.fs"], "to_json_name")
+}
+
+func TestJSONRepeatedFieldsBecomeArrays(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "string", Name: "tags", Number: 1, Repeated: true},
+	)
+
+	require.Contains(t, source, "if tags.size() > 0:")
+	require.Contains(t, source, "var _pb_tags_items: Array[JsonNode] = []")
+	require.Contains(t, source, "for _pb_tags_item: String in tags:")
+	require.Contains(t, source, "_pb_tags_items.append(JsonNode.Str(_pb_tags_item))")
+	require.Contains(t, source, `_pb_json["tags"] = JsonNode.array_of(_pb_tags_items)`)
+}
+
+// JSON object keys are strings, so a non-string map key is stringified per the
+// specification rather than left to the encoder.
+func TestJSONMapsBecomeObjectsWithStringifiedKeys(t *testing.T) {
+	files := generateJSON(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Maps: []*protoast.MapField{
+			{KeyType: "string", ValueType: "int32", Name: "counts", Number: 1},
+			{KeyType: "int64", ValueType: "string", Name: "labels", Number: 2},
+			{KeyType: "bool", ValueType: "string", Name: "flags", Number: 3},
+		},
+	}}, nil), "player.proto")
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "if counts.size() > 0:")
+	require.Contains(t, source, "var _pb_counts_fields: Dictionary[String, JsonNode] = {}")
+	require.Contains(t, source, "for _pb_counts_key: String in counts:")
+	require.Contains(t, source, "_pb_counts_fields[_pb_counts_key] = JsonNode.Int(counts[_pb_counts_key])")
+	require.Contains(t, source, `_pb_json["counts"] = JsonNode.object_of(_pb_counts_fields)`)
+	require.Contains(t, source, "_pb_labels_fields[str(_pb_labels_key)] = JsonNode.Str(labels[_pb_labels_key])")
+	require.Contains(t, source, `_pb_flags_fields["true" if _pb_flags_key else "false"] = JsonNode.Str(flags[_pb_flags_key])`)
+}
+
+// A oneof writes exactly the member that is set, and nothing when it is unset.
+func TestJSONOneofWritesTheSetMemberOnly(t *testing.T) {
+	files := generateJSON(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Oneofs: []*protoast.Oneof{{
+			Name: "payload",
+			Fields: []*protoast.Field{
+				{FieldType: "string", Name: "text", Number: 1},
+				{FieldType: "int32", Name: "amount", Number: 2},
+			},
+		}},
+	}}, nil), "player.proto")
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "match payload:")
+	require.Contains(t, source, "PlayerPayloadCase.Text(var _pb_payload_text):")
+	require.Contains(t, source, `_pb_json["text"] = JsonNode.Str(_pb_payload_text)`)
+	require.Contains(t, source, "PlayerPayloadCase.Amount(var _pb_payload_amount):")
+	require.Contains(t, source, `_pb_json["amount"] = JsonNode.Int(_pb_payload_amount)`)
+}
+
+// A message field recurses through the trait, which is what makes the whole
+// document one dispatch from the root.
+func TestJSONNestedMessagesRecurseThroughTheTrait(t *testing.T) {
+	files := generateJSON(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{FieldType: "Slot", Name: "slots", Number: 1, Repeated: true},
+		},
+	}, slotMessage()}, nil), "player.proto")
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "_pb_slots_items.append(_pb_slots_item.to_json())")
+	require.Contains(t, files["cafecito/game/v1/Slot.pb.fs"], "func to_json() -> JsonNode:")
+}
+
+// Conformance is all-or-nothing: the engine's analyzer rejects a class that
+// declares the trait and implements only half of it, so to_json cannot be
+// emitted behind the conformance without from_json beside it. Until the decoder
+// lands, from_json is a seam that reports rather than a decoder that lies.
+func TestJSONConformanceCarriesADecodeSeam(t *testing.T) {
+	source := jsonPlayerSource(t, &protoast.Field{FieldType: "string", Name: "name", Number: 1})
+
+	require.Contains(t, source, "static func from_json(_pb_node: JsonNode) -> JsonResult[Player]:")
+	require.Contains(t, source, `return JsonResult[Player].fail(`)
+	require.Contains(t, source, "JSON_PARSE_FAILED: ")
+}
+
+// wellKnownSource generates one google/protobuf file's messages under its own
+// import path, which is what selects the canonical JSON form: the type name
+// alone cannot, since a schema of the caller's own may declare a Timestamp.
+func wellKnownSource(t *testing.T, importPath, typeName string, messages ...*protoast.Message) string {
+	t.Helper()
+	files := generateJSON(t, namespacedFile(messages, nil), importPath)
+	return files["cafecito/game/v1/"+typeName+".pb.fs"]
+}
+
+func TestWellKnownTimestampAndDurationSerializeThroughTheirRuntimeHelpers(t *testing.T) {
+	secondsAndNanos := []*protoast.Field{
+		{FieldType: "int64", Name: "seconds", Number: 1},
+		{FieldType: "int32", Name: "nanos", Number: 2},
+	}
+
+	timestamp := wellKnownSource(t, "google/protobuf/timestamp.proto", "Timestamp",
+		&protoast.Message{Name: "Timestamp", Fields: secondsAndNanos})
+	require.Contains(t, timestamp, "var (_pb_text, _pb_error) = JsonTimestamp.format(seconds, nanos)")
+	require.Contains(t, timestamp, "return JsonNode.Str(_pb_text)")
+	// The seconds field is not written as a member of its own.
+	require.NotContains(t, timestamp, `_pb_json["seconds"]`)
+
+	duration := wellKnownSource(t, "google/protobuf/duration.proto", "Duration",
+		&protoast.Message{Name: "Duration", Fields: secondsAndNanos})
+	require.Contains(t, duration, "var (_pb_text, _pb_error) = JsonDuration.format(seconds, nanos)")
+}
+
+func TestWellKnownFieldMaskSerializesAsOneCommaJoinedString(t *testing.T) {
+	source := wellKnownSource(t, "google/protobuf/field_mask.proto", "FieldMask",
+		&protoast.Message{Name: "FieldMask", Fields: []*protoast.Field{
+			{FieldType: "string", Name: "paths", Number: 1, Repeated: true},
+		}})
+
+	require.Contains(t, source, "var (_pb_text, _pb_error) = JsonFieldMask.to_json(paths)")
+	require.Contains(t, source, "return JsonNode.Str(_pb_text)")
+}
+
+func TestWellKnownEmptySerializesAsAnEmptyObject(t *testing.T) {
+	source := wellKnownSource(t, "google/protobuf/empty.proto", "Empty",
+		&protoast.Message{Name: "Empty"})
+
+	require.Contains(t, source, "var _pb_json: Dictionary[String, JsonNode] = {}\n\treturn JsonNode.object_of(_pb_json)")
+}
+
+// A wrapper exists to give a scalar explicit presence, so its value is written
+// whatever it is; the message's own presence was already decided by the member
+// that held it.
+func TestWellKnownWrappersSerializeAsTheBareScalar(t *testing.T) {
+	source := wellKnownSource(t, "google/protobuf/wrappers.proto", "Int32Value",
+		&protoast.Message{Name: "Int32Value", Fields: []*protoast.Field{
+			{FieldType: "int32", Name: "value", Number: 1},
+		}})
+	require.Contains(t, source, "func to_json() -> JsonNode:\n\treturn JsonNode.Int(value)")
+	require.NotContains(t, source, "if value != 0:\n\t\t_pb_json")
+
+	wide := wellKnownSource(t, "google/protobuf/wrappers.proto", "Int64Value",
+		&protoast.Message{Name: "Int64Value", Fields: []*protoast.Field{
+			{FieldType: "int64", Name: "value", Number: 1},
+		}})
+	require.Contains(t, wide, "return JsonNode.Str(str(value))")
+}
+
+func TestWellKnownStructAndListValueSerializeAsPlainJSON(t *testing.T) {
+	files := generateJSON(t, namespacedFile([]*protoast.Message{
+		{Name: "Struct", Maps: []*protoast.MapField{
+			{KeyType: "string", ValueType: "Value", Name: "fields", Number: 1},
+		}},
+		{Name: "ListValue", Fields: []*protoast.Field{
+			{FieldType: "Value", Name: "values", Number: 1, Repeated: true},
+		}},
+		{Name: "Value", Oneofs: []*protoast.Oneof{{
+			Name: "kind",
+			Fields: []*protoast.Field{
+				{FieldType: "NullValue", Name: "null_value", Number: 1},
+				{FieldType: "double", Name: "number_value", Number: 2},
+				{FieldType: "string", Name: "string_value", Number: 3},
+				{FieldType: "Struct", Name: "struct_value", Number: 5},
+			},
+		}}},
+	}, []*protoast.Enum{{
+		Name:   "NullValue",
+		Values: []*protoast.EnumValue{{Name: "NULL_VALUE", Number: 0}},
+	}}), "google/protobuf/struct.proto")
+
+	structSource := files["cafecito/game/v1/Struct.pb.fs"]
+	require.Contains(t, structSource, "for _pb_fields_key: String in fields:")
+	require.Contains(t, structSource, "_pb_json[_pb_fields_key] = fields[_pb_fields_key].to_json()")
+
+	listSource := files["cafecito/game/v1/ListValue.pb.fs"]
+	require.Contains(t, listSource, "_pb_values_items.append(_pb_values_item.to_json())")
+	require.Contains(t, listSource, "return JsonNode.array_of(_pb_values_items)")
+
+	// A Value is whichever JSON value its kind names. NullValue is the one
+	// place the general enum rule does not apply: a null renders as null, not
+	// as the case name, and an unset Value is null too.
+	valueSource := files["cafecito/game/v1/Value.pb.fs"]
+	require.Contains(t, valueSource, "ValueKindCase.NullValue(var _pb_kind_null_value):\n\t\t\treturn JsonNode.Null")
+	require.Contains(t, valueSource, "return _pb_json_float(_pb_kind_number_value)")
+	require.Contains(t, valueSource, "return JsonNode.Str(_pb_kind_string_value)")
+	require.Contains(t, valueSource, "return _pb_kind_struct_value.to_json()")
+	require.Contains(t, valueSource, "_:\n\t\t\treturn JsonNode.Null")
+}
+
+// Any needs its type URL resolved to a generated binding, which needs a runtime
+// type registry that does not exist yet.
+func TestWellKnownAnyReportsThatItHasNoJSONForm(t *testing.T) {
+	source := wellKnownSource(t, "google/protobuf/any.proto", "Any",
+		&protoast.Message{Name: "Any", Fields: []*protoast.Field{
+			{FieldType: "string", Name: "type_url", Number: 1},
+			{FieldType: "bytes", Name: "value", Number: 2},
+		}})
+
+	require.Contains(t, source, `push_error("JSON_ANY_UNSUPPORTED: `)
+	require.Contains(t, source, "return JsonNode.Null")
+	require.NotContains(t, source, `_pb_json["typeUrl"]`)
+}
+
+// The table is keyed on the import path because the type name is not an
+// identity: a schema of the caller's own may declare a Timestamp of its own,
+// and it serializes as an ordinary message.
+func TestWellKnownFormsAreKeyedOnTheImportPath(t *testing.T) {
+	source := wellKnownSource(t, "cafecito/game/v1/player.proto", "Timestamp",
+		&protoast.Message{Name: "Timestamp", Fields: []*protoast.Field{
+			{FieldType: "int64", Name: "seconds", Number: 1},
+		}})
+
+	require.NotContains(t, source, "JsonTimestamp")
+	require.Contains(t, source, `_pb_json["seconds"] = JsonNode.Str(str(seconds))`)
 }

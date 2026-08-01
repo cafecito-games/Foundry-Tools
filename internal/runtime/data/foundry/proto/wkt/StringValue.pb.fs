@@ -5,7 +5,7 @@ import foundry.proto
 ## The JSON representation for `StringValue` is JSON string.
 ## Not recommended for use in new APIs, but still useful for legacy APIs and
 ## has no plan to be removed.
-final class_name StringValue extends RefCounted uses Message
+final class_name StringValue extends RefCounted uses Message, JsonSerializable
 
 ## The string value.
 var value: String = ""
@@ -57,3 +57,18 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					return _pb_skipped.error
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
+
+## Returns this message as a proto3 canonical JSON document.
+##
+## JSON.stringify(message, "", false) renders it as text; the third argument
+## turns off key sorting, which keeps members in field declaration order.
+func to_json() -> JsonNode:
+	return JsonNode.Str(value)
+
+## Decodes a proto3 canonical JSON document into a new StringValue message.
+##
+## Not generated yet: this reports a failure for every document. The
+## conformance it completes is what makes to_json reachable through
+## JSON.stringify, which is why the member exists ahead of the decoder.
+static func from_json(_pb_node: JsonNode) -> JsonResult[StringValue]:
+	return JsonResult[StringValue].fail("JSON_PARSE_FAILED: StringValue cannot be decoded from JSON yet", "$")

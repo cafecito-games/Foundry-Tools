@@ -7,7 +7,7 @@ import foundry.proto
 ## service Foo {
 ## rpc Bar(google.protobuf.Empty) returns (google.protobuf.Empty);
 ## }
-final class_name Empty extends RefCounted uses Message
+final class_name Empty extends RefCounted uses Message, JsonSerializable
 
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
@@ -43,3 +43,19 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					return _pb_skipped.error
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
+
+## Returns this message as a proto3 canonical JSON document.
+##
+## JSON.stringify(message, "", false) renders it as text; the third argument
+## turns off key sorting, which keeps members in field declaration order.
+func to_json() -> JsonNode:
+	var _pb_json: Dictionary[String, JsonNode] = {}
+	return JsonNode.object_of(_pb_json)
+
+## Decodes a proto3 canonical JSON document into a new Empty message.
+##
+## Not generated yet: this reports a failure for every document. The
+## conformance it completes is what makes to_json reachable through
+## JSON.stringify, which is why the member exists ahead of the decoder.
+static func from_json(_pb_node: JsonNode) -> JsonResult[Empty]:
+	return JsonResult[Empty].fail("JSON_PARSE_FAILED: Empty cannot be decoded from JSON yet", "$")

@@ -67,7 +67,7 @@ import foundry.proto
 ## the Joda Time's [`ISODateTimeFormat.dateTime()`](
 ## http://joda-time.sourceforge.net/apidocs/org/joda/time/format/ISODateTimeFormat.html#dateTime()
 ## ) to obtain a formatter capable of generating timestamps in this format.
-final class_name Timestamp extends RefCounted uses Message
+final class_name Timestamp extends RefCounted uses Message, JsonSerializable
 
 ## Represents seconds of UTC time since Unix epoch 1970-01-01T00:00:00Z. Must
 ## be between -62135596800 and 253402300799 inclusive (which corresponds to
@@ -137,3 +137,21 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					return _pb_skipped.error
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
+
+## Returns this message as a proto3 canonical JSON document.
+##
+## JSON.stringify(message, "", false) renders it as text; the third argument
+## turns off key sorting, which keeps members in field declaration order.
+func to_json() -> JsonNode:
+	var (_pb_text, _pb_error) = JsonTimestamp.format(seconds, nanos)
+	if _pb_error != ProtobufError.OK:
+		return JsonNode.Null
+	return JsonNode.Str(_pb_text)
+
+## Decodes a proto3 canonical JSON document into a new Timestamp message.
+##
+## Not generated yet: this reports a failure for every document. The
+## conformance it completes is what makes to_json reachable through
+## JSON.stringify, which is why the member exists ahead of the decoder.
+static func from_json(_pb_node: JsonNode) -> JsonResult[Timestamp]:
+	return JsonResult[Timestamp].fail("JSON_PARSE_FAILED: Timestamp cannot be decoded from JSON yet", "$")

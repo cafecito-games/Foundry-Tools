@@ -8,7 +8,7 @@ import foundry.proto
 ## object. The details of that representation are described together
 ## with the proto support for the language.
 ## The JSON representation for `Struct` is JSON object.
-final class_name Struct extends RefCounted uses Message
+final class_name Struct extends RefCounted uses Message, JsonSerializable
 
 ## Unordered map of dynamically typed values.
 var fields: Dictionary[String, Value] = {}
@@ -106,3 +106,21 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					return _pb_skipped.error
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
+
+## Returns this message as a proto3 canonical JSON document.
+##
+## JSON.stringify(message, "", false) renders it as text; the third argument
+## turns off key sorting, which keeps members in field declaration order.
+func to_json() -> JsonNode:
+	var _pb_json: Dictionary[String, JsonNode] = {}
+	for _pb_fields_key: String in fields:
+		_pb_json[_pb_fields_key] = fields[_pb_fields_key].to_json()
+	return JsonNode.object_of(_pb_json)
+
+## Decodes a proto3 canonical JSON document into a new Struct message.
+##
+## Not generated yet: this reports a failure for every document. The
+## conformance it completes is what makes to_json reachable through
+## JSON.stringify, which is why the member exists ahead of the decoder.
+static func from_json(_pb_node: JsonNode) -> JsonResult[Struct]:
+	return JsonResult[Struct].fail("JSON_PARSE_FAILED: Struct cannot be decoded from JSON yet", "$")

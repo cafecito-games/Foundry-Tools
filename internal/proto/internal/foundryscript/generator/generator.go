@@ -31,16 +31,18 @@ func GenerateIntoRuntimeNamespace(file *protoast.ProtoFile, sourceName string, i
 	return generateFiles(file, sourceName, imports, options, validateNamespaceShape)
 }
 
-// generateFiles renders one proto file. The Options value is accepted here so
-// that both entry points agree on the signature; no emitter consumes it yet,
-// which is why the parameter is unnamed.
+// generateFiles renders one proto file.
 func generateFiles(
 	file *protoast.ProtoFile,
 	sourceName string,
 	imports []FileEntry,
-	_ Options,
+	options Options,
 	validateNamespace func(string) error,
 ) (GeneratedFiles, error) {
+	// The source name travels with the option because it is what identifies a
+	// well-known type: `Timestamp` is a name any schema may declare, and only
+	// the file it was declared in says whether it is google's.
+	emission := jsonEmission{Enabled: options.JSON, SourceName: sourceName}
 	localNamer, err := newTypeNamer(file, sourceName)
 	if err != nil {
 		return nil, err
@@ -91,11 +93,16 @@ func generateFiles(
 	}
 
 	for i := range enumPlans {
-		files[outputPath(namespace, enumPlans[i].Name)] = renderEnum(namespace, enumPlans[i].Name, enumPlans[i].Enum)
+		files[outputPath(namespace, enumPlans[i].Name)] = renderEnum(
+			namespace,
+			enumPlans[i].Name,
+			enumPlans[i].Enum,
+			emission,
+		)
 	}
 	for i := range messagePlans {
 		plan := &messagePlans[i]
-		source := renderMessage(namespace, plan)
+		source := renderMessage(namespace, plan, emission)
 		if err := CheckPublicAPI(source); err != nil {
 			return nil, err
 		}
@@ -211,11 +218,11 @@ func docOrFallback(schemaDoc, fallback []string) []string {
 	return out
 }
 
-func renderEnum(namespace, typeName string, enum *protoast.Enum) string {
+func renderEnum(namespace, typeName string, enum *protoast.Enum, emission jsonEmission) string {
 	return fsast.File{
 		Namespace: namespace,
 		Declarations: []fsast.Node{
-			enumDeclaration(typeName, enum, false),
+			enumDeclaration(typeName, enum, false, emission),
 		},
 	}.Render()
 }
@@ -223,7 +230,7 @@ func renderEnum(namespace, typeName string, enum *protoast.Enum) string {
 // enumDeclaration builds an enum and hosts its wire conversion on it, so the
 // raw int never leaks into the message bindings that reference the enum and
 // the unknown-value policy proto3 requires is defined once.
-func enumDeclaration(typeName string, enum *protoast.Enum, inner bool) fsast.Enum {
+func enumDeclaration(typeName string, enum *protoast.Enum, inner bool, emission jsonEmission) fsast.Enum {
 	values := make([]fsast.EnumValue, 0, len(enum.Values))
 	for _, value := range enum.Values {
 		values = append(values, fsast.EnumValue{
@@ -237,8 +244,18 @@ func enumDeclaration(typeName string, enum *protoast.Enum, inner bool) fsast.Enu
 		Inner:   inner,
 		Name:    typeName,
 		Values:  values,
-		Members: enumWireFunctions(typeName, enum),
+		Members: enumMembers(typeName, enum, emission),
 	}
+}
+
+// enumMembers are the conversions hosted on a generated enum: the wire pair
+// always, and the JSON name when the option asks for it.
+func enumMembers(typeName string, enum *protoast.Enum, emission jsonEmission) []fsast.Node {
+	members := enumWireFunctions(typeName, enum)
+	if len(members) == 0 || !emission.Enabled {
+		return members
+	}
+	return append(members, enumJSONNameFunction(enum))
 }
 
 func enumWireFunctions(typeName string, enum *protoast.Enum) []fsast.Node {
@@ -318,23 +335,23 @@ func zeroValueNameOf(values []*protoast.EnumValue) string {
 	return ""
 }
 
-func renderMessage(namespace string, plan *messagePlan) string {
+func renderMessage(namespace string, plan *messagePlan, emission jsonEmission) string {
 	return fsast.File{
 		Namespace:    namespace,
 		Imports:      append([]string{"foundry.proto"}, plan.Namespaces()...),
-		Declarations: []fsast.Node{messageClass(plan, false)},
+		Declarations: []fsast.Node{messageClass(plan, false, emission)},
 	}.Render()
 }
 
-func messageClass(plan *messagePlan, inner bool) fsast.Class {
+func messageClass(plan *messagePlan, inner bool, emission jsonEmission) fsast.Class {
 	members := make([]fsast.Node, 0, len(plan.Fields)+len(plan.Oneofs)*2+4)
 
 	// Nested types are declared before the members that reference them.
 	for _, nested := range plan.Enums {
-		members = append(members, enumDeclaration(nested.Name, nested.Enum, true))
+		members = append(members, enumDeclaration(nested.Name, nested.Enum, true, emission))
 	}
 	for i := range plan.Nested {
-		members = append(members, messageClass(&plan.Nested[i], true))
+		members = append(members, messageClass(&plan.Nested[i], true, emission))
 	}
 	for i := range plan.Fields {
 		if plan.Fields[i].OneofCase != "" {
@@ -358,6 +375,9 @@ func messageClass(plan *messagePlan, inner bool) fsast.Class {
 		toBytesFunction(plan.Fields, plan.Oneofs),
 		mergeFromBytesFunction(plan.Fields),
 	)
+	if emission.Enabled {
+		members = append(members, jsonMembers(plan, emission)...)
+	}
 
 	return fsast.Class{
 		Doc:   messageDoc(plan.Name, plan.Doc),
@@ -366,7 +386,7 @@ func messageClass(plan *messagePlan, inner bool) fsast.Class {
 		Final:   true,
 		Name:    plan.Name,
 		Extends: "RefCounted",
-		Uses:    []string{"Message"},
+		Uses:    jsonUses(emission),
 		Members: members,
 	}
 }

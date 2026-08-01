@@ -6,7 +6,7 @@ import foundry.proto
 ## list of values. A producer of value is expected to set one of these
 ## variants. Absence of any variant indicates an error.
 ## The JSON representation for `Value` is JSON value.
-final class_name Value extends RefCounted uses Message
+final class_name Value extends RefCounted uses Message, JsonSerializable
 
 ## The kind of value.
 var kind: ValueKindCase? = null:
@@ -137,3 +137,46 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					return _pb_skipped.error
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
+
+## Returns this message as a proto3 canonical JSON document.
+##
+## JSON.stringify(message, "", false) renders it as text; the third argument
+## turns off key sorting, which keeps members in field declaration order.
+func to_json() -> JsonNode:
+	match kind:
+		ValueKindCase.NullValue(var _pb_kind_null_value):
+			return JsonNode.Null
+		ValueKindCase.NumberValue(var _pb_kind_number_value):
+			return _pb_json_float(_pb_kind_number_value)
+		ValueKindCase.StringValue(var _pb_kind_string_value):
+			return JsonNode.Str(_pb_kind_string_value)
+		ValueKindCase.BoolValue(var _pb_kind_bool_value):
+			return JsonNode.Bool(_pb_kind_bool_value)
+		ValueKindCase.StructValue(var _pb_kind_struct_value):
+			return _pb_kind_struct_value.to_json()
+		ValueKindCase.ListValue(var _pb_kind_list_value):
+			return _pb_kind_list_value.to_json()
+		_:
+			return JsonNode.Null
+
+## Decodes a proto3 canonical JSON document into a new Value message.
+##
+## Not generated yet: this reports a failure for every document. The
+## conformance it completes is what makes to_json reachable through
+## JSON.stringify, which is why the member exists ahead of the decoder.
+static func from_json(_pb_node: JsonNode) -> JsonResult[Value]:
+	return JsonResult[Value].fail("JSON_PARSE_FAILED: Value cannot be decoded from JSON yet", "$")
+
+## Returns one float as canonical proto3 JSON.
+##
+## A non-finite value never reaches the Float case: the encoder writes NaN as
+## null and the infinities as ±1e99999, none of which is canonical, so the
+## three specified string forms are produced here instead.
+static func _pb_json_float(_pb_value: float) -> JsonNode:
+	if is_nan(_pb_value):
+		return JsonNode.Str("NaN")
+	if is_inf(_pb_value):
+		if _pb_value > 0.0:
+			return JsonNode.Str("Infinity")
+		return JsonNode.Str("-Infinity")
+	return JsonNode.Float(_pb_value)

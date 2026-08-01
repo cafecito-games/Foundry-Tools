@@ -18,3 +18,12 @@ enum_name NullValue:
 				return NullValue.NULL_VALUE
 			_:
 				return null
+
+	## Returns the proto3 JSON name for this case.
+	func to_json_name() -> String:
+		var _pb_wire: int = self as int
+		match _pb_wire:
+			0:
+				return "NULL_VALUE"
+			_:
+				return "NULL_VALUE"

@@ -46,7 +46,7 @@ import foundry.proto
 ## encoded in JSON format as "3s", while 3 seconds and 1 nanosecond should
 ## be expressed in JSON format as "3.000000001s", and 3 seconds and 1
 ## microsecond should be expressed in JSON format as "3.000001s".
-final class_name Duration extends RefCounted uses Message
+final class_name Duration extends RefCounted uses Message, JsonSerializable
 
 ## Signed seconds of the span of time. Must be from -315,576,000,000
 ## to +315,576,000,000 inclusive. Note: these bounds are computed from:
@@ -117,3 +117,21 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					return _pb_skipped.error
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
+
+## Returns this message as a proto3 canonical JSON document.
+##
+## JSON.stringify(message, "", false) renders it as text; the third argument
+## turns off key sorting, which keeps members in field declaration order.
+func to_json() -> JsonNode:
+	var (_pb_text, _pb_error) = JsonDuration.format(seconds, nanos)
+	if _pb_error != ProtobufError.OK:
+		return JsonNode.Null
+	return JsonNode.Str(_pb_text)
+
+## Decodes a proto3 canonical JSON document into a new Duration message.
+##
+## Not generated yet: this reports a failure for every document. The
+## conformance it completes is what makes to_json reachable through
+## JSON.stringify, which is why the member exists ahead of the decoder.
+static func from_json(_pb_node: JsonNode) -> JsonResult[Duration]:
+	return JsonResult[Duration].fail("JSON_PARSE_FAILED: Duration cannot be decoded from JSON yet", "$")

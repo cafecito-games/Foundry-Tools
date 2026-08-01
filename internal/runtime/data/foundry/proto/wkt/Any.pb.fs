@@ -71,7 +71,7 @@ import foundry.proto
 ## "@type": "type.googleapis.com/google.protobuf.Duration",
 ## "value": "1.212s"
 ## }
-final class_name Any extends RefCounted uses Message
+final class_name Any extends RefCounted uses Message, JsonSerializable
 
 ## A URL/resource name that uniquely identifies the type of the serialized
 ## protocol buffer message. This string must contain at least
@@ -161,3 +161,19 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					return _pb_skipped.error
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
+
+## Returns this message as a proto3 canonical JSON document.
+##
+## JSON.stringify(message, "", false) renders it as text; the third argument
+## turns off key sorting, which keeps members in field declaration order.
+func to_json() -> JsonNode:
+	push_error("JSON_ANY_UNSUPPORTED: google.protobuf.Any has no JSON form until the type-URL registry lands")
+	return JsonNode.Null
+
+## Decodes a proto3 canonical JSON document into a new Any message.
+##
+## Not generated yet: this reports a failure for every document. The
+## conformance it completes is what makes to_json reachable through
+## JSON.stringify, which is why the member exists ahead of the decoder.
+static func from_json(_pb_node: JsonNode) -> JsonResult[Any]:
+	return JsonResult[Any].fail("JSON_PARSE_FAILED: Any cannot be decoded from JSON yet", "$")
