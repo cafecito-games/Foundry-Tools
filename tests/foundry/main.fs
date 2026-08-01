@@ -1,5 +1,6 @@
 import cafecito.game.v1
 import cafecito.inventory.v1
+import cafecito.json.v1
 import foundry.proto
 import foundry.proto.wkt
 import probe.collisions.v1
@@ -268,7 +269,9 @@ func _init() -> void:
 	check_json_base64()
 	check_json_timestamp()
 	check_json_duration()
+	check_json_uint64()
 	check_engine_json_types()
+	check_json_round_trip()
 
 	if failures > 0:
 		printerr("round trip failed with ", failures, " error(s)")
@@ -447,6 +450,9 @@ func populated_scalar_suite() -> ScalarSuite:
 ## range the parser folds a unary minus over.
 func min_int64() -> int:
 	return -9223372036854775807 - 1
+
+func max_int64() -> int:
+	return 9223372036854775807
 
 func read_reference_bytes() -> PackedByteArray:
 	var file: FileAccess? = FileAccess.open("res://scalars_reference.bin", FileAccess.READ)
@@ -901,6 +907,287 @@ func check_json_duration() -> void:
 
 	var (_leading_digit_paths, leading_digit_parse_error) = JsonFieldMask.from_json("1foo")
 	check(leading_digit_parse_error == ProtobufError.JSON_TYPE_MISMATCH, "a JSON path opening on a digit is refused")
+
+## The unsigned helper behind the canonical JSON mapping of a uint64 or fixed64
+## field, and of an unsigned 64-bit map key.
+##
+## A Foundry int is signed, so half the unsigned range is carried as a negative
+## bit pattern that str() would print with a minus sign. Both directions here
+## are checked at the two boundaries that distinguishes: the widest signed value,
+## which is the last one str() would get right, and the one above it.
+func check_json_uint64() -> void:
+	check(JsonUint64.format(0) == "0", "zero formats unsigned")
+	check(JsonUint64.format(1) == "1", "a small value formats unsigned")
+	check(JsonUint64.format(max_int64()) == "9223372036854775807", "the widest signed value formats unsigned")
+	## min_int64() is the bit pattern of 2^63, the first value a signed int
+	## cannot state and the first one str() would print as a negative.
+	check(JsonUint64.format(min_int64()) == "9223372036854775808", "the first unsigned-only value formats unsigned")
+	check(JsonUint64.format(-1) == "18446744073709551615", "the widest unsigned value formats unsigned")
+
+	var (zero_value, zero_error) = JsonUint64.parse("0")
+	check(zero_error == ProtobufError.OK, "zero parses")
+	check(zero_value == 0, "zero parses to zero")
+
+	var (widest_signed_value, widest_signed_error) = JsonUint64.parse("9223372036854775807")
+	check(widest_signed_error == ProtobufError.OK, "the widest signed value parses")
+	check(widest_signed_value == max_int64(), "the widest signed value parses exactly")
+
+	var (unsigned_only_value, unsigned_only_error) = JsonUint64.parse("9223372036854775808")
+	check(unsigned_only_error == ProtobufError.OK, "the first unsigned-only value parses")
+	check(unsigned_only_value == min_int64(), "the first unsigned-only value parses to its bit pattern")
+
+	var (widest_value, widest_error) = JsonUint64.parse("18446744073709551615")
+	check(widest_error == ProtobufError.OK, "the widest unsigned value parses")
+	check(widest_value == -1, "the widest unsigned value parses to its bit pattern")
+
+	var (_empty_value, empty_error) = JsonUint64.parse("")
+	check(empty_error == ProtobufError.JSON_TYPE_MISMATCH, "an empty string is refused as unsigned")
+
+	var (_negative_value, negative_error) = JsonUint64.parse("-1")
+	check(negative_error == ProtobufError.JSON_TYPE_MISMATCH, "a negative is refused as unsigned")
+
+	## A spelling that does not come back the way it went in is refused rather
+	## than normalized, matching the signed reader.
+	var (_signed_value, signed_error) = JsonUint64.parse("+5")
+	check(signed_error == ProtobufError.JSON_TYPE_MISMATCH, "an explicit plus is refused as unsigned")
+
+	var (_padded_value, padded_error) = JsonUint64.parse("007")
+	check(padded_error == ProtobufError.JSON_TYPE_MISMATCH, "a zero-padded value is refused as unsigned")
+
+	var (_exponent_value, exponent_error) = JsonUint64.parse("1e3")
+	check(exponent_error == ProtobufError.JSON_TYPE_MISMATCH, "an exponent is refused as unsigned")
+
+	var (_fraction_value, fraction_error) = JsonUint64.parse("1.5")
+	check(fraction_error == ProtobufError.JSON_TYPE_MISMATCH, "a fraction is refused as unsigned")
+
+	var (_spaced_value, spaced_error) = JsonUint64.parse(" 1")
+	check(spaced_error == ProtobufError.JSON_TYPE_MISMATCH, "leading space is refused as unsigned")
+
+	## Syntactically a canonical decimal, so the error names the range rather
+	## than the shape. Both are twenty digits, the only width whose digits have
+	## to be compared against the maximum.
+	var (_over_value, over_error) = JsonUint64.parse("18446744073709551616")
+	check(over_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "one past the widest unsigned value is out of range")
+
+	var (_far_over_value, far_over_error) = JsonUint64.parse("99999999999999999999")
+	check(far_over_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a twenty-digit value past the range is refused")
+
+	var (_wider_value, wider_error) = JsonUint64.parse("184467440737095516150")
+	check(wider_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE, "a twenty-one-digit value is out of range")
+
+## The generated JSON surface, over a schema carrying every field kind the
+## canonical mapping has a rule for. examples/golden-json pins what the emitter
+## writes; this proves the engine agrees -- that the text it produces parses,
+## that decoding it rebuilds the same message, and that the parts a Foundry int
+## cannot state directly survive the trip as text.
+func check_json_round_trip() -> void:
+	var suite: JsonSuite = populated_json_suite()
+	var text: String = JSON.stringify(suite, "", false)
+
+	## The three mappings a signed int would get wrong on its own, spelled out
+	## rather than only compared field by field after the trip.
+	check(text.find('"int64Value":"-9223372036854775808"') >= 0, "an int64 is written as a signed decimal string")
+	check(text.find('"uint64Value":"18446744073709551615"') >= 0, "a uint64 is written as an unsigned decimal string")
+	check(text.find('"uint64Keyed":{"18446744073709551615":"widest"}') >= 0, "an unsigned 64-bit map key is written unsigned")
+	check(text.find('"floatValue":"Infinity"') >= 0, "a non-finite float is written as its string form")
+	check(text.find('"nickname":""') >= 0, "an explicitly present empty string is written")
+	check(text.find('"flavor":"FLAVOR_BITTER"') >= 0, "an enum is written as its declared name")
+
+	var parsed: JsonResult[JsonNode] = JSON.parse_to_node(text)
+	check(parsed.is_ok(), "the emitted JSON document parses")
+	if not parsed.is_ok():
+		return
+
+	var decoded_result: JsonResult[JsonSuite] = JsonSuite.from_json(parsed.value)
+	check(decoded_result.is_ok(), "the emitted JSON document decodes")
+	if not (decoded_result.value is JsonSuite):
+		if decoded_result.error != null:
+			printerr("FAIL: JSON decode reported ", decoded_result.error.message, " at ", decoded_result.error.path)
+		return
+	var decoded: JsonSuite = decoded_result.value
+
+	## Re-encoding what was decoded is the strongest statement available: it
+	## covers every member at once, ordering included, without depending on how
+	## any one of them compares.
+	check(JSON.stringify(decoded, "", false) == text, "a JSON round trip is lossless")
+
+	check(decoded.double_value == -2.5, "a double round trips through JSON")
+	check(is_inf(decoded.float_value) and decoded.float_value > 0.0, "positive infinity round trips through JSON")
+	check(decoded.int32_value == -2147483648, "an int32 round trips through JSON")
+	check(decoded.int64_value == min_int64(), "an int64 round trips through JSON")
+	check(decoded.uint32_value == 4294967295, "a uint32 round trips through JSON")
+	check(decoded.uint64_value == -1, "the widest uint64 round trips through JSON")
+	check(decoded.sint32_value == -2147483648, "a sint32 round trips through JSON")
+	check(decoded.sint64_value == min_int64(), "a sint64 round trips through JSON")
+	check(decoded.fixed32_value == 4294967295, "a fixed32 round trips through JSON")
+	check(decoded.fixed64_value == -1, "a fixed64 round trips through JSON")
+	check(decoded.sfixed32_value == -2147483648, "a sfixed32 round trips through JSON")
+	check(decoded.sfixed64_value == max_int64(), "a sfixed64 round trips through JSON")
+	check(decoded.bool_value, "a bool round trips through JSON")
+	check(decoded.string_value == "a \" quote and a \\ backslash", "a string round trips through JSON")
+	check(decoded.bytes_value == PackedByteArray([0, 1, 250, 255]), "bytes round trip through JSON as base64")
+	check(decoded.two_word_name == "camel", "a camelCase JSON name round trips")
+	check(decoded.flavor == Flavor.FLAVOR_BITTER, "an enum round trips through JSON")
+	check(decoded.primary is Reference and decoded.primary.label == "primary", "a message field round trips through JSON")
+	check(decoded.primary is Reference and decoded.primary.weight == max_int64(), "a message field's int64 round trips through JSON")
+	check(decoded.nickname is String and decoded.nickname == "", "an explicitly present empty string round trips through JSON")
+	check(decoded.tags == ["first", "second"], "a repeated string round trips through JSON")
+	check(decoded.tallies.size() == 3, "a repeated int64 keeps every element through JSON")
+	check(decoded.tallies.size() == 3 and decoded.tallies[0] == min_int64() and decoded.tallies[2] == max_int64(),
+		"a repeated int64 round trips through JSON")
+	check(decoded.flavors.size() == 2, "a repeated enum keeps every element through JSON")
+	check(decoded.flavors.size() == 2 and decoded.flavors[1] == Flavor.FLAVOR_BITTER, "a repeated enum round trips through JSON")
+	check(decoded.references.size() == 2, "a repeated message keeps every element through JSON")
+	check(decoded.references.size() == 2 and decoded.references[1].label == "second", "a repeated message element round trips through JSON")
+	check(decoded.counts == {"ore": 7}, "a string-keyed map round trips through JSON")
+	check(decoded.int32_keyed.has(-3) and decoded.int32_keyed[-3] == "negative", "an int32-keyed map round trips through JSON")
+	check(decoded.int64_keyed.has(min_int64()) and decoded.int64_keyed[min_int64()] == "narrowest",
+		"an int64-keyed map round trips through JSON")
+	check(decoded.uint64_keyed.has(-1) and decoded.uint64_keyed[-1] == "widest",
+		"a uint64-keyed map round trips through JSON")
+	check(decoded.bool_keyed.has(true) and decoded.bool_keyed[true].label == "flagged", "a bool-keyed map round trips through JSON")
+	check(decoded.inner is JsonSuite.Inner and decoded.inner.code == "nested", "a nested message round trips through JSON")
+
+	match decoded.choice:
+		JsonSuiteChoiceCase.Tally(var tally):
+			check(tally == min_int64(), "a 64-bit oneof member round trips through JSON")
+		_:
+			printerr("FAIL: JSON oneof case did not round trip")
+			failures += 1
+
+	## The well-known types carry their own JSON form, so a reference to one is
+	## the only place the generated surface delegates rather than writes.
+	check(decoded.occurred_at is foundry.proto.wkt.Timestamp and decoded.occurred_at.seconds == 1136214245,
+		"a Timestamp round trips through JSON")
+	check(decoded.occurred_at is foundry.proto.wkt.Timestamp and decoded.occurred_at.nanos == 10000000,
+		"a Timestamp fraction round trips through JSON")
+	check(decoded.elapsed is Duration and decoded.elapsed.seconds == 3 and decoded.elapsed.nanos == 1,
+		"a Duration round trips through JSON")
+	check(decoded.label is StringValue and decoded.label.value == "wrapped", "a wrapper round trips through JSON")
+	check(decoded.setting is Value, "a Value round trips through JSON")
+	if decoded.setting is Value:
+		match decoded.setting.kind:
+			ValueKindCase.NumberValue(var number):
+				## A whole number in a Value is written as 1.0, not 1: the kind
+				## has no integral case, so it goes out as a double.
+				check(number == 1.0, "a whole Value number round trips through JSON")
+				check(text.find('"setting":1.0') >= 0, "a whole Value number is written with a fraction")
+			_:
+				printerr("FAIL: Value kind did not round trip through JSON")
+				failures += 1
+	if decoded.attributes is Struct:
+		var decoded_name: Value? = decoded.attributes.fields.get("name")
+		if decoded_name is Value:
+			match decoded_name.kind:
+				ValueKindCase.StringValue(var member):
+					check(member == "axe", "a Struct member round trips through JSON")
+				_:
+					printerr("FAIL: Struct member kind did not round trip through JSON")
+					failures += 1
+		else:
+			printerr("FAIL: Struct member did not round trip through JSON")
+			failures += 1
+	else:
+		printerr("FAIL: Struct field did not round trip through JSON")
+		failures += 1
+
+	## An unknown member is refused rather than ignored, and the failure comes
+	## back as a value carrying the path that named it.
+	var unknown_result: JsonResult[JsonSuite] = JsonSuite.from_json(JsonNode.object_of({"nope": JsonNode.Int(1)}))
+	check(not unknown_result.is_ok(), "an unknown JSON member is refused")
+	if unknown_result.error != null:
+		check(unknown_result.error.message.find("JSON_UNKNOWN_FIELD") >= 0, "an unknown member names its error case")
+
+	## A JSON value of the wrong shape is refused with the case that names it.
+	var mistyped_result: JsonResult[JsonSuite] = JsonSuite.from_json(JsonNode.object_of({"int32Value": JsonNode.Str("nope")}))
+	check(not mistyped_result.is_ok(), "a mistyped JSON member is refused")
+	if mistyped_result.error != null:
+		check(mistyped_result.error.message.find("JSON_TYPE_MISMATCH") >= 0, "a mistyped member names its error case")
+
+## The fixture behind the JSON round trip, populated so that every field is
+## written: the mapping omits a field at its default, so a default-valued one
+## would leave its rule unexercised.
+func populated_json_suite() -> JsonSuite:
+	var suite: JsonSuite = JsonSuite.new()
+	suite.double_value = -2.5
+	suite.float_value = INF
+	suite.int32_value = -2147483648
+	suite.int64_value = min_int64()
+	suite.uint32_value = 4294967295
+	suite.uint64_value = -1
+	suite.sint32_value = -2147483648
+	suite.sint64_value = min_int64()
+	suite.fixed32_value = 4294967295
+	suite.fixed64_value = -1
+	suite.sfixed32_value = -2147483648
+	suite.sfixed64_value = max_int64()
+	suite.bool_value = true
+	suite.string_value = "a \" quote and a \\ backslash"
+	suite.bytes_value = PackedByteArray([0, 1, 250, 255])
+	suite.two_word_name = "camel"
+	suite.flavor = Flavor.FLAVOR_BITTER
+
+	var primary: Reference = Reference.new()
+	primary.label = "primary"
+	primary.weight = max_int64()
+	suite.primary = primary
+
+	## Present and empty, which the mapping distinguishes from absent.
+	suite.nickname = ""
+
+	suite.tags = ["first", "second"]
+	suite.tallies.append(min_int64())
+	suite.tallies.append(0)
+	suite.tallies.append(max_int64())
+	suite.flavors.append(Flavor.FLAVOR_SWEET)
+	suite.flavors.append(Flavor.FLAVOR_BITTER)
+
+	var first_element: Reference = Reference.new()
+	first_element.label = "first"
+	suite.references.append(first_element)
+	var second_element: Reference = Reference.new()
+	second_element.label = "second"
+	suite.references.append(second_element)
+
+	suite.counts["ore"] = 7
+	suite.int32_keyed[-3] = "negative"
+	suite.int64_keyed[min_int64()] = "narrowest"
+	suite.uint64_keyed[-1] = "widest"
+	var flagged: Reference = Reference.new()
+	flagged.label = "flagged"
+	suite.bool_keyed[true] = flagged
+
+	suite.choice = JsonSuiteChoiceCase.Tally(min_int64())
+
+	var occurred_at: foundry.proto.wkt.Timestamp = foundry.proto.wkt.Timestamp.new()
+	occurred_at.seconds = 1136214245
+	occurred_at.nanos = 10000000
+	suite.occurred_at = occurred_at
+
+	var elapsed: Duration = Duration.new()
+	elapsed.seconds = 3
+	elapsed.nanos = 1
+	suite.elapsed = elapsed
+
+	var name: Value = Value.new()
+	name.kind = ValueKindCase.StringValue("axe")
+	var attributes: Struct = Struct.new()
+	attributes.fields["name"] = name
+	suite.attributes = attributes
+
+	var setting: Value = Value.new()
+	setting.kind = ValueKindCase.NumberValue(1.0)
+	suite.setting = setting
+
+	var label: StringValue = StringValue.new()
+	label.value = "wrapped"
+	suite.label = label
+
+	var inner: JsonSuite.Inner = JsonSuite.Inner.new()
+	inner.code = "nested"
+	suite.inner = inner
+
+	return suite
 
 ## A JsonNode on its own has no route to JSON text: the native marshaller fires
 ## for objects that conform to JsonSerializable, and stringifying a bare node
