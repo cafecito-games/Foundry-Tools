@@ -993,6 +993,12 @@ func check_json_round_trip() -> void:
 	check(text.find('"nickname":""') >= 0, "an explicitly present empty string is written")
 	check(text.find('"flavor":"FLAVOR_BITTER"') >= 0, "an enum is written as its declared name")
 
+	## Reference declares weight before label and numbers it after, so this is
+	## the one place the two candidate orders disagree: members come out in
+	## field-number order, which is also what sort_keys = false preserves.
+	check(text.find('"primary":{"label":"primary","weight":"9223372036854775807"}') >= 0,
+		"members are written in field-number order rather than declaration order")
+
 	var parsed: JsonResult[JsonNode] = JSON.parse_to_node(text)
 	check(parsed.is_ok(), "the emitted JSON document parses")
 	if not parsed.is_ok():

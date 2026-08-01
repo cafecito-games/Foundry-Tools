@@ -2,6 +2,9 @@ namespace cafecito.json.v1
 import foundry.proto
 
 ## A message reached through a field rather than declared inline.
+## The two fields are declared in the reverse of their numbering, because JSON
+## member order follows the field number rather than the order of declaration.
+## Ordering them the same way in both would leave the rule unpinned.
 final class_name Reference extends RefCounted uses Message, JsonSerializable
 
 ## The label protobuf field.

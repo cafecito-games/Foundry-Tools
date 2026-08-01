@@ -15,9 +15,13 @@ enum Flavor {
 }
 
 // A message reached through a field rather than declared inline.
+//
+// The two fields are declared in the reverse of their numbering, because JSON
+// member order follows the field number rather than the order of declaration.
+// Ordering them the same way in both would leave the rule unpinned.
 message Reference {
-  string label = 1;
   int64 weight = 2;
+  string label = 1;
 }
 
 // Every field kind the canonical JSON mapping has a rule for, in one message.
