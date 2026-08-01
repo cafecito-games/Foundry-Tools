@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package cafecito.json.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+// Where a scalar sits in the canonical JSON mapping.
+enum Flavor {
+  FLAVOR_UNSPECIFIED = 0;
+  FLAVOR_SWEET = 1;
+  FLAVOR_BITTER = 2;
+}
+
+// A message reached through a field rather than declared inline.
+//
+// The two fields are declared in the reverse of their numbering, because JSON
+// member order follows the field number rather than the order of declaration.
+// Ordering them the same way in both would leave the rule unpinned.
+message Reference {
+  int64 weight = 2;
+  string label = 1;
+}
+
+// Every field kind the canonical JSON mapping has a rule for, in one message.
+//
+// The mapping is not uniform across the scalars: a 64-bit integer is a JSON
+// string, bytes are base64, an enum is its declared name, a float is a bare
+// number except when it is not finite. Holding all of them here is what makes
+// the generated JSON surface diffable in one place.
+message JsonSuite {
+  double double_value = 1;
+  float float_value = 2;
+  int32 int32_value = 3;
+  int64 int64_value = 4;
+  uint32 uint32_value = 5;
+  uint64 uint64_value = 6;
+  sint32 sint32_value = 7;
+  sint64 sint64_value = 8;
+  fixed32 fixed32_value = 9;
+  fixed64 fixed64_value = 10;
+  sfixed32 sfixed32_value = 11;
+  sfixed64 sfixed64_value = 12;
+  bool bool_value = 13;
+  string string_value = 14;
+  bytes bytes_value = 15;
+
+  // A camelCase JSON name is derived from a snake_case proto one, and both
+  // spellings are accepted on the way in.
+  string two_word_name = 16;
+
+  Flavor flavor = 17;
+  Reference primary = 18;
+
+  // Explicit presence: an absent nickname is omitted, an empty one is written.
+  optional string nickname = 19;
+
+  repeated string tags = 20;
+  repeated int64 tallies = 21;
+  repeated Flavor flavors = 22;
+  repeated Reference references = 23;
+
+  // A JSON member name is always a string, so every map key kind is written as
+  // one, and the 64-bit key kinds go through the same text as the fields do.
+  map<string, int32> counts = 24;
+  map<int32, string> int32_keyed = 25;
+  map<int64, string> int64_keyed = 26;
+  map<uint64, string> uint64_keyed = 27;
+  map<bool, Reference> bool_keyed = 28;
+
+  oneof choice {
+    string note = 29;
+    int64 tally = 30;
+    Reference detail = 31;
+  }
+
+  // The well-known types carry the special JSON form on their own bindings, so
+  // a reference to one recurses through the trait like any other message.
+  google.protobuf.Timestamp occurred_at = 32;
+  google.protobuf.Duration elapsed = 33;
+  google.protobuf.Struct attributes = 34;
+  google.protobuf.Value setting = 35;
+  google.protobuf.StringValue label = 36;
+
+  // Nested declarations keep proto's scoping: JsonSuite.Inner.
+  message Inner {
+    string code = 1;
+  }
+
+  Inner inner = 37;
+}

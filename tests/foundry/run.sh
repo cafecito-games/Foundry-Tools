@@ -47,6 +47,16 @@ RUN_LOG="$(mktemp)"
   "$PROJECT/well_known_dependency.proto" \
   "$PROJECT/well_known.proto"
 
+# The JSON option is off above, so everything generated so far covers the wire
+# codec on its own. The JSON surface is generated from the schema the JSON
+# golden corpus pins, which makes that corpus engine-verified rather than only
+# diffed: main.fs round trips the same message the goldens describe.
+"$ROOT/bin/anvil" proto generate \
+  --json \
+  -I "$ROOT/examples/golden-json" \
+  -o "$OUT" \
+  "$ROOT/examples/golden-json/json_suite.proto"
+
 # The runtime ships the well-known bindings, so no project copy may appear.
 if [ -d "$OUT/google" ]; then
   echo "a google/protobuf binding was generated into the project"

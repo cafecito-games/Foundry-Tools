@@ -20,21 +20,31 @@ const (
 
 	wellKnownGoldenProto = "../../examples/golden-wkt/event.proto"
 	wellKnownGoldenDir   = "../../examples/golden-wkt/generated"
+
+	jsonGoldenProto = "../../examples/golden-json/json_suite.proto"
+	jsonGoldenDir   = "../../examples/golden-json/generated"
 )
 
 // TestGoldenExampleProto keeps examples/golden in lockstep with the emitter.
 // Run `go test ./internal/proto -run TestGolden -update` to regenerate.
 func TestGoldenExampleProto(t *testing.T) {
-	requireGolden(t, goldenProto, goldenDir)
+	requireGolden(t, goldenProto, goldenDir, proto.Options{})
 }
 
 // TestGoldenWellKnownProto covers a schema whose every reference is to a
 // well-known type, in each position a reference can take.
 func TestGoldenWellKnownProto(t *testing.T) {
-	requireGolden(t, wellKnownGoldenProto, wellKnownGoldenDir)
+	requireGolden(t, wellKnownGoldenProto, wellKnownGoldenDir, proto.Options{})
 }
 
-func requireGolden(t *testing.T, protoPath, goldenPath string) {
+// TestGoldenJSONProto pins the emitter with the JSON option on. It is a corpus
+// of its own rather than a regeneration of examples/golden so that every other
+// golden assertion keeps covering the option's off-path.
+func TestGoldenJSONProto(t *testing.T) {
+	requireGolden(t, jsonGoldenProto, jsonGoldenDir, proto.Options{JSON: true})
+}
+
+func requireGolden(t *testing.T, protoPath, goldenPath string, options proto.Options) {
 	t.Helper()
 
 	parsedFiles, err := proto.ParseFiles([]string{protoPath}, []string{filepath.Dir(protoPath)})
@@ -44,7 +54,7 @@ func requireGolden(t *testing.T, protoPath, goldenPath string) {
 	parsed := parsedFiles[0]
 	require.Empty(t, proto.Validate(parsed.File, parsed.Filename))
 
-	generated, err := proto.Generate(parsed.File, parsed.Filename, proto.ImportsOf(parsed), proto.Options{})
+	generated, err := proto.Generate(parsed.File, parsed.Filename, proto.ImportsOf(parsed), options)
 	require.NoError(t, err)
 
 	if *updateGolden {
