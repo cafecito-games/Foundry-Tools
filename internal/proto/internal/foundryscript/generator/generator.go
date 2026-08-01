@@ -235,7 +235,7 @@ func enumDeclaration(typeName string, enum *protoast.Enum, inner bool, emission 
 	for _, value := range enum.Values {
 		values = append(values, fsast.EnumValue{
 			Doc:    docOrFallback(value.Doc, nil),
-			Name:   value.Name,
+			Name:   EnumValueName(value.Name),
 			Number: value.Number,
 		})
 	}
@@ -278,7 +278,7 @@ func enumWireFunctions(typeName string, enum *protoast.Enum) []fsast.Node {
 		emitted[value.Number] = true
 		fromWire = append(fromWire,
 			line(1, strconv.Itoa(value.Number)+":"),
-			line(2, "return "+typeName+"."+value.Name),
+			line(2, "return "+typeName+"."+EnumValueName(value.Name)),
 		)
 	}
 	fromWire = append(fromWire, line(1, "_:"), line(2, "return null"))
@@ -286,14 +286,14 @@ func enumWireFunctions(typeName string, enum *protoast.Enum) []fsast.Node {
 	return []fsast.Node{
 		fsast.Func{
 			Doc:        toWireDoc(),
-			Name:       "to_wire",
+			Name:       toWireMethod,
 			ReturnType: fstypes.Named("int"),
 			Body:       toWire,
 		},
 		fsast.Func{
 			Doc:        fromWireDoc(),
 			Static:     true,
-			Name:       "from_wire",
+			Name:       fromWireMethod,
 			Parameters: []fsast.Parameter{{Name: "value", Type: fstypes.Named("int")}},
 			// Self is the spelling that resolves to the namespaced enum from
 			// inside its own body; the bare name does not unify with it in

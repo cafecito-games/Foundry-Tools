@@ -1,6 +1,7 @@
 package fsgenerator
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -620,6 +621,54 @@ func TestGenerateEnumFieldsUseHostedWireConversion(t *testing.T) {
 	// companion of its own so it can stand in for the field on re-encode.
 	require.Contains(t, messageSource, "_pb_status_unknown = _pb_data.slice(_pb_offset, _pb_status_read.offset)")
 	require.Contains(t, messageSource, "var _pb_status_unknown: PackedByteArray = PackedByteArray()")
+}
+
+// An enum value spelled the same as one of the functions the enum hosts
+// beside it -- to_wire, from_wire, to_json_name, from_json_name -- would
+// otherwise declare that name twice: once as a case, once as a function. The
+// case is escaped exactly as a colliding message member is, and every
+// reference to it -- the declaration, from_wire's match arm, and
+// from_json_name's match arm -- follows the escaped spelling. The JSON name
+// itself is unaffected: canonical JSON still reads and writes the value's
+// original proto spelling.
+func TestGenerateEscapesEnumValueNamedForAHostedFunction(t *testing.T) {
+	reservedNames := []string{"to_wire", "from_wire", "to_json_name", "from_json_name"}
+
+	for _, reserved := range reservedNames {
+		t.Run(reserved, func(t *testing.T) {
+			files := generateJSON(t, namespacedFile(nil, []*protoast.Enum{{
+				Name: "Transport",
+				Values: []*protoast.EnumValue{
+					{Name: "TRANSPORT_UNSPECIFIED", Number: 0},
+					{Name: reserved, Number: 1},
+				},
+			}}), "transport.proto")
+
+			enumSource := files["cafecito/game/v1/Transport.pb.fs"]
+			escaped := reserved + "_"
+
+			// The case is declared under the escaped spelling, not the raw one
+			// that collides with the function.
+			require.Contains(t, enumSource, "\t"+escaped+" = 1\n")
+			require.NotContains(t, enumSource, "\t"+reserved+" = 1\n")
+
+			// The functions the collision is against are still emitted intact.
+			require.Contains(t, enumSource, "func to_wire() -> int:")
+			require.Contains(t, enumSource, "static func from_wire(value: int) -> Self?:")
+			require.Contains(t, enumSource, "func to_json_name() -> String:")
+			require.Contains(t, enumSource, "static func from_json_name(name: String) -> Self?:")
+
+			// from_wire resolves to the escaped case.
+			require.Contains(t, enumSource, "return Transport."+escaped)
+
+			// to_json_name still writes the value's original proto spelling.
+			require.Contains(t, enumSource, "return "+strconv.Quote(reserved))
+			// from_json_name still reads that same original spelling back, into
+			// the escaped case.
+			require.Contains(t, enumSource,
+				"\t\t\t"+strconv.Quote(reserved)+":\n\t\t\t\treturn Transport."+escaped)
+		})
+	}
 }
 
 func TestGenerateMapFields(t *testing.T) {
