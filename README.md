@@ -113,18 +113,21 @@ static func from_json(_pb_node: JsonNode) -> JsonResult[X]
 `JsonNode`, `JsonSerializable`, `JsonResult[T]`, and `JsonDecodeError` are engine
 builtins, not types this repository defines. Nothing is emitted for text
 conversion: go to text with `JSON.stringify(msg, "", false)` — the third
-argument turns off key sorting so members come out in field declaration order
-— and parse with `JSON.parse_to_node(text)`, which returns a
-`JsonResult[JsonNode]` to hand to `from_json`. The full proto3-to-JSON mapping
-is specified in
+argument turns off key sorting so members come out in ascending field-number
+order — and parse with `JSON.parse_to_node(text)`, which returns a
+`JsonResult[JsonNode]`; check `is_ok()` and pass its `.value` to `from_json`.
+The full proto3-to-JSON mapping is specified in
 [`docs/superpowers/specs/2026-07-31-proto3-canonical-json-design.md`](docs/superpowers/specs/2026-07-31-proto3-canonical-json-design.md).
 
 A JSON round trip is lossy in ways a wire round trip is not:
 
-- **No unknown-field preservation.** A member the schema does not recognize is
-  an error on the way in and has nothing to re-emit on the way out. An
-  unrecognized enum number becomes the default rather than being retained,
-  unlike the wire path, which keeps it in `_pb_unknown_fields`.
+- **No unknown-field preservation, and no retained enum number in any
+  position.** A member the schema does not recognize is an error on the way
+  in and has nothing to re-emit on the way out. An unrecognized enum number
+  always becomes the default: even the singular and `optional` case, where
+  the wire path keeps the raw number and writes it back (see the open-enum
+  note above), has no equivalent in JSON, since there is no field-position
+  byte buffer to hold it in.
 - **A bare 64-bit JSON number loses precision past 2^53.** The engine's
   parser produces a double, so a large integer literal arrives as a
   `JsonNode.Float`, never an `Int`. Our own output emits 64-bit integers as
