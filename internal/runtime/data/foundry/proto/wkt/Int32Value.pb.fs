@@ -65,8 +65,52 @@ func to_json() -> JsonNode:
 
 ## Decodes a proto3 canonical JSON document into a new Int32Value message.
 ##
-## Not generated yet: this reports a failure for every document. The
-## conformance it completes is what makes to_json reachable through
-## JSON.stringify, which is why the member exists ahead of the decoder.
+## JSON.parse_to_node(text).value produces the document; a malformed one is
+## already reported through that JsonResult, so no text entry point is
+## generated here.
 static func from_json(_pb_node: JsonNode) -> JsonResult[Int32Value]:
-	return JsonResult[Int32Value].fail("JSON_PARSE_FAILED: Int32Value cannot be decoded from JSON yet", "$")
+	var _pb_message: Int32Value = Int32Value.new()
+	var _pb_error: JsonDecodeError? = _pb_message._pb_merge_from_json(_pb_node)
+	if _pb_error is JsonDecodeError:
+		return JsonResult[Int32Value].fail(_pb_error.message, _pb_error.path)
+	return JsonResult[Int32Value].ok(_pb_message)
+
+## Merges a proto3 canonical JSON document into this message.
+##
+## A failure is returned rather than raised, matching the wire path, and
+## carries the JSONPath of the value that could not be read.
+func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
+	var (_pb_value_value, _pb_value_error) = _pb_json_read_int32(_pb_node, "$")
+	if _pb_value_error is JsonDecodeError:
+		return _pb_value_error
+	value = _pb_value_value
+	return null
+
+## Reads a signed 32-bit integer field out of a JSON value.
+##
+## The canonical mapping accepts a JSON string and a whole JSON number as
+## well as the number this emitter writes, so all three are read here. A
+## value outside the field's domain is refused rather than truncated.
+static func _pb_json_read_int32(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
+	var _pb_value: int = 0
+	match _pb_node:
+		JsonNode.Null:
+			pass
+		JsonNode.Int(var _pb_int):
+			_pb_value = _pb_int
+		JsonNode.Float(var _pb_float):
+			if _pb_float != floor(_pb_float):
+				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a signed 32-bit integer field cannot take a fractional number", _pb_path))
+			if _pb_float >= 2147483648.0 or _pb_float < -2147483648.0:
+				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a signed 32-bit integer field cannot hold this value", _pb_path))
+			_pb_value = int(_pb_float)
+		JsonNode.Str(var _pb_text):
+			if not _pb_text.is_valid_int():
+				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a signed 32-bit integer field cannot take this string", _pb_path))
+			_pb_value = _pb_text.to_int()
+		_:
+			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a signed 32-bit integer field takes a number or a string", _pb_path))
+	if _pb_value < -2147483648 or _pb_value > 2147483647:
+		return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a signed 32-bit integer field cannot hold this value", _pb_path))
+	var _pb_error: JsonDecodeError? = null
+	return (_pb_value, _pb_error)

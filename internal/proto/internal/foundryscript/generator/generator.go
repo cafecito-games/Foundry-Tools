@@ -255,7 +255,7 @@ func enumMembers(typeName string, enum *protoast.Enum, emission jsonEmission) []
 	if len(members) == 0 || !emission.Enabled {
 		return members
 	}
-	return append(members, enumJSONNameFunction(enum))
+	return append(members, enumJSONNameFunction(enum), enumFromJSONNameFunction(typeName, enum))
 }
 
 func enumWireFunctions(typeName string, enum *protoast.Enum) []fsast.Node {

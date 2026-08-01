@@ -69,8 +69,37 @@ func to_json() -> JsonNode:
 
 ## Decodes a proto3 canonical JSON document into a new ListValue message.
 ##
-## Not generated yet: this reports a failure for every document. The
-## conformance it completes is what makes to_json reachable through
-## JSON.stringify, which is why the member exists ahead of the decoder.
+## JSON.parse_to_node(text).value produces the document; a malformed one is
+## already reported through that JsonResult, so no text entry point is
+## generated here.
 static func from_json(_pb_node: JsonNode) -> JsonResult[ListValue]:
-	return JsonResult[ListValue].fail("JSON_PARSE_FAILED: ListValue cannot be decoded from JSON yet", "$")
+	var _pb_message: ListValue = ListValue.new()
+	var _pb_error: JsonDecodeError? = _pb_message._pb_merge_from_json(_pb_node)
+	if _pb_error is JsonDecodeError:
+		return JsonResult[ListValue].fail(_pb_error.message, _pb_error.path)
+	return JsonResult[ListValue].ok(_pb_message)
+
+## Merges a proto3 canonical JSON document into this message.
+##
+## A failure is returned rather than raised, matching the wire path, and
+## carries the JSONPath of the value that could not be read.
+func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
+	match _pb_node:
+		JsonNode.Null:
+			values = []
+		JsonNode.Array(var _pb_values_items):
+			values = []
+			var _pb_values_index: int = 0
+			while _pb_values_index < _pb_values_items.size():
+				var _pb_values_element_result: JsonResult[Value] = Value.from_json(_pb_values_items[_pb_values_index])
+				var _pb_values_element_error: JsonDecodeError? = _pb_values_element_result.error
+				if _pb_values_element_error is JsonDecodeError:
+					return JsonResult[ListValue].nested(_pb_values_element_error, str(_pb_values_index)).error
+				var _pb_values_element_value: Value? = _pb_values_element_result.value
+				if not (_pb_values_element_value is Value):
+					return JsonDecodeError.create("JSON_TYPE_MISMATCH: Value decoded to no value", "$." + str(_pb_values_index))
+				values.append(_pb_values_element_value)
+				_pb_values_index += 1
+		_:
+			return JsonDecodeError.create("JSON_TYPE_MISMATCH: values expects a JSON array", "$")
+	return null

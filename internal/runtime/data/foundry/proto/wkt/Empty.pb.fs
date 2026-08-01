@@ -54,8 +54,30 @@ func to_json() -> JsonNode:
 
 ## Decodes a proto3 canonical JSON document into a new Empty message.
 ##
-## Not generated yet: this reports a failure for every document. The
-## conformance it completes is what makes to_json reachable through
-## JSON.stringify, which is why the member exists ahead of the decoder.
+## JSON.parse_to_node(text).value produces the document; a malformed one is
+## already reported through that JsonResult, so no text entry point is
+## generated here.
 static func from_json(_pb_node: JsonNode) -> JsonResult[Empty]:
-	return JsonResult[Empty].fail("JSON_PARSE_FAILED: Empty cannot be decoded from JSON yet", "$")
+	var _pb_message: Empty = Empty.new()
+	var _pb_error: JsonDecodeError? = _pb_message._pb_merge_from_json(_pb_node)
+	if _pb_error is JsonDecodeError:
+		return JsonResult[Empty].fail(_pb_error.message, _pb_error.path)
+	return JsonResult[Empty].ok(_pb_message)
+
+## Merges a proto3 canonical JSON document into this message.
+##
+## A failure is returned rather than raised, matching the wire path, and
+## carries the JSONPath of the value that could not be read.
+func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
+	var _pb_entries: Dictionary[String, JsonNode] = {}
+	match _pb_node:
+		JsonNode.Object(var _pb_object):
+			_pb_entries = _pb_object
+		JsonNode.Null:
+			pass
+		_:
+			return JsonDecodeError.create("JSON_TYPE_MISMATCH: Empty expects a JSON object", "$")
+	for _pb_key: String in _pb_entries:
+		var _pb_member_path: String = "$." + _pb_key
+		return JsonDecodeError.create("JSON_UNKNOWN_FIELD: Empty has no field named " + _pb_key, _pb_member_path)
+	return null

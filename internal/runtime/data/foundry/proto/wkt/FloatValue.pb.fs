@@ -63,14 +63,6 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 func to_json() -> JsonNode:
 	return _pb_json_float(Wire.narrow_float32(value))
 
-## Decodes a proto3 canonical JSON document into a new FloatValue message.
-##
-## Not generated yet: this reports a failure for every document. The
-## conformance it completes is what makes to_json reachable through
-## JSON.stringify, which is why the member exists ahead of the decoder.
-static func from_json(_pb_node: JsonNode) -> JsonResult[FloatValue]:
-	return JsonResult[FloatValue].fail("JSON_PARSE_FAILED: FloatValue cannot be decoded from JSON yet", "$")
-
 ## Returns one float as canonical proto3 JSON.
 ##
 ## A non-finite value never reaches the Float case: the encoder writes NaN as
@@ -84,3 +76,53 @@ static func _pb_json_float(_pb_value: float) -> JsonNode:
 			return JsonNode.Str("Infinity")
 		return JsonNode.Str("-Infinity")
 	return JsonNode.Float(_pb_value)
+
+## Decodes a proto3 canonical JSON document into a new FloatValue message.
+##
+## JSON.parse_to_node(text).value produces the document; a malformed one is
+## already reported through that JsonResult, so no text entry point is
+## generated here.
+static func from_json(_pb_node: JsonNode) -> JsonResult[FloatValue]:
+	var _pb_message: FloatValue = FloatValue.new()
+	var _pb_error: JsonDecodeError? = _pb_message._pb_merge_from_json(_pb_node)
+	if _pb_error is JsonDecodeError:
+		return JsonResult[FloatValue].fail(_pb_error.message, _pb_error.path)
+	return JsonResult[FloatValue].ok(_pb_message)
+
+## Merges a proto3 canonical JSON document into this message.
+##
+## A failure is returned rather than raised, matching the wire path, and
+## carries the JSONPath of the value that could not be read.
+func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
+	var (_pb_value_value, _pb_value_error) = _pb_json_read_float(_pb_node, "$")
+	if _pb_value_error is JsonDecodeError:
+		return _pb_value_error
+	value = Wire.narrow_float32(_pb_value_value)
+	return null
+
+## Reads a floating-point field out of a JSON value.
+##
+## The three non-finite values have no JSON number form, so the canonical
+## mapping spells them as strings and they are read back from those.
+static func _pb_json_read_float(_pb_node: JsonNode, _pb_path: String) -> (float, JsonDecodeError?):
+	var _pb_value: float = 0.0
+	match _pb_node:
+		JsonNode.Null:
+			pass
+		JsonNode.Float(var _pb_float):
+			_pb_value = _pb_float
+		JsonNode.Int(var _pb_int):
+			_pb_value = _pb_int
+		JsonNode.Str(var _pb_text):
+			if _pb_text == "NaN":
+				_pb_value = NAN
+			elif _pb_text == "Infinity":
+				_pb_value = INF
+			elif _pb_text == "-Infinity":
+				_pb_value = -INF
+			else:
+				return (0.0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a floating-point field takes a number or one of the three non-finite strings", _pb_path))
+		_:
+			return (0.0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a floating-point field takes a number or one of the three non-finite strings", _pb_path))
+	var _pb_error: JsonDecodeError? = null
+	return (_pb_value, _pb_error)

@@ -73,11 +73,11 @@ func jsonFloatDoc() []string {
 // jsonMembers are the members Options.JSON adds to a message binding.
 func jsonMembers(plan *messagePlan, emission jsonEmission) []fsast.Node {
 	form := wellKnownJSONFormFor(emission.SourceName, plan.Scope)
-	members := []fsast.Node{toJSONFunction(plan, form), fromJSONSeamFunction(plan)}
+	members := []fsast.Node{toJSONFunction(plan, form)}
 	if jsonWritesAFloat(plan) {
 		members = append(members, jsonFloatFunction())
 	}
-	return members
+	return append(members, jsonDecodeMembers(plan, form)...)
 }
 
 // jsonUses is the trait list a message declares. Conforming to the engine's
@@ -100,39 +100,6 @@ func toJSONFunction(plan *messagePlan, form wellKnownJSONForm) fsast.Func {
 		Name:       toJSONMethod,
 		ReturnType: fstypes.Named(jsonNodeType),
 		Body:       body,
-	}
-}
-
-// fromJSONSeamFunction is the decode half of the trait, which the emitted
-// conformance cannot go without: the analyzer rejects a class that declares
-// JsonSerializable and implements only to_json, so the conformance -- and with
-// it the whole route from a message to JSON text -- is unavailable until both
-// halves exist.
-//
-// The decoder is generated separately. Until it lands this reports a failure
-// rather than returning a partly-decoded message, so a caller learns the
-// decode did not happen instead of being handed something that looks decoded.
-func fromJSONSeamFunction(plan *messagePlan) fsast.Func {
-	return fsast.Func{
-		Doc: []string{
-			"Decodes a proto3 canonical JSON document into a new " + plan.Name + " message.",
-			"",
-			"Not generated yet: this reports a failure for every document. The",
-			"conformance it completes is what makes to_json reachable through",
-			"JSON.stringify, which is why the member exists ahead of the decoder.",
-		},
-		Static:     true,
-		Name:       fromJSONMethod,
-		Parameters: []fsast.Parameter{{Name: jsonNodeParameter, Type: fstypes.Named(jsonNodeType)}},
-		ReturnType: fstypes.Generic("JsonResult", fstypes.Named(plan.Name)),
-		Body: []fsast.Node{
-			fsast.Return{Value: fmt.Sprintf(
-				"JsonResult[%s].fail(%s, %s)",
-				plan.Name,
-				strconv.Quote("JSON_PARSE_FAILED: "+plan.Name+" cannot be decoded from JSON yet"),
-				strconv.Quote("$"),
-			)},
-		},
 	}
 }
 

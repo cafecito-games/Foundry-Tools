@@ -27,3 +27,11 @@ enum_name NullValue:
 				return "NULL_VALUE"
 			_:
 				return "NULL_VALUE"
+
+	## Returns the case for a proto3 JSON name, or null if it names none.
+	static func from_json_name(name: String) -> Self?:
+		match name:
+			"NULL_VALUE":
+				return NullValue.NULL_VALUE
+			_:
+				return null

@@ -2005,15 +2005,13 @@ func TestJSONNestedMessagesRecurseThroughTheTrait(t *testing.T) {
 }
 
 // Conformance is all-or-nothing: the engine's analyzer rejects a class that
-// declares the trait and implements only half of it, so to_json cannot be
-// emitted behind the conformance without from_json beside it. Until the decoder
-// lands, from_json is a seam that reports rather than a decoder that lies.
-func TestJSONConformanceCarriesADecodeSeam(t *testing.T) {
+// declares the trait and implements only half of it, so the two halves are
+// emitted together.
+func TestJSONConformanceCarriesBothHalves(t *testing.T) {
 	source := jsonPlayerSource(t, &protoast.Field{FieldType: "string", Name: "name", Number: 1})
 
+	require.Contains(t, source, "func to_json() -> JsonNode:")
 	require.Contains(t, source, "static func from_json(_pb_node: JsonNode) -> JsonResult[Player]:")
-	require.Contains(t, source, `return JsonResult[Player].fail(`)
-	require.Contains(t, source, "JSON_PARSE_FAILED: ")
 }
 
 // wellKnownSource generates one google/protobuf file's messages under its own
@@ -2183,4 +2181,371 @@ func TestJSONNarrowsAProtoFloatToBinary32(t *testing.T) {
 	require.Contains(t, source, `_pb_json["speed"] = _pb_json_float(Wire.narrow_float32(speed))`)
 	// A double is already binary64; narrowing it would destroy the value.
 	require.Contains(t, source, `_pb_json["ratio"] = _pb_json_float(ratio)`)
+}
+
+// The decode surface is the engine's JsonSerializable half that #73 could only
+// stub: from_json constructs and merges, so repeated, map, and oneof members
+// are decoded once rather than twice.
+func TestJSONDecodeSurfaceIsConstructThenMerge(t *testing.T) {
+	source := jsonPlayerSource(t, &protoast.Field{FieldType: "string", Name: "name", Number: 1})
+
+	require.Contains(t, source, "static func from_json(_pb_node: JsonNode) -> JsonResult[Player]:")
+	require.Contains(t, source, "var _pb_message: Player = Player.new()")
+	require.Contains(t, source, "var _pb_error: JsonDecodeError? = _pb_message._pb_merge_from_json(_pb_node)")
+	require.Contains(t, source, "return JsonResult[Player].fail(_pb_error.message, _pb_error.path)")
+	require.Contains(t, source, "return JsonResult[Player].ok(_pb_message)")
+	require.Contains(t, source, "func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:")
+	// The seam #73 emitted is gone; two from_json declarations would not compile.
+	require.NotContains(t, source, "cannot be decoded from JSON yet")
+	// The caller passes JSON.parse_to_node(text).value, so no text entry point.
+	require.NotContains(t, source, "from_json_string")
+}
+
+// A document that is not an object cannot carry members, so the shape is
+// checked before anything is read out of it.
+func TestJSONDecodeRejectsANonObjectDocument(t *testing.T) {
+	source := jsonPlayerSource(t, &protoast.Field{FieldType: "string", Name: "name", Number: 1})
+
+	require.Contains(t, source,
+		`return JsonDecodeError.create("JSON_TYPE_MISMATCH: Player expects a JSON object", "$")`)
+}
+
+// Both spellings are accepted on input; the specification's camelCase form and
+// the original proto name name the same field.
+func TestJSONDecodeAcceptsBothFieldNameSpellings(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "string", Name: "display_name", Number: 1},
+		&protoast.Field{FieldType: "string", Name: "name", Number: 2},
+	)
+
+	require.Contains(t, source, "\t\t\t\"displayName\", \"display_name\":\n")
+	// A field whose two spellings agree is listed once, not twice.
+	require.Contains(t, source, "\t\t\t\"name\":\n")
+}
+
+// JSON has no unknown-field preservation, so a member the schema does not know
+// is an error rather than something silently dropped.
+func TestJSONDecodeRejectsAnUnknownMember(t *testing.T) {
+	source := jsonPlayerSource(t, &protoast.Field{FieldType: "string", Name: "name", Number: 1})
+
+	require.Contains(t, source,
+		`return JsonDecodeError.create("JSON_UNKNOWN_FIELD: Player has no field named " + _pb_key, _pb_member_path)`)
+	require.Contains(t, source, `var _pb_member_path: String = "$." + _pb_key`)
+}
+
+// The readers follow the specification's accept column, which is wider than the
+// case the emitter writes: a 32-bit field takes a string and an integral float
+// as well as a number.
+func TestJSONDecodeAcceptsTheSpecifiedCasesPer32BitField(t *testing.T) {
+	source := jsonPlayerSource(t, &protoast.Field{FieldType: "int32", Name: "level", Number: 1})
+
+	require.Contains(t, source,
+		"static func _pb_json_read_int32(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):")
+	require.Contains(t, source, "JsonNode.Int(var _pb_int):")
+	require.Contains(t, source, "JsonNode.Float(var _pb_float):")
+	require.Contains(t, source, "if _pb_float != floor(_pb_float):")
+	require.Contains(t, source, "if not _pb_text.is_valid_int():")
+	require.Contains(t, source, "if _pb_value < -2147483648 or _pb_value > 2147483647:")
+	require.Contains(t, source,
+		`JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a signed 32-bit integer field cannot hold this value", _pb_path)`)
+	require.Contains(t, source, "var (_pb_level_value, _pb_level_error) = _pb_json_read_int32(_pb_member, _pb_member_path)")
+	require.Contains(t, source, "level = _pb_level_value")
+}
+
+// An unsigned 32-bit field spans a range the signed one does not, so it gets a
+// reader of its own rather than sharing the signed bounds.
+func TestJSONDecodeBoundsAnUnsigned32BitFieldOnItsOwnRange(t *testing.T) {
+	source := jsonPlayerSource(t, &protoast.Field{FieldType: "uint32", Name: "count", Number: 1})
+
+	require.Contains(t, source,
+		"static func _pb_json_read_uint32(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):")
+	require.Contains(t, source, "if _pb_value < 0 or _pb_value > 4294967295:")
+}
+
+// A large bare number arrives as a Float, never an Int, because the engine's
+// parser produces a double; the string form is the one that stays exact.
+func TestJSONDecodeAcceptsAllThreeCasesForA64BitField(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "int64", Name: "score", Number: 1},
+		&protoast.Field{FieldType: "uint64", Name: "seed", Number: 2},
+	)
+
+	require.Contains(t, source,
+		"static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):")
+	require.Contains(t, source, "_pb_value = _pb_text.to_int()")
+	require.Contains(t, source, "if _pb_float >= 9223372036854775808.0 or _pb_float < -9223372036854775808.0:")
+	// An unsigned 64-bit field shares the signed reader, matching what the
+	// serializer writes for it.
+	require.Contains(t, source, "var (_pb_seed_value, _pb_seed_error) = _pb_json_read_int64(_pb_member, _pb_member_path)")
+	require.NotContains(t, source, "_pb_json_read_uint64")
+}
+
+// The three non-finite strings are the only spelling canonical JSON has for
+// them, so a float field has to read them back.
+func TestJSONDecodeReadsTheNonFiniteFloatStrings(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "double", Name: "ratio", Number: 1},
+		&protoast.Field{FieldType: "float", Name: "speed", Number: 2},
+	)
+
+	require.Contains(t, source,
+		"static func _pb_json_read_float(_pb_node: JsonNode, _pb_path: String) -> (float, JsonDecodeError?):")
+	require.Contains(t, source, `if _pb_text == "NaN":`)
+	require.Contains(t, source, `if _pb_text == "Infinity":`)
+	require.Contains(t, source, `if _pb_text == "-Infinity":`)
+	require.Contains(t, source, "ratio = _pb_ratio_value")
+	// A proto float is binary32, so the wider value a document may carry is
+	// narrowed exactly as the encoder narrows it on the way out.
+	require.Contains(t, source, "speed = Wire.narrow_float32(_pb_speed_value)")
+}
+
+func TestJSONDecodeReadsBoolStringAndBytes(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "bool", Name: "active", Number: 1},
+		&protoast.Field{FieldType: "string", Name: "name", Number: 2},
+		&protoast.Field{FieldType: "bytes", Name: "blob", Number: 3},
+	)
+
+	require.Contains(t, source, "static func _pb_json_read_bool(_pb_node: JsonNode, _pb_path: String) -> (bool, JsonDecodeError?):")
+	require.Contains(t, source, "static func _pb_json_read_string(_pb_node: JsonNode, _pb_path: String) -> (String, JsonDecodeError?):")
+	require.Contains(t, source, "static func _pb_json_read_bytes(_pb_node: JsonNode, _pb_path: String) -> (PackedByteArray, JsonDecodeError?):")
+	require.Contains(t, source, "var (_pb_bytes, _pb_bytes_error) = JsonBase64.decode(_pb_text)")
+}
+
+// A reader a message never calls would be dead code in every generated file.
+func TestJSONDecodeReadersAreEmittedOnlyWhereTheyAreCalled(t *testing.T) {
+	source := jsonPlayerSource(t, &protoast.Field{FieldType: "string", Name: "name", Number: 1})
+
+	require.Contains(t, source, "_pb_json_read_string")
+	require.NotContains(t, source, "_pb_json_read_int32")
+	require.NotContains(t, source, "_pb_json_read_bytes")
+}
+
+// An explicit-presence field distinguishes unset from its default, so a JSON
+// null clears it rather than writing the default over it.
+func TestJSONDecodeClearsANullableFieldOnNull(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "int32", Name: "level", Number: 1, Optional: true},
+		&protoast.Field{FieldType: "Slot", Name: "slot", Number: 2},
+	)
+
+	require.Contains(t, source, "JsonNode.Null:\n\t\t\t\t\t\tlevel = null")
+	require.Contains(t, source, "JsonNode.Null:\n\t\t\t\t\t\tslot = null")
+}
+
+// A nested message decodes through the trait, and its failure is re-rooted at
+// the document root so the reported path reads from there.
+func TestJSONDecodeRerootsANestedFailure(t *testing.T) {
+	files := generateJSON(t, namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "Slot", Name: "slot", Number: 1}},
+	}, slotMessage()}, nil), "player.proto")
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "var _pb_slot_result: JsonResult[Slot] = Slot.from_json(_pb_member)")
+	require.Contains(t, source, "return JsonResult[Player].nested(_pb_slot_error, _pb_key).error")
+}
+
+// A repeated member is an array, and each element reports its own index in the
+// path so a failure names the element rather than the field.
+func TestJSONDecodeReadsRepeatedFieldsWithIndexedPaths(t *testing.T) {
+	source := jsonPlayerSource(t,
+		&protoast.Field{FieldType: "string", Name: "tags", Number: 1, Repeated: true},
+	)
+
+	require.Contains(t, source, "JsonNode.Array(var _pb_tags_items):")
+	require.Contains(t, source, "tags = []")
+	require.Contains(t, source, "while _pb_tags_index < _pb_tags_items.size():")
+	require.Contains(t, source, `_pb_json_read_string(_pb_tags_items[_pb_tags_index], _pb_member_path + "." + str(_pb_tags_index))`)
+	require.Contains(t, source, "tags.append(_pb_tags_element_value)")
+	require.Contains(t, source,
+		`return JsonDecodeError.create("JSON_TYPE_MISMATCH: tags expects a JSON array", _pb_member_path)`)
+}
+
+// JSON object keys are strings, so a non-string map key is parsed back out of
+// the key text rather than read as a JSON value.
+func TestJSONDecodeParsesMapKeysOutOfTheirText(t *testing.T) {
+	files := generateJSON(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Maps: []*protoast.MapField{
+			{KeyType: "string", ValueType: "int32", Name: "counts", Number: 1},
+			{KeyType: "int64", ValueType: "string", Name: "labels", Number: 2},
+			{KeyType: "bool", ValueType: "string", Name: "flags", Number: 3},
+		},
+	}}, nil), "player.proto")
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "JsonNode.Object(var _pb_counts_entries):")
+	require.Contains(t, source, "for _pb_counts_key: String in _pb_counts_entries:")
+	require.Contains(t, source, "counts[_pb_counts_key] = _pb_counts_value")
+	require.Contains(t, source, "_pb_json_read_int64(JsonNode.Str(_pb_labels_key)")
+	require.Contains(t, source, `if _pb_flags_key == "true":`)
+	require.Contains(t, source,
+		`return JsonDecodeError.create("JSON_TYPE_MISMATCH: a bool map key takes \"true\" or \"false\"", _pb_flags_key_path)`)
+}
+
+// A oneof member is an ordinary JSON member; reading it sets the union case.
+func TestJSONDecodeSetsTheOneofCaseItReads(t *testing.T) {
+	files := generateJSON(t, namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Oneofs: []*protoast.Oneof{{
+			Name: "payload",
+			Fields: []*protoast.Field{
+				{FieldType: "string", Name: "text", Number: 1},
+				{FieldType: "int32", Name: "amount", Number: 2},
+			},
+		}},
+	}}, nil), "player.proto")
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, "payload = PlayerPayloadCase.Text(_pb_payload_text_value)")
+	require.Contains(t, source, "payload = PlayerPayloadCase.Amount(_pb_payload_amount_value)")
+}
+
+// Canonical JSON writes an enum as its case name, so the enum hosts the
+// conversion back for the same reason it hosts from_wire.
+func TestJSONDecodeReadsAnEnumFromANameOrANumber(t *testing.T) {
+	files := generateJSON(t, namespacedFile([]*protoast.Message{{
+		Name:   "Player",
+		Fields: []*protoast.Field{{FieldType: "Tier", Name: "tier", Number: 1}},
+	}}, []*protoast.Enum{{
+		Name: "Tier",
+		Values: []*protoast.EnumValue{
+			{Name: "TIER_BRONZE", Number: 0},
+			{Name: "TIER_GOLD", Number: 1},
+		},
+	}}), "player.proto")
+
+	enumSource := files["cafecito/game/v1/Tier.pb.fs"]
+	require.Contains(t, enumSource, "static func from_json_name(name: String) -> Self?:")
+	require.Contains(t, enumSource, "\t\t\t\"TIER_GOLD\":\n\t\t\t\treturn Tier.TIER_GOLD")
+
+	source := files["cafecito/game/v1/Player.pb.fs"]
+	require.Contains(t, source, "var _pb_tier_case: Tier? = Tier.from_json_name(_pb_tier_name)")
+	// An unrecognized number takes the default; an unrecognized name does not,
+	// because a name that no case answers to is a typo, not a newer schema.
+	require.Contains(t, source, "var _pb_tier_wire: Tier? = Tier.from_wire(_pb_tier_number)")
+	require.Contains(t, source,
+		`return JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: Tier has no case with this JSON name", _pb_member_path)`)
+}
+
+func TestEnumJSONNameDecodeIsAbsentWithoutTheOption(t *testing.T) {
+	files := generate(t, namespacedFile(nil, []*protoast.Enum{{
+		Name:   "Tier",
+		Values: []*protoast.EnumValue{{Name: "TIER_BRONZE", Number: 0}},
+	}}))
+
+	require.NotContains(t, files["cafecito/game/v1/Tier.pb.fs"], "from_json_name")
+}
+
+func TestWellKnownTimestampAndDurationDecodeThroughTheirRuntimeHelpers(t *testing.T) {
+	secondsAndNanos := []*protoast.Field{
+		{FieldType: "int64", Name: "seconds", Number: 1},
+		{FieldType: "int32", Name: "nanos", Number: 2},
+	}
+
+	timestamp := wellKnownSource(t, "google/protobuf/timestamp.proto", "Timestamp",
+		&protoast.Message{Name: "Timestamp", Fields: secondsAndNanos})
+	require.Contains(t, timestamp, "var (_pb_seconds, _pb_nanos, _pb_error) = JsonTimestamp.parse(_pb_text)")
+	require.Contains(t, timestamp, "seconds = _pb_seconds")
+	require.Contains(t, timestamp, "nanos = _pb_nanos")
+	require.Contains(t, timestamp,
+		`return JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: Timestamp cannot be decoded from this JSON string", "$")`)
+	require.Contains(t, timestamp,
+		`return JsonDecodeError.create("JSON_TYPE_MISMATCH: Timestamp expects a JSON string", "$")`)
+
+	duration := wellKnownSource(t, "google/protobuf/duration.proto", "Duration",
+		&protoast.Message{Name: "Duration", Fields: secondsAndNanos})
+	require.Contains(t, duration, "var (_pb_seconds, _pb_nanos, _pb_error) = JsonDuration.parse(_pb_text)")
+}
+
+func TestWellKnownFieldMaskDecodesThroughItsRuntimeHelper(t *testing.T) {
+	source := wellKnownSource(t, "google/protobuf/field_mask.proto", "FieldMask",
+		&protoast.Message{Name: "FieldMask", Fields: []*protoast.Field{
+			{FieldType: "string", Name: "paths", Number: 1, Repeated: true},
+		}})
+
+	require.Contains(t, source, "var (_pb_paths, _pb_error) = JsonFieldMask.from_json(_pb_text)")
+	require.Contains(t, source, "paths = _pb_paths")
+}
+
+// A wrapper's JSON form is the bare scalar, so the whole document is the value.
+func TestWellKnownWrappersDecodeTheBareScalar(t *testing.T) {
+	source := wellKnownSource(t, "google/protobuf/wrappers.proto", "Int32Value",
+		&protoast.Message{Name: "Int32Value", Fields: []*protoast.Field{
+			{FieldType: "int32", Name: "value", Number: 1},
+		}})
+
+	require.Contains(t, source, `var (_pb_value_value, _pb_value_error) = _pb_json_read_int32(_pb_node, "$")`)
+	require.Contains(t, source, "value = _pb_value_value")
+}
+
+// Empty has no fields, so every member of its document is unknown and there is
+// no key table to match against.
+func TestWellKnownEmptyDecodesAnEmptyObject(t *testing.T) {
+	source := wellKnownSource(t, "google/protobuf/empty.proto", "Empty",
+		&protoast.Message{Name: "Empty"})
+
+	require.Contains(t, source, "func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:")
+	require.Contains(t, source,
+		`return JsonDecodeError.create("JSON_UNKNOWN_FIELD: Empty has no field named " + _pb_key, _pb_member_path)`)
+	require.NotContains(t, source, "match _pb_key:")
+}
+
+func TestWellKnownStructListValueAndValueDecodeFromPlainJSON(t *testing.T) {
+	files := generateJSON(t, namespacedFile([]*protoast.Message{
+		{Name: "Struct", Maps: []*protoast.MapField{
+			{KeyType: "string", ValueType: "Value", Name: "fields", Number: 1},
+		}},
+		{Name: "ListValue", Fields: []*protoast.Field{
+			{FieldType: "Value", Name: "values", Number: 1, Repeated: true},
+		}},
+		{Name: "Value", Oneofs: []*protoast.Oneof{{
+			Name: "kind",
+			Fields: []*protoast.Field{
+				{FieldType: "NullValue", Name: "null_value", Number: 1},
+				{FieldType: "double", Name: "number_value", Number: 2},
+				{FieldType: "string", Name: "string_value", Number: 3},
+				{FieldType: "bool", Name: "bool_value", Number: 4},
+				{FieldType: "Struct", Name: "struct_value", Number: 5},
+				{FieldType: "ListValue", Name: "list_value", Number: 6},
+			},
+		}}},
+	}, []*protoast.Enum{{
+		Name:   "NullValue",
+		Values: []*protoast.EnumValue{{Name: "NULL_VALUE", Number: 0}},
+	}}), "google/protobuf/struct.proto")
+
+	structSource := files["cafecito/game/v1/Struct.pb.fs"]
+	require.Contains(t, structSource, "for _pb_fields_key: String in _pb_entries:")
+	require.Contains(t, structSource, "fields[_pb_fields_key] = _pb_fields_value")
+
+	listSource := files["cafecito/game/v1/ListValue.pb.fs"]
+	require.Contains(t, listSource, "JsonNode.Array(var _pb_values_items):")
+	require.Contains(t, listSource, "values.append(_pb_values_element_value)")
+
+	// A Value maps case for case onto the engine's JsonNode, which is what
+	// makes the two agree about what a JSON value is.
+	valueSource := files["cafecito/game/v1/Value.pb.fs"]
+	require.Contains(t, valueSource, "JsonNode.Null:\n\t\t\tkind = ValueKindCase.NullValue(NullValue.NULL_VALUE)")
+	require.Contains(t, valueSource, "kind = ValueKindCase.BoolValue(_pb_bool)")
+	// Value.number_value is a double, so a whole number lands there too.
+	require.Contains(t, valueSource, "JsonNode.Int(var _pb_int):\n\t\t\tkind = ValueKindCase.NumberValue(_pb_int)")
+	require.Contains(t, valueSource, "JsonNode.Float(var _pb_float):\n\t\t\tkind = ValueKindCase.NumberValue(_pb_float)")
+	require.Contains(t, valueSource, "kind = ValueKindCase.StringValue(_pb_text)")
+	require.Contains(t, valueSource, "ListValue.from_json(JsonNode.array_of(_pb_items))")
+	require.Contains(t, valueSource, "Struct.from_json(JsonNode.object_of(_pb_object))")
+}
+
+// Any needs its type URL resolved to a generated binding, which needs a runtime
+// type registry that does not exist yet, so the decode half says so too.
+func TestWellKnownAnyReportsThatItCannotBeDecoded(t *testing.T) {
+	source := wellKnownSource(t, "google/protobuf/any.proto", "Any",
+		&protoast.Message{Name: "Any", Fields: []*protoast.Field{
+			{FieldType: "string", Name: "type_url", Number: 1},
+			{FieldType: "bytes", Name: "value", Number: 2},
+		}})
+
+	require.Contains(t, source, `return JsonDecodeError.create("JSON_ANY_UNSUPPORTED: `)
+	require.NotContains(t, source, "_pb_json_read_bytes")
 }
