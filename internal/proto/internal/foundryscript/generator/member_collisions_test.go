@@ -190,6 +190,27 @@ func TestGenerateMethodEscapeCollidesOnlyAtEscapedSpelling(t *testing.T) {
 	require.NotContains(t, err.Error(), "generated method")
 }
 
+// Escaping an enum value that collides with a hosted function is not
+// injective: a value already spelled `to_wire_` collides with one spelled
+// `to_wire` once the latter is escaped to the same identifier. This is caught
+// as a collision rather than silently generating two cases with the same
+// name.
+func TestGenerateReportsEnumValueEscapeCollisions(t *testing.T) {
+	files, err := Generate(namespacedFile(nil, []*protoast.Enum{{
+		Name: "Transport",
+		Values: []*protoast.EnumValue{
+			{Position: protoast.Position{Line: 4, Column: 3}, Name: "to_wire", Number: 0},
+			{Position: protoast.Position{Line: 5, Column: 3}, Name: "to_wire_", Number: 1},
+		},
+	}}), "members.proto", nil, Options{})
+
+	require.Nil(t, files)
+	require.EqualError(t, err, `generated Foundry member names collide:
+  members.proto:4:3: enum value cafecito.game.v1.Transport.to_wire generates Foundry member "to_wire_" after escaping generated member
+  members.proto:5:3: enum value cafecito.game.v1.Transport.to_wire_ generates Foundry member "to_wire_"
+  rename one protobuf declaration in cafecito.game.v1.Transport`)
+}
+
 func TestMemberCollisionCollectorReportsPositionlessClaims(t *testing.T) {
 	collector := newMemberCollisionCollector()
 	collector.addMessage("descriptor.proto", "cafecito.game.v1.Outer.Inner", []fieldPlan{

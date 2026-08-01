@@ -91,6 +91,39 @@ func (c *memberCollisionCollector) addMessage(
 	}
 }
 
+// addEnum registers every name a generated enum declares: the functions it
+// always hosts beside its values, and each value once escaped. Escaping is
+// not injective -- a value already spelled `to_wire_` collides with one
+// spelled `to_wire` once the latter is escaped -- so this is what catches
+// that collision instead of silently generating two cases with the same
+// identifier.
+func (c *memberCollisionCollector) addEnum(sourceName, enumName string, enum *protoast.Enum) {
+	if c == nil {
+		return
+	}
+	for _, methodName := range generatedEnumMethodNames() {
+		c.add(memberClaim{
+			SourceName:    sourceName,
+			MessageName:   enumName,
+			Kind:          "generated method",
+			RawName:       methodName,
+			GeneratedName: methodName,
+		})
+	}
+	for _, value := range enum.Values {
+		planned := planEnumValueName(value.Name)
+		c.add(memberClaim{
+			SourceName:    sourceName,
+			Position:      value.Position,
+			MessageName:   enumName,
+			Kind:          "enum value",
+			RawName:       value.Name,
+			GeneratedName: planned.Generated,
+			Escape:        planned.Escape,
+		})
+	}
+}
+
 func (c *memberCollisionCollector) add(claim memberClaim) {
 	if c.byMessage == nil {
 		c.byMessage = map[string]map[string][]memberClaim{}

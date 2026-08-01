@@ -336,6 +336,62 @@ var generatedMemberNames = func() map[string]bool {
 	return names
 }()
 
+// These constants are the source of truth for method spellings hosted on
+// every generated enum, beside its values.
+const (
+	toWireMethod   = "to_wire"
+	fromWireMethod = "from_wire"
+)
+
+// generatedEnumMethodNames returns a fresh ordered inventory of the functions
+// a generated enum hosts beside its values.
+//
+// Exactly like generatedMethodNames, the JSON pair is listed whether or not
+// the option is on: an enum value that escaped only when JSON was switched on
+// would rename a case out from under every caller of the binding.
+func generatedEnumMethodNames() []string {
+	return []string{
+		toWireMethod,
+		fromWireMethod,
+		toJSONNameMethod,
+		fromJSONNameMethod,
+	}
+}
+
+// generatedEnumValueNames are the case names every generated enum's own
+// functions would collide with. A proto enum value spelled the same way is
+// renamed for the same reason a message field colliding with a generated
+// member is.
+var generatedEnumValueNames = func() map[string]bool {
+	names := make(map[string]bool, len(generatedEnumMethodNames()))
+	for _, methodName := range generatedEnumMethodNames() {
+		names[methodName] = true
+	}
+	return names
+}()
+
+// planEnumValueName decides whether a proto enum value's name collides with a
+// function the generated enum hosts beside it. It reuses the same escape
+// convention planMemberName applies to a message member colliding with a
+// generated one, rather than inventing a second one.
+func planEnumValueName(name string) plannedMemberName {
+	if generatedEnumValueNames[name] {
+		return plannedMemberName{
+			Generated: name + "_",
+			Escape:    memberEscape{Kind: memberEscapeGenerated, ReservedName: name},
+		}
+	}
+	return plannedMemberName{Generated: name}
+}
+
+// EnumValueName converts a proto enum value name to the name it is emitted
+// as. A value spelled the same as one of the functions the enum hosts beside
+// it -- to_wire, from_wire, to_json_name, from_json_name -- receives exactly
+// one trailing underscore; every other name passes through unchanged.
+func EnumValueName(name string) string {
+	return planEnumValueName(name).Generated
+}
+
 func planNonEngineMemberName(name string) plannedMemberName {
 	switch {
 	case reservedFieldNames[name]:

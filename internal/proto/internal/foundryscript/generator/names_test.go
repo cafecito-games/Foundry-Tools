@@ -265,6 +265,48 @@ func TestJSONFieldNameHonoursExplicitlyEmptyJSONNameOption(t *testing.T) {
 	require.Equal(t, "", jsonFieldName("player_id", options))
 }
 
+func TestGeneratedEnumMethodNamesAreFreshAndReserved(t *testing.T) {
+	want := []string{"to_wire", "from_wire", "to_json_name", "from_json_name"}
+	require.Equal(t, "to_wire", toWireMethod)
+	require.Equal(t, "from_wire", fromWireMethod)
+	require.Equal(t, "to_json_name", toJSONNameMethod)
+	require.Equal(t, "from_json_name", fromJSONNameMethod)
+	require.Equal(t, want, generatedEnumMethodNames())
+
+	mutated := generatedEnumMethodNames()
+	mutated[0] = "changed"
+	require.Equal(t, want, generatedEnumMethodNames())
+
+	for _, methodName := range want {
+		require.True(t, generatedEnumValueNames[methodName])
+	}
+}
+
+func TestPlanEnumValueNameEscapesHostedFunctionNames(t *testing.T) {
+	tests := []struct {
+		raw       string
+		generated string
+		kind      memberEscapeKind
+		reason    string
+	}{
+		{raw: "to_wire", generated: "to_wire_", kind: memberEscapeGenerated, reason: "generated member"},
+		{raw: "from_wire", generated: "from_wire_", kind: memberEscapeGenerated, reason: "generated member"},
+		{raw: "to_json_name", generated: "to_json_name_", kind: memberEscapeGenerated, reason: "generated member"},
+		{raw: "from_json_name", generated: "from_json_name_", kind: memberEscapeGenerated, reason: "generated member"},
+		{raw: "TRANSPORT_UNSPECIFIED", generated: "TRANSPORT_UNSPECIFIED", kind: memberEscapeNone},
+		{raw: "var", generated: "var", kind: memberEscapeNone},
+	}
+	for _, test := range tests {
+		t.Run(test.raw, func(t *testing.T) {
+			got := planEnumValueName(test.raw)
+			require.Equal(t, test.generated, got.Generated)
+			require.Equal(t, test.kind, got.Escape.Kind)
+			require.Equal(t, test.reason, got.Escape.description())
+			require.Equal(t, test.generated, EnumValueName(test.raw))
+		})
+	}
+}
+
 func TestPlanOneofAlternativeNameSkipsEngineTypes(t *testing.T) {
 	require.Equal(t, "Image", planOneofAlternativeName("Image").Generated)
 	require.Equal(t, memberEscapeNone, planOneofAlternativeName("Image").Escape.Kind)

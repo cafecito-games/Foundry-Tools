@@ -558,7 +558,7 @@ func enumFromJSONNameFunction(typeName string, enum *protoast.Enum) fsast.Func {
 		// every declared spelling names a case of its own.
 		body = append(body,
 			line(1, strconv.Quote(value.Name)+":"),
-			line(2, "return "+typeName+"."+value.Name),
+			line(2, "return "+typeName+"."+EnumValueName(value.Name)),
 		)
 	}
 	body = append(body, line(1, "_:"), line(2, "return null"))
