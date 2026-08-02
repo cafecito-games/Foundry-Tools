@@ -58,6 +58,13 @@ own; the referencing file gets `import foundry.proto.wkt` and refers to
 which would otherwise produce a second copy of a type the runtime already
 defines.
 
+Before substituting a caller-supplied canonical `google/protobuf` file with the
+runtime binding, Foundry Tools checks that its schema is structurally
+compatible. Renaming fields, changing comments or options, and adding new
+declarations are compatible. Removing or moving a canonical field, or changing
+its type, cardinality, map shape, or `oneof` membership, is an error whose
+diagnostic names the canonical file, type, and field.
+
 A file is recognized as well-known by its import path — its path relative to an
 include root, which is how protoc names it — and never by where the copy sits on
 disk. A repo that vendors the protos and runs `anvil proto generate -I vendor

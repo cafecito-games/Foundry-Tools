@@ -48,6 +48,30 @@ func TestProtocPluginEscapesFoundryMemberCollisions(t *testing.T) {
 	requireMemberProbeEscapes(t, outDir)
 }
 
+func TestProtocPluginAcceptsBundledWellKnown(t *testing.T) {
+	root := repoRoot(t)
+	includeRoot := t.TempDir()
+	outDir := t.TempDir()
+	pluginPath := buildProtocPlugin(t, root)
+	require.NoError(t, os.WriteFile(filepath.Join(includeRoot, "event.proto"), []byte(`syntax = "proto3";
+package cafecito.game.v1;
+import "google/protobuf/timestamp.proto";
+message Event { google.protobuf.Timestamp occurred_at = 1; }
+`), 0o600))
+
+	run(t, root, "protoc",
+		"--plugin=protoc-gen-foundryscript="+pluginPath,
+		"--foundryscript_out="+outDir,
+		"-I", includeRoot,
+		filepath.Join(includeRoot, "event.proto"),
+	)
+
+	data, err := os.ReadFile(filepath.Join(outDir, "cafecito", "game", "v1", "Event.pb.fs"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "import foundry.proto.wkt")
+	require.Contains(t, string(data), "var occurred_at: Timestamp? = null")
+}
+
 func buildProtocPlugin(t *testing.T, root string) string {
 	t.Helper()
 

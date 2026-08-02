@@ -60,6 +60,9 @@ func newGenerateCommand(stdout io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := CheckWellKnownCompatibility(parsedSchemaFiles(parsedFiles)); err != nil {
+				return err
+			}
 			files := make(map[string]string)
 			generatedCount := 0
 			for _, parsed := range parsedFiles {
@@ -94,6 +97,17 @@ func newGenerateCommand(stdout io.Writer) *cobra.Command {
 	cmd.Flags().StringArrayVarP(&opts.importPath, "proto_path", "I", nil, "proto import path")
 	cmd.Flags().BoolVar(&opts.json, "json", false, "emit the proto3 canonical JSON mapping alongside the wire codec")
 	return cmd
+}
+
+func parsedSchemaFiles(parsedFiles []ParsedFile) []SchemaFile {
+	var out []SchemaFile
+	for _, parsed := range parsedFiles {
+		out = append(out, SchemaFile{ImportPath: parsed.ImportPath, File: parsed.File})
+		for _, imported := range parsed.Imports {
+			out = append(out, SchemaFile{ImportPath: imported.Filename, File: imported.File})
+		}
+	}
+	return out
 }
 
 type validationErrorList []ValidationError

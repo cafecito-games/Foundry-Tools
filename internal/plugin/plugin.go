@@ -37,6 +37,19 @@ func Run(in io.Reader, out io.Writer) error {
 	if err != nil {
 		return writeError(out, err.Error())
 	}
+	schemaFiles := make([]foundryproto.SchemaFile, 0, len(files))
+	for i, file := range files {
+		if i >= len(req.GetProtoFile()) {
+			break
+		}
+		schemaFiles = append(schemaFiles, foundryproto.SchemaFile{
+			ImportPath: req.GetProtoFile()[i].GetName(),
+			File:       file,
+		})
+	}
+	if err := foundryproto.CheckWellKnownCompatibility(schemaFiles); err != nil {
+		return writeError(out, err.Error())
+	}
 
 	filesByName := make(map[string]*foundryproto.File, len(req.GetProtoFile()))
 	for i, descriptor := range req.GetProtoFile() {

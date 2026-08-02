@@ -12,6 +12,7 @@ import (
 	fsgenerator "github.com/cafecito-games/foundry-tools/internal/proto/internal/foundryscript/generator"
 	protoparse "github.com/cafecito-games/foundry-tools/internal/proto/internal/parser"
 	protovalidate "github.com/cafecito-games/foundry-tools/internal/proto/internal/validate"
+	wktcompat "github.com/cafecito-games/foundry-tools/internal/proto/internal/wktcompat"
 )
 
 // NamespaceOptionKey is the parsed-file option key that overrides the namespace
@@ -23,6 +24,9 @@ type File = protoast.ProtoFile
 
 // ParsedFile is a parsed protobuf file and the filename used for diagnostics.
 type ParsedFile = protoparse.ParsedFile
+
+// SchemaFile pairs a parsed schema with the import path known by its frontend.
+type SchemaFile = wktcompat.SchemaFile
 
 // FileEntry represents an imported proto file available to the generator.
 type FileEntry = fsgenerator.FileEntry
@@ -39,6 +43,12 @@ type ValidationError = protovalidate.ValidationError
 // ParseFiles parses root proto files using importRoots.
 func ParseFiles(filenames, importRoots []string) ([]ParsedFile, error) {
 	return protoparse.ParseFiles(filenames, importRoots)
+}
+
+// CheckWellKnownCompatibility verifies caller-supplied schemas that Foundry
+// Tools replaces with its embedded well-known runtime bindings.
+func CheckWellKnownCompatibility(files []SchemaFile) error {
+	return wktcompat.Check(files)
 }
 
 // ImportsOf converts a parsed file's resolved imports into generator entries.

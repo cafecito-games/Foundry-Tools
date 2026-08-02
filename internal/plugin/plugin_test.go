@@ -241,6 +241,45 @@ func TestRunSkipsWellKnownFileToGenerate(t *testing.T) {
 	}
 }
 
+func TestRunRejectsIncompatibleWellKnownDescriptor(t *testing.T) {
+	for _, fileToGenerate := range [][]string{
+		{"event.proto"},
+		{"google/protobuf/timestamp.proto"},
+	} {
+		req := wellKnownRequest(fileToGenerate)
+		req.ProtoFile[0].MessageType[0].Field[0].Type =
+			descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum()
+
+		resp := runPlugin(t, req)
+
+		require.Equal(t,
+			"google/protobuf/timestamp.proto: google.protobuf.Timestamp.seconds (#1): "+
+				"expected singular int64; found singular string",
+			resp.GetError())
+		require.Empty(t, resp.GetFile())
+	}
+}
+
+func TestRunAcceptsCompatibleWellKnownDescriptorChanges(t *testing.T) {
+	req := wellKnownRequest([]string{"event.proto"})
+	timestamp := req.ProtoFile[0].MessageType[0]
+	timestamp.Field[0].Name = proto.String("renamed_seconds")
+	timestamp.Field[1].Name = proto.String("renamed_nanos")
+	timestamp.Field = append(timestamp.Field, &descriptorpb.FieldDescriptorProto{
+		Name:   proto.String("future"),
+		Number: proto.Int32(3),
+		Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+		Type:   descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+	})
+	req.ProtoFile[0].MessageType = append(req.ProtoFile[0].MessageType,
+		&descriptorpb.DescriptorProto{Name: proto.String("Future")})
+
+	resp := runPlugin(t, req)
+
+	require.Empty(t, resp.GetError())
+	require.Contains(t, filesByName(resp), "cafecito/game/v1/Event.pb.fs")
+}
+
 // A request for nothing but well-known files still has an answer: the runtime
 // bindings the schemas resolve to. Skipping them here would return an empty
 // response with no error, which reads as a silent failure and diverges from
