@@ -14,7 +14,7 @@
 
 - Create `internal/proto/internal/foundryscript/generator/wellknown_semantics.go`: build the five messages' additional generated members and their recursive conversion bodies.
 - Modify `internal/proto/internal/foundryscript/generator/generator.go`: append the selected semantics to each message class independently of the JSON option.
-- Modify `internal/proto/internal/foundryscript/generator/generator_test.go`: pin declaration-site selection, method signatures, strict rejection branches, recursion, normalization, and carry logic.
+- Modify `internal/proto/internal/foundryscript/generator/wellknown_semantics_test.go`: pin declaration-site selection, method signatures, strict rejection branches, recursion, normalization, and carry logic.
 - Modify `internal/proto/internal/foundryscript/generator/public_api.go` and `public_api_test.go`: preserve the public-`Variant` ban except for the exact five Struct/Value/ListValue bridge signatures forced by this well-known API.
 - Modify `internal/runtime/data/foundry/proto/protobuf_error.fs` and `internal/runtime/runtime_test.go`: append and pin `STRUCT_KEY_NOT_STRING`, `STRUCT_VALUE_UNREPRESENTABLE`, and `WELL_KNOWN_TIME_OUT_OF_RANGE` without renumbering existing cases.
 - Modify `tests/foundry/main.fs`: exercise native recursion/cycle rejections and time normalization/range handling against alpha19.

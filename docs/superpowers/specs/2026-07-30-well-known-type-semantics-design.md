@@ -4,7 +4,7 @@
 
 **Follows from:** [cafecito-games/Foundry-Tools#28](https://github.com/cafecito-games/Foundry-Tools/issues/28)
 
-**Status:** Approved — amended during planning, see *Amendment: Delivery Mechanism*
+**Status:** Approved — amended during planning and after native-conversion quality review
 
 ## Amendment: Delivery Mechanism
 
@@ -28,6 +28,24 @@ Every call-site signature specified below is unchanged. This is a change of
 mechanism, not of design, and it is gated on a spike verifying `extend` against
 the pinned engine binary — if that fails, the hand-written approach below stands
 as written.
+
+## Amendment: Native Conversion Safety (2026-08-02)
+
+The delivery-mechanism amendment above records the earlier planning decision
+and remains as historical context. The later generator-backed implementation
+and quality review changed the native conversion contract described below:
+
+- `Timestamp.from_unix_time` and `Duration.from_seconds` are fallible tuple
+  factories. They reject non-finite input and values that normalize outside the
+  protobuf ranges with `WELL_KNOWN_TIME_OUT_OF_RANGE`.
+- Finite float input rounds to the nearest nanosecond. Sub-nanosecond input is
+  therefore not lossless, and conversion back to float can also lose precision.
+- Recursive Struct/Value/ListValue conversion tracks the current container
+  path. Self-referential and mutually recursive Dictionary/Array graphs are
+  rejected, while an acyclic container reused by sibling branches remains valid.
+
+This amendment supersedes the older call-site and precision claims in the
+original design; it does not rewrite the historical delivery discussion.
 
 ## Summary
 
@@ -221,7 +239,10 @@ cover the two failure modes.
 
 Conversion recurses through nested `Dictionary` and `Array` values, and a
 failure anywhere aborts the whole conversion rather than producing a partially
-converted tree.
+converted tree. Inbound conversion also tracks the current container path by
+identity: a self-reference or mutual Dictionary/Array cycle is rejected with
+`STRUCT_VALUE_UNREPRESENTABLE`. The path entry is removed after each recursive
+branch, so reusing the same acyclic container in sibling positions is valid.
 
 ### `Timestamp` / `Duration` ↔ `float` seconds
 
@@ -229,28 +250,36 @@ Foundry has no dedicated time type. `Time` offers
 `get_unix_time_from_system() -> float`, `get_ticks_usec() -> int`, and
 second-resolution datetime dicts and ISO strings.
 
-Consequently **every** Foundry-native representation loses nanoseconds. A
-`float` of unix seconds is the only one carrying a sub-second component at all,
-and near 1.7×10⁹ seconds a double's mantissa yields roughly 238 ns of
-resolution.
+Consequently no Foundry-native representation guarantees exact nanosecond
+preservation. A `float` of unix seconds is the only one carrying a sub-second
+component at all, and near 1.7×10⁹ seconds a double's mantissa yields roughly
+238 ns of resolution.
 
-The precision loss is one-directional:
+Precision loss can occur in both directions:
 
-- **Inbound is lossless.** `from_unix_time(float)` represents everything the
-  float held, because seconds-plus-nanos is strictly more precise than a double
-  at that magnitude.
-- **Outbound is lossy.** `to_unix_time() -> float` is where precision is lost.
+- **Inbound rounds.** Finite input is normalized and rounded to the nearest
+  nanosecond. A sub-nanosecond value can therefore round away, and a rounded
+  billion nanoseconds carries into `seconds`.
+- **Outbound is lossy.** `to_unix_time() -> float` and `to_seconds() -> float`
+  can lose field precision when recombining seconds and nanos.
+
+The factories reject NaN and both infinities before integer conversion. They
+also reject a normalized Timestamp outside seconds
+`[-62135596800, 253402300799]` with nanos `[0, 999999999]`, or a normalized
+Duration outside seconds `[-315576000000, 315576000000]` with nanos
+`[-999999999, 999999999]` and compatible seconds/nanos signs. Rejection returns
+`(null, ProtobufError.WELL_KNOWN_TIME_OUT_OF_RANGE)`.
 
 `seconds` and `nanos` remain plain generated fields and are the source of truth.
-These helpers are conveniences with a documented lossy direction, not the
-supported path for callers who need full precision.
+These helpers are conveniences with documented rounding and precision limits,
+not the supported path for callers who need full precision.
 
 The surface:
 
-- `Timestamp.from_unix_time(seconds: float) -> Timestamp`
+- `Timestamp.from_unix_time(seconds: float) -> (Timestamp?, ProtobufError)`
 - `Timestamp.now() -> Timestamp`, from `Time.get_unix_time_from_system()`
 - `timestamp.to_unix_time() -> float`
-- `Duration.from_seconds(seconds: float) -> Duration`
+- `Duration.from_seconds(seconds: float) -> (Duration?, ProtobufError)`
 - `duration.to_seconds() -> float`
 
 An `int`-microseconds pair was considered — exact, 1000× finer than float, and a
@@ -294,7 +323,8 @@ New `ProtobufError` cases, appended to preserve existing wire numbers:
 | Case | Raised by |
 |---|---|
 | `STRUCT_KEY_NOT_STRING` | `Variant` → `Value` on a `Dictionary` with a non-`String` key |
-| `STRUCT_VALUE_UNREPRESENTABLE` | `Variant` → `Value` on a Variant type with no JSON equivalent |
+| `STRUCT_VALUE_UNREPRESENTABLE` | `Variant` → `Value` on a type with no JSON equivalent or a current-path container cycle |
+| `WELL_KNOWN_TIME_OUT_OF_RANGE` | Timestamp/Duration factory input is non-finite or normalizes outside its protobuf range |
 | `ANY_TYPE_MISMATCH` | `Any.unpack_into` when `type_url` names a different type |
 
 The existing runtime convention holds: errors are returned, never thrown, and
@@ -312,15 +342,17 @@ The existing runtime convention holds: errors are returned, never thrown, and
 - **`Struct` conversion rejections** for non-string keys and for a
   representative unsupported Variant type, asserting no partial tree is
   produced.
-- **`Timestamp`/`Duration`** inbound-lossless and outbound-lossy behavior,
-  including negative durations and sub-second values.
+- **`Timestamp`/`Duration`** nearest-nanosecond inbound rounding, outbound float
+  loss, exact range boundaries, non-finite/out-of-range rejection, carry
+  overflow, negative durations, and sub-second/sub-nanosecond values.
 - **`Any`** pack/unpack against a matching type, a mismatched type, and a
   `type_url` bearing a non-`type.googleapis.com` prefix.
 - **A golden example** importing `timestamp.proto`, `struct.proto`, and
   `any.proto`, locking in that no output is generated for them and that the
   `foundry.proto.wkt` import and references are emitted correctly.
-- **Mutual recursion.** `Struct`/`Value`/`ListValue` reference each other; a
-  deeply nested fixture confirms the hand-written files resolve.
+- **Mutual recursion.** `Struct`/`Value`/`ListValue` reference each other; deep
+  acyclic nesting resolves, self/mutual container cycles reject, and shared
+  acyclic sibling containers remain valid.
 
 ## Implementation Order
 
