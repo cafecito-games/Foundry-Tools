@@ -41,11 +41,19 @@ func TestWellKnownStructValueAndListValueEmitNativeConversions(t *testing.T) {
 	require.Contains(t, structSource, "static func from_dictionary(_pb_value: Dictionary) -> (Struct?, ProtobufError):")
 	require.Contains(t, structSource, "if typeof(_pb_key) != TYPE_STRING:")
 	require.Contains(t, structSource, "return (_pb_failed, ProtobufError.STRUCT_KEY_NOT_STRING)")
-	require.Contains(t, structSource, "var (_pb_converted, _pb_error) = Value.from_variant(_pb_value[_pb_key])")
+	require.Contains(t, structSource,
+		"static func _from_dictionary(_pb_value: Dictionary, _pb_ancestors: Array[Variant]) -> (Struct?, ProtobufError):")
+	require.Contains(t, structSource, "if is_same(_pb_ancestor, _pb_value):")
+	require.Contains(t, structSource, "_pb_ancestors.append(_pb_value)")
+	require.Contains(t, structSource,
+		"var (_pb_converted, _pb_error) = Value._from_variant(_pb_value[_pb_key], _pb_ancestors)")
+	require.Contains(t, structSource, "_pb_ancestors.pop_back()")
 
 	valueSource := nativeWellKnownSource(t, "google/protobuf/struct.proto", "Value", structMessage, value, list)
 	require.Contains(t, valueSource, "func to_variant() -> Variant:")
 	require.Contains(t, valueSource, "static func from_variant(_pb_value: Variant) -> (Value?, ProtobufError):")
+	require.Contains(t, valueSource,
+		"static func _from_variant(_pb_value: Variant, _pb_ancestors: Array[Variant]) -> (Value?, ProtobufError):")
 	for _, variantType := range []string{
 		"TYPE_NIL", "TYPE_BOOL", "TYPE_INT", "TYPE_FLOAT", "TYPE_STRING", "TYPE_DICTIONARY", "TYPE_ARRAY",
 	} {
@@ -60,7 +68,12 @@ func TestWellKnownStructValueAndListValueEmitNativeConversions(t *testing.T) {
 	listSource := nativeWellKnownSource(t, "google/protobuf/struct.proto", "ListValue", structMessage, value, list)
 	require.Contains(t, listSource, "func to_array() -> Array[Variant]:")
 	require.Contains(t, listSource, "static func from_array(_pb_value: Array[Variant]) -> (ListValue?, ProtobufError):")
-	require.Contains(t, listSource, "var (_pb_converted, _pb_error) = Value.from_variant(_pb_item)")
+	require.Contains(t, listSource,
+		"static func _from_array(_pb_value: Array[Variant], _pb_ancestors: Array[Variant]) -> (ListValue?, ProtobufError):")
+	require.Contains(t, listSource, "if is_same(_pb_ancestor, _pb_value):")
+	require.Contains(t, listSource,
+		"var (_pb_converted, _pb_error) = Value._from_variant(_pb_item, _pb_ancestors)")
+	require.Contains(t, listSource, "_pb_ancestors.pop_back()")
 }
 
 func TestWellKnownTimestampAndDurationEmitNativeTimeConversions(t *testing.T) {
@@ -71,17 +84,26 @@ func TestWellKnownTimestampAndDurationEmitNativeTimeConversions(t *testing.T) {
 
 	timestamp := nativeWellKnownSource(t, "google/protobuf/timestamp.proto", "Timestamp",
 		&protoast.Message{Name: "Timestamp", Fields: secondsAndNanos})
-	require.Contains(t, timestamp, "static func from_unix_time(_pb_value: float) -> Timestamp:")
+	require.Contains(t, timestamp,
+		"static func from_unix_time(_pb_value: float) -> (Timestamp?, ProtobufError):")
+	require.Contains(t, timestamp, "if is_nan(_pb_value) or is_inf(_pb_value):")
+	require.Contains(t, timestamp, "ProtobufError.WELL_KNOWN_TIME_OUT_OF_RANGE")
+	require.Contains(t, timestamp, "if _pb_result.seconds < -62135596800 or _pb_result.seconds > 253402300799 or _pb_result.nanos < 0 or _pb_result.nanos > 999999999:")
+	require.Contains(t, timestamp, "static func _from_valid_unix_time(_pb_value: float) -> Timestamp:")
 	require.Contains(t, timestamp, "static func now() -> Timestamp:")
 	require.Contains(t, timestamp, "func to_unix_time() -> float:")
 	require.Contains(t, timestamp, "var _pb_whole: int = floori(_pb_value)")
 	require.Contains(t, timestamp, "_pb_result.nanos = roundi((_pb_value - float(_pb_whole)) * 1000000000.0)")
 	require.Contains(t, timestamp, "if _pb_result.nanos >= 1000000000:")
-	require.Contains(t, timestamp, "return Timestamp.from_unix_time(Time.get_unix_time_from_system())")
+	require.Contains(t, timestamp, "return Timestamp._from_valid_unix_time(Time.get_unix_time_from_system())")
 
 	duration := nativeWellKnownSource(t, "google/protobuf/duration.proto", "Duration",
 		&protoast.Message{Name: "Duration", Fields: secondsAndNanos})
-	require.Contains(t, duration, "static func from_seconds(_pb_value: float) -> Duration:")
+	require.Contains(t, duration,
+		"static func from_seconds(_pb_value: float) -> (Duration?, ProtobufError):")
+	require.Contains(t, duration, "if is_nan(_pb_value) or is_inf(_pb_value):")
+	require.Contains(t, duration, "ProtobufError.WELL_KNOWN_TIME_OUT_OF_RANGE")
+	require.Contains(t, duration, "if _pb_result.seconds < -315576000000 or _pb_result.seconds > 315576000000 or _pb_result.nanos < -999999999 or _pb_result.nanos > 999999999")
 	require.Contains(t, duration, "func to_seconds() -> float:")
 	require.Contains(t, duration, "var _pb_whole: int = int(_pb_value)")
 	require.Contains(t, duration, "elif _pb_result.nanos <= -1000000000:")

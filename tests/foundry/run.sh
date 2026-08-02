@@ -90,7 +90,7 @@ while IFS= read -r match; do
       unexpected_variant=1
       ;;
   esac
-done < <(grep -R -n -E -e '(^|[^_])func [A-Za-z0-9_]+\(.*Variant|-> Variant' "$OUT" || true)
+done < <(grep -R -n -E -e '(^|[^_])func [A-Za-z0-9][A-Za-z0-9_]*\(.*Variant|-> Variant' "$OUT" || true)
 if [ "$unexpected_variant" -ne 0 ]; then
   echo "public Variant signature found outside the well-known native bridge"
   exit 1

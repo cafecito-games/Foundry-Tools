@@ -88,6 +88,7 @@ func TestProtobufErrorCarriesTheStructConversionCases(t *testing.T) {
 	require.Contains(t, source, "JSON_ANY_UNSUPPORTED = 11")
 	require.Contains(t, source, "STRUCT_KEY_NOT_STRING = 12")
 	require.Contains(t, source, "STRUCT_VALUE_UNREPRESENTABLE = 13")
+	require.Contains(t, source, "WELL_KNOWN_TIME_OUT_OF_RANGE = 14")
 }
 
 // The well-known bindings are checked in so consumers get them without running

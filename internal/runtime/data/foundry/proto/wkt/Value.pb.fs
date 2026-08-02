@@ -163,6 +163,10 @@ func to_variant() -> Variant:
 ## An int narrows to Value's float and is lossy beyond 2^53. Unsupported
 ## Variant kinds and Dictionaries with non-String keys are refused.
 static func from_variant(_pb_value: Variant) -> (Value?, ProtobufError):
+	var _pb_ancestors: Array[Variant] = []
+	return Value._from_variant(_pb_value, _pb_ancestors)
+
+static func _from_variant(_pb_value: Variant, _pb_ancestors: Array[Variant]) -> (Value?, ProtobufError):
 	var _pb_failed: Value? = null
 	var _pb_result: Value = Value.new()
 	match typeof(_pb_value):
@@ -177,14 +181,14 @@ static func from_variant(_pb_value: Variant) -> (Value?, ProtobufError):
 		TYPE_STRING:
 			_pb_result.kind = ValueKindCase.StringValue(_pb_value)
 		TYPE_DICTIONARY:
-			var (_pb_converted, _pb_error) = Struct.from_dictionary(_pb_value)
+			var (_pb_converted, _pb_error) = Struct._from_dictionary(_pb_value, _pb_ancestors)
 			if _pb_error != ProtobufError.OK:
 				return (_pb_failed, _pb_error)
 			if not (_pb_converted is Struct):
 				return (_pb_failed, ProtobufError.STRUCT_VALUE_UNREPRESENTABLE)
 			_pb_result.kind = ValueKindCase.StructValue(_pb_converted)
 		TYPE_ARRAY:
-			var (_pb_converted, _pb_error) = ListValue.from_array(_pb_value)
+			var (_pb_converted, _pb_error) = ListValue._from_array(_pb_value, _pb_ancestors)
 			if _pb_error != ProtobufError.OK:
 				return (_pb_failed, _pb_error)
 			if not (_pb_converted is ListValue):

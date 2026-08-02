@@ -141,8 +141,20 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 ## Converts unix seconds into a normalized Timestamp.
 ##
 ## The seconds field is floored so a negative timestamp keeps nonnegative
-## nanos. Nanoseconds rounded to a full second carry into seconds.
-static func from_unix_time(_pb_value: float) -> Timestamp:
+## nanos. The finite input rounds to the nearest nanosecond; a full
+## billion carries into seconds. Invalid inputs return no Timestamp.
+static func from_unix_time(_pb_value: float) -> (Timestamp?, ProtobufError):
+	var _pb_failed: Timestamp? = null
+	if is_nan(_pb_value) or is_inf(_pb_value):
+		return (_pb_failed, ProtobufError.WELL_KNOWN_TIME_OUT_OF_RANGE)
+	if _pb_value < -62135596801.0 or _pb_value > 253402300800.0:
+		return (_pb_failed, ProtobufError.WELL_KNOWN_TIME_OUT_OF_RANGE)
+	var _pb_result: Timestamp = Timestamp._from_valid_unix_time(_pb_value)
+	if _pb_result.seconds < -62135596800 or _pb_result.seconds > 253402300799 or _pb_result.nanos < 0 or _pb_result.nanos > 999999999:
+		return (_pb_failed, ProtobufError.WELL_KNOWN_TIME_OUT_OF_RANGE)
+	return (_pb_result, ProtobufError.OK)
+
+static func _from_valid_unix_time(_pb_value: float) -> Timestamp:
 	var _pb_result: Timestamp = Timestamp.new()
 	var _pb_whole: int = floori(_pb_value)
 	_pb_result.seconds = _pb_whole
@@ -154,7 +166,7 @@ static func from_unix_time(_pb_value: float) -> Timestamp:
 
 ## Returns the current system time as a Timestamp.
 static func now() -> Timestamp:
-	return Timestamp.from_unix_time(Time.get_unix_time_from_system())
+	return Timestamp._from_valid_unix_time(Time.get_unix_time_from_system())
 
 ## Returns this Timestamp as unix seconds.
 ##

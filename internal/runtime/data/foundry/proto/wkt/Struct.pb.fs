@@ -121,17 +121,29 @@ func to_dictionary() -> Dictionary[String, Variant]:
 ## Keys must be Strings and every value must have a protobuf Value mapping.
 ## A nested failure returns no partial Struct.
 static func from_dictionary(_pb_value: Dictionary) -> (Struct?, ProtobufError):
+	var _pb_ancestors: Array[Variant] = []
+	return Struct._from_dictionary(_pb_value, _pb_ancestors)
+
+static func _from_dictionary(_pb_value: Dictionary, _pb_ancestors: Array[Variant]) -> (Struct?, ProtobufError):
 	var _pb_failed: Struct? = null
+	for _pb_ancestor: Variant in _pb_ancestors:
+		if is_same(_pb_ancestor, _pb_value):
+			return (_pb_failed, ProtobufError.STRUCT_VALUE_UNREPRESENTABLE)
+	_pb_ancestors.append(_pb_value)
 	var _pb_result: Struct = Struct.new()
 	for _pb_key: Variant in _pb_value:
 		if typeof(_pb_key) != TYPE_STRING:
+			_pb_ancestors.pop_back()
 			return (_pb_failed, ProtobufError.STRUCT_KEY_NOT_STRING)
-		var (_pb_converted, _pb_error) = Value.from_variant(_pb_value[_pb_key])
+		var (_pb_converted, _pb_error) = Value._from_variant(_pb_value[_pb_key], _pb_ancestors)
 		if _pb_error != ProtobufError.OK:
+			_pb_ancestors.pop_back()
 			return (_pb_failed, _pb_error)
 		if not (_pb_converted is Value):
+			_pb_ancestors.pop_back()
 			return (_pb_failed, ProtobufError.STRUCT_VALUE_UNREPRESENTABLE)
 		_pb_result.fields[str(_pb_key)] = _pb_converted
+	_pb_ancestors.pop_back()
 	return (_pb_result, ProtobufError.OK)
 
 ## Returns this message as a proto3 canonical JSON document.

@@ -104,7 +104,7 @@ func generateFiles(
 	for i := range messagePlans {
 		plan := &messagePlans[i]
 		source := renderMessage(namespace, plan, emission)
-		if err := CheckPublicAPI(source); err != nil {
+		if err := checkPublicAPI(source, emission.SourceName, plan.Scope); err != nil {
 			return nil, err
 		}
 		files[outputPath(namespace, plan.Name)] = source
