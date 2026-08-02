@@ -190,6 +190,22 @@ func TestGenerateMethodEscapeCollidesOnlyAtEscapedSpelling(t *testing.T) {
 	require.NotContains(t, err.Error(), "generated method")
 }
 
+func TestGenerateInheritedMemberEscapeCollidesOnlyAtEscapedSpelling(t *testing.T) {
+	files, err := Generate(namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		Fields: []*protoast.Field{
+			{Position: protoast.Position{Line: 5, Column: 3}, FieldType: "string", Name: "reference", Number: 1},
+			{Position: protoast.Position{Line: 6, Column: 3}, FieldType: "string", Name: "reference_", Number: 2},
+		},
+	}}, nil), "members.proto", nil, Options{})
+
+	require.Nil(t, files)
+	require.EqualError(t, err, `generated Foundry member names collide:
+  members.proto:5:3: field cafecito.game.v1.Player.reference generates Foundry member "reference_" after escaping inherited method "RefCounted.reference"
+  members.proto:6:3: field cafecito.game.v1.Player.reference_ generates Foundry member "reference_"
+  rename one protobuf declaration in cafecito.game.v1.Player`)
+}
+
 // Escaping an enum value that collides with a hosted function is not
 // injective: a value already spelled `to_wire_` collides with one spelled
 // `to_wire` once the latter is escaped to the same identifier. This is caught

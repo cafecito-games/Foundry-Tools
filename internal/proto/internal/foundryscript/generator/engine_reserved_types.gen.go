@@ -13,7 +13,25 @@ type engineTypeEntry struct {
 	kind engineTypeKind
 }
 
+type engineMemberKind uint8
+
+const (
+	engineMemberMethod engineMemberKind = iota + 1
+	engineMemberProperty
+	engineMemberSignal
+	engineMemberConstant
+	engineMemberEnum
+	engineMemberEnumValue
+)
+
+type engineMemberEntry struct {
+	kind  engineMemberKind
+	owner string
+}
+
 const foundryEngineTypeSourceVersion = "0.1.alpha19.gh.7a86a1464"
+
+const foundryEngineMessageBaseClass = "RefCounted"
 
 var foundryEngineReservedTypes = map[string]engineTypeEntry{
 	"AABB":                                {kind: engineTypeBuiltin},
@@ -1105,4 +1123,71 @@ var foundryEngineReservedTypes = map[string]engineTypeEntry{
 	"XRVRS":                                             {kind: engineTypeNativeClass},
 	"ZIPPacker":                                         {kind: engineTypeNativeClass},
 	"ZIPReader":                                         {kind: engineTypeNativeClass},
+}
+
+var foundryEngineReservedMembers = map[string]engineMemberEntry{
+	"CONNECT_APPEND_SOURCE_OBJECT":    {kind: engineMemberEnumValue, owner: "Object"},
+	"CONNECT_DEFERRED":                {kind: engineMemberEnumValue, owner: "Object"},
+	"CONNECT_ONE_SHOT":                {kind: engineMemberEnumValue, owner: "Object"},
+	"CONNECT_PERSIST":                 {kind: engineMemberEnumValue, owner: "Object"},
+	"CONNECT_REFERENCE_COUNTED":       {kind: engineMemberEnumValue, owner: "Object"},
+	"ConnectFlags":                    {kind: engineMemberEnum, owner: "Object"},
+	"NOTIFICATION_EXTENSION_RELOADED": {kind: engineMemberConstant, owner: "Object"},
+	"NOTIFICATION_POSTINITIALIZE":     {kind: engineMemberConstant, owner: "Object"},
+	"NOTIFICATION_PREDELETE":          {kind: engineMemberConstant, owner: "Object"},
+	"add_user_signal":                 {kind: engineMemberMethod, owner: "Object"},
+	"call":                            {kind: engineMemberMethod, owner: "Object"},
+	"call_deferred":                   {kind: engineMemberMethod, owner: "Object"},
+	"callv":                           {kind: engineMemberMethod, owner: "Object"},
+	"can_translate_messages":          {kind: engineMemberMethod, owner: "Object"},
+	"cancel_free":                     {kind: engineMemberMethod, owner: "Object"},
+	"connect":                         {kind: engineMemberMethod, owner: "Object"},
+	"disconnect":                      {kind: engineMemberMethod, owner: "Object"},
+	"emit_signal":                     {kind: engineMemberMethod, owner: "Object"},
+	"get":                             {kind: engineMemberMethod, owner: "Object"},
+	"get_class":                       {kind: engineMemberMethod, owner: "Object"},
+	"get_incoming_connections":        {kind: engineMemberMethod, owner: "Object"},
+	"get_indexed":                     {kind: engineMemberMethod, owner: "Object"},
+	"get_instance_id":                 {kind: engineMemberMethod, owner: "Object"},
+	"get_meta":                        {kind: engineMemberMethod, owner: "Object"},
+	"get_meta_list":                   {kind: engineMemberMethod, owner: "Object"},
+	"get_method_argument_count":       {kind: engineMemberMethod, owner: "Object"},
+	"get_method_list":                 {kind: engineMemberMethod, owner: "Object"},
+	"get_property_list":               {kind: engineMemberMethod, owner: "Object"},
+	"get_reference_count":             {kind: engineMemberMethod, owner: "RefCounted"},
+	"get_script":                      {kind: engineMemberMethod, owner: "Object"},
+	"get_signal_connection_list":      {kind: engineMemberMethod, owner: "Object"},
+	"get_signal_list":                 {kind: engineMemberMethod, owner: "Object"},
+	"get_translation_domain":          {kind: engineMemberMethod, owner: "Object"},
+	"has_connections":                 {kind: engineMemberMethod, owner: "Object"},
+	"has_meta":                        {kind: engineMemberMethod, owner: "Object"},
+	"has_method":                      {kind: engineMemberMethod, owner: "Object"},
+	"has_signal":                      {kind: engineMemberMethod, owner: "Object"},
+	"has_user_signal":                 {kind: engineMemberMethod, owner: "Object"},
+	"init_ref":                        {kind: engineMemberMethod, owner: "RefCounted"},
+	"is_blocking_signals":             {kind: engineMemberMethod, owner: "Object"},
+	"is_class":                        {kind: engineMemberMethod, owner: "Object"},
+	"is_connected":                    {kind: engineMemberMethod, owner: "Object"},
+	"is_queued_for_deletion":          {kind: engineMemberMethod, owner: "Object"},
+	"notification":                    {kind: engineMemberMethod, owner: "Object"},
+	"notify_property_list_changed":    {kind: engineMemberMethod, owner: "Object"},
+	"property_can_revert":             {kind: engineMemberMethod, owner: "Object"},
+	"property_get_revert":             {kind: engineMemberMethod, owner: "Object"},
+	"property_list_changed":           {kind: engineMemberSignal, owner: "Object"},
+	"reference":                       {kind: engineMemberMethod, owner: "RefCounted"},
+	"remove_meta":                     {kind: engineMemberMethod, owner: "Object"},
+	"remove_user_signal":              {kind: engineMemberMethod, owner: "Object"},
+	"script_changed":                  {kind: engineMemberSignal, owner: "Object"},
+	"set":                             {kind: engineMemberMethod, owner: "Object"},
+	"set_block_signals":               {kind: engineMemberMethod, owner: "Object"},
+	"set_deferred":                    {kind: engineMemberMethod, owner: "Object"},
+	"set_indexed":                     {kind: engineMemberMethod, owner: "Object"},
+	"set_message_translation":         {kind: engineMemberMethod, owner: "Object"},
+	"set_meta":                        {kind: engineMemberMethod, owner: "Object"},
+	"set_script":                      {kind: engineMemberMethod, owner: "Object"},
+	"set_translation_domain":          {kind: engineMemberMethod, owner: "Object"},
+	"to_string":                       {kind: engineMemberMethod, owner: "Object"},
+	"tr":                              {kind: engineMemberMethod, owner: "Object"},
+	"tr_n":                            {kind: engineMemberMethod, owner: "Object"},
+	"unreference":                     {kind: engineMemberMethod, owner: "RefCounted"},
 }

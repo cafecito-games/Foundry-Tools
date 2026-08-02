@@ -18,16 +18,51 @@ type namedAPIEntry struct {
 	Name string `json:"name"`
 }
 
+type enumAPIEntry struct {
+	Name   string          `json:"name"`
+	Values []namedAPIEntry `json:"values"`
+}
+
+type classAPIEntry struct {
+	Name       string          `json:"name"`
+	Inherits   string          `json:"inherits"`
+	Methods    []namedAPIEntry `json:"methods"`
+	Properties []namedAPIEntry `json:"properties"`
+	Signals    []namedAPIEntry `json:"signals"`
+	Constants  []namedAPIEntry `json:"constants"`
+	Enums      []enumAPIEntry  `json:"enums"`
+}
+
 type extensionAPI struct {
 	BuiltinClasses []namedAPIEntry `json:"builtin_classes"`
-	Classes        []namedAPIEntry `json:"classes"`
+	Classes        []classAPIEntry `json:"classes"`
+}
+
+type inheritedMemberKind uint8
+
+const (
+	inheritedMemberMethod inheritedMemberKind = iota + 1
+	inheritedMemberProperty
+	inheritedMemberSignal
+	inheritedMemberConstant
+	inheritedMemberEnum
+	inheritedMemberEnumValue
+)
+
+type inheritedMember struct {
+	Name  string
+	Kind  inheritedMemberKind
+	Owner string
 }
 
 type reservedTypes struct {
-	Version       string
-	Builtins      []string
-	NativeClasses []string
+	Version          string
+	Builtins         []string
+	NativeClasses    []string
+	InheritedMembers []inheritedMember
 }
+
+const generatedMessageBaseClass = "RefCounted"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -135,7 +170,8 @@ func decodeAPI(reader io.Reader) (reservedTypes, error) {
 
 	nativeClasses := make([]string, 0, len(api.Classes))
 	nativeClassNames := make(map[string]struct{}, len(api.Classes))
-	for _, entry := range api.Classes {
+	for i := range api.Classes {
+		entry := &api.Classes[i]
 		if entry.Name == "" {
 			return reservedTypes{}, errors.New("native class has an empty name")
 		}
@@ -155,20 +191,106 @@ func decodeAPI(reader io.Reader) (reservedTypes, error) {
 			return reservedTypes{}, fmt.Errorf("type %q appears in both categories", name)
 		}
 	}
+	inherited, err := collectInheritedMembers(api.Classes, generatedMessageBaseClass)
+	if err != nil {
+		return reservedTypes{}, err
+	}
 	sort.Strings(builtins)
 	sort.Strings(nativeClasses)
 
 	return reservedTypes{
-		Builtins:      builtins,
-		NativeClasses: nativeClasses,
+		Builtins:         builtins,
+		NativeClasses:    nativeClasses,
+		InheritedMembers: inherited,
 	}, nil
+}
+
+func collectInheritedMembers(classes []classAPIEntry, base string) ([]inheritedMember, error) {
+	byName := make(map[string]*classAPIEntry, len(classes))
+	for i := range classes {
+		class := &classes[i]
+		byName[class.Name] = class
+	}
+
+	seenClasses := make(map[string]bool)
+	seenMembers := make(map[string]bool)
+	var members []inheritedMember
+	for className := base; className != ""; {
+		if seenClasses[className] {
+			return nil, fmt.Errorf("generated message base class %q has an inheritance cycle at %q", base, className)
+		}
+		class, exists := byName[className]
+		if !exists {
+			if className == base {
+				return nil, fmt.Errorf("generated message base class %q is missing", base)
+			}
+			return nil, fmt.Errorf("ancestor %q of generated message base class %q is missing", className, base)
+		}
+		seenClasses[className] = true
+
+		categories := []struct {
+			kind    inheritedMemberKind
+			label   string
+			entries []namedAPIEntry
+		}{
+			{kind: inheritedMemberMethod, label: "method", entries: class.Methods},
+			{kind: inheritedMemberProperty, label: "property", entries: class.Properties},
+			{kind: inheritedMemberSignal, label: "signal", entries: class.Signals},
+			{kind: inheritedMemberConstant, label: "constant", entries: class.Constants},
+		}
+		for _, category := range categories {
+			for _, entry := range category.entries {
+				if err := addInheritedMember(&members, seenMembers, class.Name, category.label, entry.Name, category.kind); err != nil {
+					return nil, err
+				}
+			}
+		}
+		for _, enum := range class.Enums {
+			if err := addInheritedMember(&members, seenMembers, class.Name, "enum", enum.Name, inheritedMemberEnum); err != nil {
+				return nil, err
+			}
+			for _, value := range enum.Values {
+				if err := addInheritedMember(&members, seenMembers, class.Name, "enum value", value.Name, inheritedMemberEnumValue); err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		className = class.Inherits
+	}
+
+	sort.Slice(members, func(i, j int) bool {
+		return members[i].Name < members[j].Name
+	})
+	return members, nil
+}
+
+func addInheritedMember(
+	members *[]inheritedMember,
+	seen map[string]bool,
+	owner, category, name string,
+	kind inheritedMemberKind,
+) error {
+	if name == "" {
+		return fmt.Errorf("native class %q has a %s with an empty name", owner, category)
+	}
+	if seen[name] {
+		return nil
+	}
+	seen[name] = true
+	*members = append(*members, inheritedMember{Name: name, Kind: kind, Owner: owner})
+	return nil
 }
 
 func renderGo(types reservedTypes) ([]byte, error) {
 	builtins := append([]string(nil), types.Builtins...)
 	nativeClasses := append([]string(nil), types.NativeClasses...)
+	inheritedMembers := append([]inheritedMember(nil), types.InheritedMembers...)
 	sort.Strings(builtins)
 	sort.Strings(nativeClasses)
+	sort.Slice(inheritedMembers, func(i, j int) bool {
+		return inheritedMembers[i].Name < inheritedMembers[j].Name
+	})
 
 	var source strings.Builder
 	source.WriteString("// Code generated by gen-engine-reserved-types. DO NOT EDIT.\n\n")
@@ -181,8 +303,24 @@ func renderGo(types reservedTypes) ([]byte, error) {
 	source.WriteString("type engineTypeEntry struct {\n")
 	source.WriteString("\tkind engineTypeKind\n")
 	source.WriteString("}\n\n")
+	source.WriteString("type engineMemberKind uint8\n\n")
+	source.WriteString("const (\n")
+	source.WriteString("\tengineMemberMethod engineMemberKind = iota + 1\n")
+	source.WriteString("\tengineMemberProperty\n")
+	source.WriteString("\tengineMemberSignal\n")
+	source.WriteString("\tengineMemberConstant\n")
+	source.WriteString("\tengineMemberEnum\n")
+	source.WriteString("\tengineMemberEnumValue\n")
+	source.WriteString(")\n\n")
+	source.WriteString("type engineMemberEntry struct {\n")
+	source.WriteString("\tkind engineMemberKind\n")
+	source.WriteString("\towner string\n")
+	source.WriteString("}\n\n")
 	source.WriteString("const foundryEngineTypeSourceVersion = ")
 	source.WriteString(strconv.Quote(types.Version))
+	source.WriteString("\n\n")
+	source.WriteString("const foundryEngineMessageBaseClass = ")
+	source.WriteString(strconv.Quote(generatedMessageBaseClass))
 	source.WriteString("\n\n")
 	source.WriteString("var foundryEngineReservedTypes = map[string]engineTypeEntry{\n")
 	for _, name := range builtins {
@@ -196,10 +334,44 @@ func renderGo(types reservedTypes) ([]byte, error) {
 		source.WriteString(": {kind: engineTypeNativeClass},\n")
 	}
 	source.WriteString("}\n")
+	source.WriteString("\nvar foundryEngineReservedMembers = map[string]engineMemberEntry{\n")
+	for _, member := range inheritedMembers {
+		kind, err := engineMemberKindIdentifier(member.Kind)
+		if err != nil {
+			return nil, err
+		}
+		source.WriteString("\t")
+		source.WriteString(strconv.Quote(member.Name))
+		source.WriteString(": {kind: ")
+		source.WriteString(kind)
+		source.WriteString(", owner: ")
+		source.WriteString(strconv.Quote(member.Owner))
+		source.WriteString("},\n")
+	}
+	source.WriteString("}\n")
 
 	formatted, err := format.Source([]byte(source.String()))
 	if err != nil {
 		return nil, fmt.Errorf("format generated Go source: %w", err)
 	}
 	return formatted, nil
+}
+
+func engineMemberKindIdentifier(kind inheritedMemberKind) (string, error) {
+	switch kind {
+	case inheritedMemberMethod:
+		return "engineMemberMethod", nil
+	case inheritedMemberProperty:
+		return "engineMemberProperty", nil
+	case inheritedMemberSignal:
+		return "engineMemberSignal", nil
+	case inheritedMemberConstant:
+		return "engineMemberConstant", nil
+	case inheritedMemberEnum:
+		return "engineMemberEnum", nil
+	case inheritedMemberEnumValue:
+		return "engineMemberEnumValue", nil
+	default:
+		return "", fmt.Errorf("unknown inherited member kind %d", kind)
+	}
 }

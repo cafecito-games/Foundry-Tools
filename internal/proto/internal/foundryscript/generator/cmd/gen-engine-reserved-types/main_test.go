@@ -16,12 +16,77 @@ func TestLoadReservedTypes(t *testing.T) {
 		t.Fatalf("loadAPI() error = %v", err)
 	}
 
-	want := reservedTypes{
-		Builtins:      []string{"Array", "AsyncCallable", "String"},
-		NativeClasses: []string{"Node", "Timer"},
+	if want := []string{"Array", "AsyncCallable", "String"}; !reflect.DeepEqual(got.Builtins, want) {
+		t.Fatalf("loadAPI().Builtins = %#v, want %#v", got.Builtins, want)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("loadAPI() = %#v, want %#v", got, want)
+	if want := []string{"Node", "Object", "RefCounted", "Timer"}; !reflect.DeepEqual(got.NativeClasses, want) {
+		t.Fatalf("loadAPI().NativeClasses = %#v, want %#v", got.NativeClasses, want)
+	}
+}
+
+func TestRunEmitsReachableInheritedMemberMetadata(t *testing.T) {
+	dir := t.TempDir()
+	outputPath := filepath.Join(dir, "engine_reserved_types.gen.go")
+
+	err := run([]string{
+		"--api", "testdata/extension_api.json",
+		"--version", "0.1.test-version",
+		"--output", outputPath,
+	})
+	requireNoError(t, err)
+
+	source, err := os.ReadFile(outputPath)
+	requireNoError(t, err)
+	for _, want := range []string{
+		"var foundryEngineReservedMembers = map[string]engineMemberEntry{",
+		`"reference":              {kind: engineMemberMethod, owner: "RefCounted"}`,
+		`"get_class":              {kind: engineMemberMethod, owner: "Object"}`,
+		`"shared":                 {kind: engineMemberMethod, owner: "RefCounted"}`,
+		`"script":                 {kind: engineMemberProperty, owner: "Object"}`,
+		`"script_changed":         {kind: engineMemberSignal, owner: "Object"}`,
+		`"NOTIFICATION_PREDELETE": {kind: engineMemberConstant, owner: "Object"}`,
+		`"ConnectFlags":           {kind: engineMemberEnum, owner: "Object"}`,
+		`"CONNECT_DEFERRED":       {kind: engineMemberEnumValue, owner: "Object"}`,
+	} {
+		if !bytes.Contains(source, []byte(want)) {
+			t.Errorf("generated output does not contain %q:\n%s", want, source)
+		}
+	}
+}
+
+func TestDecodeAPIRejectsInvalidGeneratedBaseAncestry(t *testing.T) {
+	tests := []struct {
+		name      string
+		api       string
+		wantError string
+	}{
+		{
+			name:      "missing generated base",
+			api:       `{"builtin_classes":[],"classes":[{"name":"Object"}]}`,
+			wantError: `generated message base class "RefCounted" is missing`,
+		},
+		{
+			name:      "missing ancestor",
+			api:       `{"builtin_classes":[],"classes":[{"name":"RefCounted","inherits":"Missing"}]}`,
+			wantError: `ancestor "Missing" of generated message base class "RefCounted" is missing`,
+		},
+		{
+			name:      "inheritance cycle",
+			api:       `{"builtin_classes":[],"classes":[{"name":"RefCounted","inherits":"Object"},{"name":"Object","inherits":"RefCounted"}]}`,
+			wantError: `generated message base class "RefCounted" has an inheritance cycle at "RefCounted"`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := decodeAPI(strings.NewReader(test.api))
+			if err == nil {
+				t.Fatal("decodeAPI() error = nil, want an error")
+			}
+			if !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("decodeAPI() error = %q, want substring %q", err, test.wantError)
+			}
+		})
 	}
 }
 
@@ -176,13 +241,13 @@ func TestDecodeAPIRequiresTypeSections(t *testing.T) {
 	}
 }
 
-func TestDecodeAPIAcceptsEmptyTypeSections(t *testing.T) {
-	got, err := decodeAPI(strings.NewReader(`{"builtin_classes":[],"classes":[]}`))
+func TestDecodeAPIAcceptsEmptyBuiltinSectionAndLeafBase(t *testing.T) {
+	got, err := decodeAPI(strings.NewReader(`{"builtin_classes":[],"classes":[{"name":"RefCounted"}]}`))
 	if err != nil {
 		t.Fatalf("decodeAPI() error = %v", err)
 	}
 
-	want := reservedTypes{Builtins: []string{"AsyncCallable"}, NativeClasses: []string{}}
+	want := reservedTypes{Builtins: []string{"AsyncCallable"}, NativeClasses: []string{"RefCounted"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("decodeAPI() = %#v, want %#v", got, want)
 	}
@@ -367,9 +432,16 @@ func writeTestAPI(t *testing.T, dir string) string {
 	t.Helper()
 
 	path := filepath.Join(dir, "extension_api.json")
-	api := []byte(`{"builtin_classes":[{"name":"String"}],"classes":[{"name":"Node"}]}`)
+	api := []byte(`{"builtin_classes":[{"name":"String"}],"classes":[{"name":"Node"},{"name":"RefCounted"}]}`)
 	if err := os.WriteFile(path, api, 0o644); err != nil {
 		t.Fatalf("write extension API: %v", err)
 	}
 	return path
+}
+
+func requireNoError(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }

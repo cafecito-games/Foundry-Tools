@@ -136,6 +136,36 @@ func TestPlanMemberNameEscapesEngineTypes(t *testing.T) {
 	}
 }
 
+func TestPlanMemberNameEscapesReachableInheritedEngineMembers(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		reason string
+	}{
+		{name: "reference", reason: `inherited method "RefCounted.reference"`},
+		{name: "unreference", reason: `inherited method "RefCounted.unreference"`},
+		{name: "get_class", reason: `inherited method "Object.get_class"`},
+		{name: "script_changed", reason: `inherited signal "Object.script_changed"`},
+		{name: "NOTIFICATION_PREDELETE", reason: `inherited constant "Object.NOTIFICATION_PREDELETE"`},
+		{name: "ConnectFlags", reason: `inherited enum "Object.ConnectFlags"`},
+		{name: "CONNECT_DEFERRED", reason: `inherited enum value "Object.CONNECT_DEFERRED"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			planned := planMemberName(test.name)
+			require.Equal(t, test.name+"_", planned.Generated)
+			require.Equal(t, test.reason, planned.Escape.description())
+			require.Equal(t, test.name+"_", FieldName(test.name))
+		})
+	}
+
+	// Native member lookup is exact-case, just like Foundry Script lookup.
+	require.Equal(t, "Reference", FieldName("Reference"))
+	require.Equal(t, "REFERENCE", FieldName("REFERENCE"))
+
+	// These declarations do not inherit RefCounted and keep their own policy.
+	require.Equal(t, "reference", planOneofAlternativeName("reference").Generated)
+	require.Equal(t, "reference", EnumValueName("reference"))
+}
+
 func TestPlanMemberNameKeepsExistingEscapePolicies(t *testing.T) {
 	tests := []struct {
 		raw       string

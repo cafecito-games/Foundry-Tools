@@ -34,4 +34,15 @@ message Node {
     string Image = 10;
     int32 count = 11;
   }
+
+  string get_class = 12;
+  string script_changed = 13;
+  string NOTIFICATION_PREDELETE = 14;
+  string ConnectFlags = 15;
+  string CONNECT_DEFERRED = 16;
+}
+
+message RefCountedMethods {
+  string reference = 1;
+  string unreference = 2;
 }

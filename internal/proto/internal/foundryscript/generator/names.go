@@ -258,11 +258,14 @@ const (
 	memberEscapeGenerated
 	memberEscapeEngineBuiltin
 	memberEscapeEngineNative
+	memberEscapeEngineInherited
 )
 
 type memberEscape struct {
-	Kind         memberEscapeKind
-	ReservedName string
+	Kind             memberEscapeKind
+	ReservedName     string
+	EngineMemberKind engineMemberKind
+	EngineOwner      string
 }
 
 func (e memberEscape) description() string {
@@ -275,8 +278,33 @@ func (e memberEscape) description() string {
 		return fmt.Sprintf("built-in type %q", e.ReservedName)
 	case memberEscapeEngineNative:
 		return fmt.Sprintf("native class %q", e.ReservedName)
+	case memberEscapeEngineInherited:
+		return fmt.Sprintf(
+			"inherited %s %q",
+			engineMemberKindDescription(e.EngineMemberKind),
+			e.EngineOwner+"."+e.ReservedName,
+		)
 	default:
 		return ""
+	}
+}
+
+func engineMemberKindDescription(kind engineMemberKind) string {
+	switch kind {
+	case engineMemberMethod:
+		return "method"
+	case engineMemberProperty:
+		return "property"
+	case engineMemberSignal:
+		return "signal"
+	case engineMemberConstant:
+		return "constant"
+	case engineMemberEnum:
+		return "enum"
+	case engineMemberEnumValue:
+		return "enum value"
+	default:
+		return "member"
 	}
 }
 
@@ -430,6 +458,18 @@ func planMemberName(name string) plannedMemberName {
 		return plannedMemberName{
 			Generated: name + "_",
 			Escape:    memberEscape{Kind: memberEscapeEngineBuiltin, ReservedName: name},
+		}
+	}
+
+	if inherited, reserved := foundryEngineReservedMembers[name]; reserved {
+		return plannedMemberName{
+			Generated: name + "_",
+			Escape: memberEscape{
+				Kind:             memberEscapeEngineInherited,
+				ReservedName:     name,
+				EngineMemberKind: inherited.kind,
+				EngineOwner:      inherited.owner,
+			},
 		}
 	}
 

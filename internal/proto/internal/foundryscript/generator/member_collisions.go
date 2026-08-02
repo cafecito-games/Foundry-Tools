@@ -176,7 +176,8 @@ func (c *memberCollisionCollector) err() error {
 	var diagnostic strings.Builder
 	diagnostic.WriteString("generated Foundry member names collide:")
 	for _, collision := range collisions {
-		for _, claim := range collision.Claims {
+		for i := range collision.Claims {
+			claim := &collision.Claims[i]
 			fmt.Fprintf(
 				&diagnostic,
 				"\n  %s: %s %s.%s generates Foundry member %q",
@@ -221,7 +222,7 @@ func memberClaimLess(left, right memberClaim) bool {
 	return left.Escape.ReservedName < right.Escape.ReservedName
 }
 
-func memberClaimLocation(claim memberClaim) string {
+func memberClaimLocation(claim *memberClaim) string {
 	sourceName := displaySourceName(claim.SourceName)
 	if claim.Position.Line > 0 && claim.Position.Column > 0 {
 		return fmt.Sprintf("%s:%d:%d", sourceName, claim.Position.Line, claim.Position.Column)

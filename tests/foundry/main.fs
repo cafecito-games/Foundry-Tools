@@ -35,6 +35,11 @@ func _init() -> void:
 	collision.Timer_ = ["first", "second"]
 	collision.Resource_ = {"ore": 7}
 	collision.Object_ = GameNodeObjectCase.Image("image case")
+	collision.get_class_ = "object method"
+	collision.script_changed_ = "object signal"
+	collision.NOTIFICATION_PREDELETE_ = "object constant"
+	collision.ConnectFlags_ = "object enum"
+	collision.CONNECT_DEFERRED_ = "object enum value"
 
 	var (collision_decoded, collision_error) = GameNode.from_bytes(collision.to_bytes())
 	check(collision_error == ProtobufError.OK, "prefixed collision fixture decodes")
@@ -59,6 +64,20 @@ func _init() -> void:
 			_:
 				printerr("FAIL: escaped oneof case did not round trip")
 				failures += 1
+		check(collision_decoded.get_class_ == "object method", "Object method member collision")
+		check(collision_decoded.script_changed_ == "object signal", "Object signal member collision")
+		check(collision_decoded.NOTIFICATION_PREDELETE_ == "object constant", "Object constant member collision")
+		check(collision_decoded.ConnectFlags_ == "object enum", "Object enum member collision")
+		check(collision_decoded.CONNECT_DEFERRED_ == "object enum value", "Object enum value member collision")
+
+	var methods: GameRefCountedMethods = GameRefCountedMethods.new()
+	methods.reference_ = "reference method"
+	methods.unreference_ = "unreference method"
+	var (methods_decoded, methods_error) = GameRefCountedMethods.from_bytes(methods.to_bytes())
+	check(methods_error == ProtobufError.OK, "RefCounted method collision fixture decodes")
+	if methods_decoded is GameRefCountedMethods:
+		check(methods_decoded.reference_ == "reference method", "RefCounted method member collision")
+		check(methods_decoded.unreference_ == "unreference method", "second RefCounted method member collision")
 
 	var player: Player = Player.new()
 	player.name = "Ava"
