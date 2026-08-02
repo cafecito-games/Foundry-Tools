@@ -255,7 +255,7 @@ func populateMessage(shape *schemaShape, message *protoast.Message, fullName, im
 		for _, field := range oneof.Fields {
 			add(field.Number, fieldShape{
 				canonicalName: field.Name,
-				cardinality:   "singular",
+				cardinality:   cardinality(field),
 				value:         resolveType(shape, fullName, field.FieldType, field.FullTypePath, field.IsEnum),
 				oneof:         group,
 			})

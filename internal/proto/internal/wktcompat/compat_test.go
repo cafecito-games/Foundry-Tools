@@ -6,10 +6,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	goprotodesc "google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
-	protodesc "github.com/cafecito-games/foundry-tools/internal/proto/internal/desc"
+	foundrydesc "github.com/cafecito-games/foundry-tools/internal/proto/internal/desc"
 	protoparse "github.com/cafecito-games/foundry-tools/internal/proto/internal/parser"
 	"github.com/cafecito-games/foundry-tools/internal/proto/internal/wktcompat"
 	"github.com/cafecito-games/foundry-tools/internal/proto/wellknown"
@@ -282,17 +284,110 @@ func TestDescriptorAndSourceCandidatesUseTheSameCompatibilityRules(t *testing.T)
 		}},
 	}
 
-	file, err := protodesc.FromFileDescriptorProto(descriptor)
+	file, err := foundrydesc.FromFileDescriptorProto(descriptor)
 	require.NoError(t, err)
 	require.NoError(t, wktcompat.Check([]wktcompat.SchemaFile{{
 		ImportPath: descriptor.GetName(), File: file,
 	}}))
 
 	descriptor.MessageType[0].Field[0].Type = descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum()
-	file, err = protodesc.FromFileDescriptorProto(descriptor)
+	file, err = foundrydesc.FromFileDescriptorProto(descriptor)
 	require.NoError(t, err)
 	err = wktcompat.Check([]wktcompat.SchemaFile{{
 		ImportPath: descriptor.GetName(), File: file,
 	}})
 	require.ErrorContains(t, err, "Timestamp.seconds (#1): expected singular int64; found singular string")
+}
+
+func TestParsedSourceASTPreservesIncompatibleOneofCardinality(t *testing.T) {
+	tests := []struct {
+		name        string
+		cardinality string
+		mutate      func(*protoast.Field)
+	}{
+		{
+			name:        "optional",
+			cardinality: "optional",
+			mutate: func(field *protoast.Field) {
+				field.Optional = true
+			},
+		},
+		{
+			name:        "repeated",
+			cardinality: "repeated",
+			mutate: func(field *protoast.Field) {
+				field.Repeated = true
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			file := parseFile(t, canonicalSource(t, "google/protobuf/struct.proto"))
+			value := file.Messages[1]
+			require.Equal(t, "Value", value.Name)
+			require.Len(t, value.Oneofs, 1)
+			require.Len(t, value.Oneofs[0].Fields, 6)
+			test.mutate(value.Oneofs[0].Fields[0])
+
+			err := wktcompat.Check([]wktcompat.SchemaFile{{
+				ImportPath: "google/protobuf/struct.proto",
+				File:       file,
+			}})
+			require.EqualError(t, err,
+				"google/protobuf/struct.proto: google.protobuf.Value.null_value (#1): "+
+					"expected singular google.protobuf.NullValue; found "+
+					test.cardinality+" google.protobuf.NullValue")
+		})
+	}
+}
+
+func TestDescriptorConvertedASTPreservesIncompatibleOneofCardinality(t *testing.T) {
+	canonical := goprotodesc.ToFileDescriptorProto(structpb.File_google_protobuf_struct_proto)
+	file, err := foundrydesc.FromFileDescriptorProto(canonical)
+	require.NoError(t, err)
+	require.NoError(t, wktcompat.Check([]wktcompat.SchemaFile{{
+		ImportPath: canonical.GetName(), File: file,
+	}}), "a canonical descriptor oneof must remain compatible")
+
+	tests := []struct {
+		name        string
+		cardinality string
+		mutate      func(*descriptorpb.FieldDescriptorProto)
+	}{
+		{
+			name:        "optional",
+			cardinality: "optional",
+			mutate: func(field *descriptorpb.FieldDescriptorProto) {
+				field.Proto3Optional = proto.Bool(true)
+			},
+		},
+		{
+			name:        "repeated",
+			cardinality: "repeated",
+			mutate: func(field *descriptorpb.FieldDescriptorProto) {
+				field.Label = descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum()
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			descriptor := proto.Clone(canonical).(*descriptorpb.FileDescriptorProto)
+			value := descriptor.MessageType[1]
+			require.Equal(t, "Value", value.GetName())
+			require.Len(t, value.GetField(), 6)
+			test.mutate(value.Field[0])
+
+			file, err := foundrydesc.FromFileDescriptorProto(descriptor)
+			require.NoError(t, err)
+			err = wktcompat.Check([]wktcompat.SchemaFile{{
+				ImportPath: descriptor.GetName(), File: file,
+			}})
+			require.EqualError(t, err,
+				"google/protobuf/struct.proto: google.protobuf.Value.null_value (#1): "+
+					"expected singular google.protobuf.NullValue; found "+
+					test.cardinality+" google.protobuf.NullValue")
+		})
+	}
 }
