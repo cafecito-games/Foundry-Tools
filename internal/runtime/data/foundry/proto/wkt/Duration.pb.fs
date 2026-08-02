@@ -118,6 +118,28 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
 
+## Converts float seconds into a normalized Duration.
+##
+## Whole seconds truncate toward zero so seconds and nanos keep compatible
+## signs. Nanoseconds rounded to a full second carry in either direction.
+static func from_seconds(_pb_value: float) -> Duration:
+	var _pb_result: Duration = Duration.new()
+	var _pb_whole: int = int(_pb_value)
+	_pb_result.seconds = _pb_whole
+	_pb_result.nanos = roundi((_pb_value - float(_pb_whole)) * 1000000000.0)
+	if _pb_result.nanos >= 1000000000:
+		_pb_result.nanos -= 1000000000
+		_pb_result.seconds += 1
+	elif _pb_result.nanos <= -1000000000:
+		_pb_result.nanos += 1000000000
+		_pb_result.seconds -= 1
+	return _pb_result
+
+## Returns this Duration as float seconds.
+## Read seconds and nanos directly when nanosecond precision matters.
+func to_seconds() -> float:
+	return float(seconds) + float(nanos) / 1000000000.0
+
 ## Returns this message as a proto3 canonical JSON document.
 ##
 ## JSON.stringify(message, "", false) renders it as text; the third argument

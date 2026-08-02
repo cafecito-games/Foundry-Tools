@@ -9,6 +9,14 @@ import (
 
 var variantSignaturePattern = regexp.MustCompile(`(^|[^A-Za-z0-9_])Variant\??([^A-Za-z0-9_]|$)`)
 
+var wellKnownVariantBridgeSignatures = map[string]bool{
+	"func to_variant() -> Variant:":                                                     true,
+	"static func from_variant(_pb_value: Variant) -> (Value?, ProtobufError):":          true,
+	"func to_dictionary() -> Dictionary[String, Variant]:":                              true,
+	"func to_array() -> Array[Variant]:":                                                true,
+	"static func from_array(_pb_value: Array[Variant]) -> (ListValue?, ProtobufError):": true,
+}
+
 // CheckPublicAPI rejects public generated function signatures that expose Variant.
 func CheckPublicAPI(source string) error {
 	scanner := bufio.NewScanner(strings.NewReader(source))
@@ -20,6 +28,9 @@ func CheckPublicAPI(source string) error {
 			continue
 		}
 		if variantSignaturePattern.MatchString(line) {
+			if wellKnownVariantBridgeSignatures[line] {
+				continue
+			}
 			return fmt.Errorf("public Variant in generated signature at line %d: %s", lineNumber, line)
 		}
 	}

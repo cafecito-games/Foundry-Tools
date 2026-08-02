@@ -138,6 +138,31 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
 
+## Converts unix seconds into a normalized Timestamp.
+##
+## The seconds field is floored so a negative timestamp keeps nonnegative
+## nanos. Nanoseconds rounded to a full second carry into seconds.
+static func from_unix_time(_pb_value: float) -> Timestamp:
+	var _pb_result: Timestamp = Timestamp.new()
+	var _pb_whole: int = floori(_pb_value)
+	_pb_result.seconds = _pb_whole
+	_pb_result.nanos = roundi((_pb_value - float(_pb_whole)) * 1000000000.0)
+	if _pb_result.nanos >= 1000000000:
+		_pb_result.nanos -= 1000000000
+		_pb_result.seconds += 1
+	return _pb_result
+
+## Returns the current system time as a Timestamp.
+static func now() -> Timestamp:
+	return Timestamp.from_unix_time(Time.get_unix_time_from_system())
+
+## Returns this Timestamp as unix seconds.
+##
+## This direction is lossy: a float near the present epoch resolves to about
+## 238 nanoseconds. Read seconds and nanos directly when full precision matters.
+func to_unix_time() -> float:
+	return float(seconds) + float(nanos) / 1000000000.0
+
 ## Returns this message as a proto3 canonical JSON document.
 ##
 ## JSON.stringify(message, "", false) renders it as text; the third argument

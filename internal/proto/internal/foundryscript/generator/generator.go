@@ -376,6 +376,9 @@ func messageClass(plan *messagePlan, inner bool, emission jsonEmission) fsast.Cl
 		toBytesFunction(plan.Fields, plan.Oneofs),
 		mergeFromBytesFunction(plan.Fields),
 	)
+	members = append(members, wellKnownNativeMembers(
+		wellKnownJSONFormFor(emission.SourceName, plan.Scope), plan,
+	)...)
 	if emission.Enabled {
 		members = append(members, jsonMembers(plan, emission)...)
 	}

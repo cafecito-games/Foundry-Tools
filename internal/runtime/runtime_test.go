@@ -18,7 +18,26 @@ func TestFilesReturnsRuntimeSources(t *testing.T) {
 	require.Contains(t, files, "foundry/proto/wire.fs")
 	require.Contains(t, files["foundry/proto/wire.fs"], "static func decode_bytes")
 	require.Contains(t, files["foundry/proto/wire.fs"], "static func skip_field")
-	require.NotContains(t, runtime.PublicSource(files), "Variant")
+
+	// Struct/Value/ListValue are the one protobuf API that inherently bridges a
+	// dynamic native tree. Keep that exception confined to their generated
+	// bindings; every other runtime surface stays Variant-free.
+	nonBridge := make(map[string]string, len(files)-3)
+	for name, source := range files {
+		switch name {
+		case "foundry/proto/wkt/Struct.pb.fs", "foundry/proto/wkt/Value.pb.fs", "foundry/proto/wkt/ListValue.pb.fs":
+			continue
+		default:
+			nonBridge[name] = source
+		}
+	}
+	require.NotContains(t, runtime.PublicSource(nonBridge), "Variant")
+	require.Contains(t, files["foundry/proto/wkt/Struct.pb.fs"],
+		"func to_dictionary() -> Dictionary[String, Variant]:")
+	require.Contains(t, files["foundry/proto/wkt/Value.pb.fs"],
+		"static func from_variant(_pb_value: Variant) -> (Value?, ProtobufError):")
+	require.Contains(t, files["foundry/proto/wkt/ListValue.pb.fs"],
+		"static func from_array(_pb_value: Array[Variant]) -> (ListValue?, ProtobufError):")
 }
 
 // Trait requirements must be abstract; a bare func fails to resolve the trait
@@ -61,6 +80,14 @@ func TestProtobufErrorCarriesTheJSONCases(t *testing.T) {
 	require.Contains(t, source, "JSON_UNKNOWN_FIELD = 9")
 	require.Contains(t, source, "JSON_VALUE_OUT_OF_RANGE = 10")
 	require.Contains(t, source, "JSON_ANY_UNSUPPORTED = 11")
+}
+
+func TestProtobufErrorCarriesTheStructConversionCases(t *testing.T) {
+	source := runtime.Files()["foundry/proto/protobuf_error.fs"]
+
+	require.Contains(t, source, "JSON_ANY_UNSUPPORTED = 11")
+	require.Contains(t, source, "STRUCT_KEY_NOT_STRING = 12")
+	require.Contains(t, source, "STRUCT_VALUE_UNREPRESENTABLE = 13")
 }
 
 // The well-known bindings are checked in so consumers get them without running

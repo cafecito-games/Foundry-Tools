@@ -107,6 +107,33 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
 
+## Returns this Struct as a native string-keyed Dictionary.
+##
+## Every Value case has a native representation, so this direction is total.
+func to_dictionary() -> Dictionary[String, Variant]:
+	var _pb_result: Dictionary[String, Variant] = {}
+	for _pb_key: String in fields:
+		_pb_result[_pb_key] = fields[_pb_key].to_variant()
+	return _pb_result
+
+## Converts a native Dictionary into a Struct.
+##
+## Keys must be Strings and every value must have a protobuf Value mapping.
+## A nested failure returns no partial Struct.
+static func from_dictionary(_pb_value: Dictionary) -> (Struct?, ProtobufError):
+	var _pb_failed: Struct? = null
+	var _pb_result: Struct = Struct.new()
+	for _pb_key: Variant in _pb_value:
+		if typeof(_pb_key) != TYPE_STRING:
+			return (_pb_failed, ProtobufError.STRUCT_KEY_NOT_STRING)
+		var (_pb_converted, _pb_error) = Value.from_variant(_pb_value[_pb_key])
+		if _pb_error != ProtobufError.OK:
+			return (_pb_failed, _pb_error)
+		if not (_pb_converted is Value):
+			return (_pb_failed, ProtobufError.STRUCT_VALUE_UNREPRESENTABLE)
+		_pb_result.fields[str(_pb_key)] = _pb_converted
+	return (_pb_result, ProtobufError.OK)
+
 ## Returns this message as a proto3 canonical JSON document.
 ##
 ## JSON.stringify(message, "", false) renders it as text; the third argument

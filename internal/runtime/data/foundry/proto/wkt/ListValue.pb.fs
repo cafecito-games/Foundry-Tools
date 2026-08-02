@@ -57,6 +57,27 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
 
+## Returns this ListValue as a native Array.
+func to_array() -> Array[Variant]:
+	var _pb_result: Array[Variant] = []
+	for _pb_item: Value in values:
+		_pb_result.append(_pb_item.to_variant())
+	return _pb_result
+
+## Converts a native Array into a ListValue.
+## A nested failure returns no partial ListValue.
+static func from_array(_pb_value: Array[Variant]) -> (ListValue?, ProtobufError):
+	var _pb_failed: ListValue? = null
+	var _pb_result: ListValue = ListValue.new()
+	for _pb_item: Variant in _pb_value:
+		var (_pb_converted, _pb_error) = Value.from_variant(_pb_item)
+		if _pb_error != ProtobufError.OK:
+			return (_pb_failed, _pb_error)
+		if not (_pb_converted is Value):
+			return (_pb_failed, ProtobufError.STRUCT_VALUE_UNREPRESENTABLE)
+		_pb_result.values.append(_pb_converted)
+	return (_pb_result, ProtobufError.OK)
+
 ## Returns this message as a proto3 canonical JSON document.
 ##
 ## JSON.stringify(message, "", false) renders it as text; the third argument

@@ -285,6 +285,8 @@ func _init() -> void:
 	check_packing()
 	check_well_known()
 	check_well_known_name_collision()
+	check_well_known_native_values()
+	check_well_known_time_helpers()
 	check_json_base64()
 	check_json_timestamp()
 	check_json_duration()
@@ -298,6 +300,111 @@ func _init() -> void:
 		return
 	print("round trip ok")
 	quit(0)
+
+## Struct, Value, and ListValue are protobuf's dynamic JSON tree. Their native
+## bridge is deliberately strict on input, so a bad value never becomes a
+## silently partial message.
+func check_well_known_native_values() -> void:
+	var source: Dictionary = {
+		"nothing": null,
+		"enabled": true,
+		"count": 9007199254740993,
+		"ratio": 0.5,
+		"name": "axe",
+		"nested": {"level": 7},
+		"items": ["first", {"deep": false}, null],
+	}
+	var (converted, conversion_error) = Struct.from_dictionary(source)
+	check(conversion_error == ProtobufError.OK, "a native Dictionary converts to Struct")
+	check(converted is Struct, "a successful Struct conversion carries a value")
+	if converted is Struct:
+		var native: Dictionary[String, Variant] = converted.to_dictionary()
+		check(native["nothing"] == null, "a null Struct member round trips")
+		check(native["enabled"] == true, "a bool Struct member round trips")
+		## Value carries a double. An int beyond 2^53 therefore comes back as the
+		## closest float, which is the documented narrowing at this boundary.
+		check(native["count"] == 9007199254740992.0, "a wide int narrows to the nearest Value number")
+		check(native["ratio"] == 0.5, "a float Struct member round trips")
+		check(native["name"] == "axe", "a String Struct member round trips")
+		var nested: Variant = native["nested"]
+		check(nested is Dictionary and nested["level"] == 7.0, "a nested Dictionary round trips recursively")
+		var items: Variant = native["items"]
+		check(items is Array and items.size() == 3, "a nested Array round trips recursively")
+		if items is Array and items.size() == 3:
+			check(items[0] == "first", "a nested Array keeps its string")
+			check(items[1] is Dictionary and items[1]["deep"] == false, "an Array can contain a nested Dictionary")
+			check(items[2] == null, "a nested Array keeps null")
+
+	var (bad_key, bad_key_error) = Struct.from_dictionary({1: "not a Struct key"})
+	check(bad_key_error == ProtobufError.STRUCT_KEY_NOT_STRING, "a non-String Struct key is refused")
+	check(bad_key == null, "a refused Struct key returns no partial message")
+
+	var (bad_value, bad_value_error) = Value.from_variant(Vector2(1.0, 2.0))
+	check(bad_value_error == ProtobufError.STRUCT_VALUE_UNREPRESENTABLE, "an unsupported Variant kind is refused")
+	check(bad_value == null, "an unsupported Variant returns no partial Value")
+
+	var nested_bad_source: Dictionary = {"kept": "before", "bad": [1, Vector2(1.0, 2.0)]}
+	var (nested_bad, nested_bad_error) = Struct.from_dictionary(nested_bad_source)
+	check(nested_bad_error == ProtobufError.STRUCT_VALUE_UNREPRESENTABLE, "a nested unsupported Variant aborts conversion")
+	check(nested_bad == null, "a nested failure returns no partial Struct")
+
+	var nested_bad_key_source: Dictionary = {"outer": {false: "not a Struct key"}}
+	var (nested_bad_key, nested_bad_key_error) = Struct.from_dictionary(nested_bad_key_source)
+	check(nested_bad_key_error == ProtobufError.STRUCT_KEY_NOT_STRING, "a nested non-String key aborts conversion")
+	check(nested_bad_key == null, "a nested bad key returns no partial Struct")
+
+	## A homogeneous native collection normally carries its element type in
+	## alpha19. It is still an Array Variant kind and must cross the bridge.
+	var typed_numbers: Array[int] = [1, 2]
+	var (typed_list, typed_list_error) = Value.from_variant(typed_numbers)
+	check(typed_list_error == ProtobufError.OK, "a typed native Array converts to Value")
+	check(typed_list is Value, "a typed native Array produces a Value")
+
+## Foundry's native time surface is float seconds. The generated helpers keep
+## protobuf's canonical field normalization while documenting the precision
+## boundary where nanoseconds become a double.
+func check_well_known_time_helpers() -> void:
+	var unix_seconds: float = 1700000000.1234567
+	var timestamp: foundry.proto.wkt.Timestamp = foundry.proto.wkt.Timestamp.from_unix_time(unix_seconds)
+	check(timestamp.seconds == 1700000000, "Timestamp extracts whole unix seconds")
+	check(timestamp.nanos >= 0 and timestamp.nanos < 1000000000, "Timestamp nanos are canonical")
+	check(timestamp.to_unix_time() == unix_seconds, "Timestamp preserves every bit of an inbound float")
+
+	var negative_timestamp: foundry.proto.wkt.Timestamp = foundry.proto.wkt.Timestamp.from_unix_time(-0.25)
+	check(negative_timestamp.seconds == -1, "a negative Timestamp floors its seconds")
+	check(negative_timestamp.nanos == 750000000, "a negative Timestamp keeps nonnegative nanos")
+	check(negative_timestamp.to_unix_time() == -0.25, "a negative Timestamp round trips")
+
+	var carried_timestamp: foundry.proto.wkt.Timestamp = foundry.proto.wkt.Timestamp.from_unix_time(0.9999999996)
+	check(carried_timestamp.seconds == 1 and carried_timestamp.nanos == 0, "Timestamp rounding carries into seconds")
+
+	var precise_timestamp: foundry.proto.wkt.Timestamp = foundry.proto.wkt.Timestamp.new()
+	precise_timestamp.seconds = 1700000000
+	precise_timestamp.nanos = 1
+	check(precise_timestamp.to_unix_time() == 1700000000.0,
+		"outbound unix seconds document float precision loss near the present epoch")
+
+	var before: float = Time.get_unix_time_from_system()
+	var current: foundry.proto.wkt.Timestamp = foundry.proto.wkt.Timestamp.now()
+	check(absf(current.to_unix_time() - before) < 5.0, "Timestamp.now uses the system unix clock")
+
+	var duration: Duration = Duration.from_seconds(1.25)
+	check(duration.seconds == 1 and duration.nanos == 250000000, "Duration extracts positive seconds and nanos")
+	check(duration.to_seconds() == 1.25, "a positive Duration round trips")
+
+	var negative_duration: Duration = Duration.from_seconds(-1.25)
+	check(negative_duration.seconds == -1 and negative_duration.nanos == -250000000,
+		"a negative Duration keeps seconds and nanos the same sign")
+	check(negative_duration.to_seconds() == -1.25, "a negative Duration round trips")
+
+	var negative_fraction: Duration = Duration.from_seconds(-0.25)
+	check(negative_fraction.seconds == 0 and negative_fraction.nanos == -250000000,
+		"a sub-second negative Duration keeps signed nanos")
+
+	var positive_carry: Duration = Duration.from_seconds(0.9999999996)
+	check(positive_carry.seconds == 1 and positive_carry.nanos == 0, "positive Duration rounding carries")
+	var negative_carry: Duration = Duration.from_seconds(-0.9999999996)
+	check(negative_carry.seconds == -1 and negative_carry.nanos == 0, "negative Duration rounding carries")
 
 ## The eight scalars that are not plain varints, checked against bytes a
 ## reference protobuf implementation produced for the same values. Lint proves
