@@ -63,6 +63,38 @@ func TestDirectCLIGenerationFailureIsAtomic(t *testing.T) {
 	require.Empty(t, entries)
 }
 
+func TestDirectCLIRejectsIncompatibleWellKnown(t *testing.T) {
+	root := repoRoot(t)
+	includeRoot := t.TempDir()
+	outDir := t.TempDir()
+
+	require.NoError(t, os.MkdirAll(filepath.Join(includeRoot, "google", "protobuf"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(includeRoot, "google", "protobuf", "timestamp.proto"), []byte(`syntax = "proto3";
+package google.protobuf;
+message Timestamp {
+  string seconds = 1;
+  int32 nanos = 2;
+}
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(includeRoot, "event.proto"), []byte(`syntax = "proto3";
+package demo;
+import "google/protobuf/timestamp.proto";
+message Event { google.protobuf.Timestamp occurred_at = 1; }
+`), 0o600))
+
+	output := runFailure(t, root, "go", "run", "./cmd/anvil", "proto", "generate",
+		"-I", includeRoot,
+		"-o", outDir,
+		filepath.Join(includeRoot, "event.proto"))
+
+	require.Contains(t, output,
+		"google/protobuf/timestamp.proto: google.protobuf.Timestamp.seconds (#1): "+
+			"expected singular int64; found singular string")
+	entries, err := os.ReadDir(outDir)
+	require.NoError(t, err)
+	require.Empty(t, entries)
+}
+
 func TestDirectCLIAppliesTypePrefix(t *testing.T) {
 	root := repoRoot(t)
 	outDir := t.TempDir()

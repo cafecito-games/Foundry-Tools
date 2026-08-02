@@ -1,6 +1,7 @@
 package wellknown
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -180,6 +181,17 @@ func TestEmbeddedProtosArePresent(t *testing.T) {
 		require.Contains(t, string(source), "// Protocol Buffers - Google's data interchange format")
 	}
 	require.Len(t, Files(), 7)
+}
+
+func TestEmbeddedSourcesMatchConformanceFixture(t *testing.T) {
+	fixtureRoot := filepath.Join("..", "..", "..", "tests", "integration", "fixtures", "conformance")
+	for _, name := range Files() {
+		embedded, err := Source(name)
+		require.NoError(t, err)
+		fixture, err := os.ReadFile(filepath.Join(fixtureRoot, filepath.FromSlash(name)))
+		require.NoError(t, err)
+		require.Equal(t, string(embedded), string(fixture), "%s drifted from the shared upstream pin", name)
+	}
 }
 
 func TestSourceRejectsUnvendoredFile(t *testing.T) {
