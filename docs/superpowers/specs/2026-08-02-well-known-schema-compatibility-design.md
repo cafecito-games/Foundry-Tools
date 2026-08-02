@@ -4,7 +4,7 @@
 
 **Builds on:** [cafecito-games/Foundry-Tools#45](https://github.com/cafecito-games/Foundry-Tools/pull/45)
 
-**Status:** Approved design checkpoint; awaiting written-spec approval
+**Status:** Approved
 
 ## Summary
 
