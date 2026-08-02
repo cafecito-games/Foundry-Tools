@@ -33,11 +33,6 @@ const referencePath = "tests/foundry/scalars_reference.bin"
 // NaN is deliberately absent. Its bit pattern is not unique, so a byte-exact
 // comparison across two implementations would assert something neither
 // promises; main.fs round-trips NaN on its own instead.
-//
-// Negative zero is absent for a different reason: the engine cannot reliably
-// hold one written as a literal (cafecito-games/Foundry#1371), so asserting on
-// it here would pin our fixture to an engine defect rather than to the wire
-// format. Restore the element once that lands.
 func scalarValues(message protoreflect.Message) {
 	fields := message.Descriptor().Fields()
 	set := func(name string, value protoreflect.Value) {
@@ -73,6 +68,7 @@ func scalarValues(message protoreflect.Message) {
 	)
 	appendTo("double_list",
 		protoreflect.ValueOfFloat64(0),
+		protoreflect.ValueOfFloat64(math.Copysign(0, -1)),
 		protoreflect.ValueOfFloat64(1.5),
 		protoreflect.ValueOfFloat64(math.Inf(1)),
 		protoreflect.ValueOfFloat64(math.Inf(-1)),
