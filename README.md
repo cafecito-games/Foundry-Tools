@@ -85,13 +85,40 @@ with a diagnostic naming the namespace. Only those exact namespaces are
 reserved: `foundry.proto.wkt.mine` generates into its own directory and is fine,
 and so is any other namespace beginning with `foundry`.
 
-These are plain message bindings today: they round-trip correctly on the wire,
-but carry none of the semantics the types imply. `Struct` will not convert to a
-`Dictionary`, `Timestamp` will not convert to seconds, and `Any` will not pack
-or unpack — those are designed and tracked in #43, blocked on two Foundry
-retroactive-conformance gaps
-([Foundry#1376](https://github.com/cafecito-games/Foundry/issues/1376),
-[Foundry#1377](https://github.com/cafecito-games/Foundry/issues/1377)).
+The generated runtime bindings carry native helpers as real class members:
+
+| Type | Helpers |
+|---|---|
+| `Struct` | `from_dictionary(Dictionary) -> (Struct?, ProtobufError)`, `to_dictionary() -> Dictionary[String, Variant]` |
+| `Value` | `from_variant(Variant) -> (Value?, ProtobufError)`, `to_variant() -> Variant` |
+| `ListValue` | `from_array(Array[Variant]) -> (ListValue?, ProtobufError)`, `to_array() -> Array[Variant]` |
+| `Timestamp` | `from_unix_time(float) -> (Timestamp?, ProtobufError)`, `now() -> Timestamp`, `to_unix_time() -> float` |
+| `Duration` | `from_seconds(float) -> (Duration?, ProtobufError)`, `to_seconds() -> float` |
+
+The dynamic mapping is exactly null, bool, int/float, `String`, `Dictionary`,
+and `Array`, recursively. An int becomes `Value.number_value`, so it returns as
+a float and values past 2^53 can lose precision. A Dictionary with a non-String
+key returns `STRUCT_KEY_NOT_STRING`; a native kind such as `Vector2` returns
+`STRUCT_VALUE_UNREPRESENTABLE`. Either failure aborts the whole conversion and
+returns no partial message. Self-referential and mutually recursive native
+Dictionary/Array graphs return `STRUCT_VALUE_UNREPRESENTABLE`; reusing the same
+acyclic container in sibling positions is supported.
+
+Timestamp conversion floors negative input so `nanos` stays in the canonical
+0 through 999,999,999 range. Duration truncates toward zero so nonzero
+`seconds` and `nanos` have compatible signs. In both cases rounding a fractional
+part to a full billion nanoseconds carries into `seconds`. Finite input rounds
+to the nearest nanosecond, so sub-nanosecond values are not lossless.
+Non-finite input or a normalized value outside Timestamp's seconds range
+`[-62135596800, 253402300799]` or Duration's seconds range
+`[-315576000000, 315576000000]` returns
+`WELL_KNOWN_TIME_OUT_OF_RANGE`. Converting the fields back to float is also
+lossy (near current unix time, a double resolves to roughly 238 nanoseconds).
+Callers needing exact nanoseconds should use the generated `seconds` and
+`nanos` fields directly.
+
+`Any` still does not pack or unpack; that needs the type-URL registry tracked
+separately. The scalar wrappers remain ordinary messages.
 
 The scalar wrappers are not mapped onto nullable scalars. proto3 `optional`
 already gives a scalar explicit presence, and the message form is needed anyway

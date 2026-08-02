@@ -118,6 +118,40 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
 
+## Converts float seconds into a normalized Duration.
+##
+## Whole seconds truncate toward zero so seconds and nanos keep compatible
+## signs. The finite input rounds to the nearest nanosecond; a full
+## billion carries in either direction. Invalid inputs return no Duration.
+static func from_seconds(_pb_value: float) -> (Duration?, ProtobufError):
+	var _pb_failed: Duration? = null
+	if is_nan(_pb_value) or is_inf(_pb_value):
+		return (_pb_failed, ProtobufError.WELL_KNOWN_TIME_OUT_OF_RANGE)
+	if _pb_value < -315576000001.0 or _pb_value > 315576000001.0:
+		return (_pb_failed, ProtobufError.WELL_KNOWN_TIME_OUT_OF_RANGE)
+	var _pb_result: Duration = Duration._from_valid_seconds(_pb_value)
+	if _pb_result.seconds < -315576000000 or _pb_result.seconds > 315576000000 or _pb_result.nanos < -999999999 or _pb_result.nanos > 999999999 or (_pb_result.seconds > 0 and _pb_result.nanos < 0) or (_pb_result.seconds < 0 and _pb_result.nanos > 0):
+		return (_pb_failed, ProtobufError.WELL_KNOWN_TIME_OUT_OF_RANGE)
+	return (_pb_result, ProtobufError.OK)
+
+static func _from_valid_seconds(_pb_value: float) -> Duration:
+	var _pb_result: Duration = Duration.new()
+	var _pb_whole: int = int(_pb_value)
+	_pb_result.seconds = _pb_whole
+	_pb_result.nanos = roundi((_pb_value - float(_pb_whole)) * 1000000000.0)
+	if _pb_result.nanos >= 1000000000:
+		_pb_result.nanos -= 1000000000
+		_pb_result.seconds += 1
+	elif _pb_result.nanos <= -1000000000:
+		_pb_result.nanos += 1000000000
+		_pb_result.seconds -= 1
+	return _pb_result
+
+## Returns this Duration as float seconds.
+## Read seconds and nanos directly when nanosecond precision matters.
+func to_seconds() -> float:
+	return float(seconds) + float(nanos) / 1000000000.0
+
 ## Returns this message as a proto3 canonical JSON document.
 ##
 ## JSON.stringify(message, "", false) renders it as text; the third argument

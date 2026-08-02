@@ -21,3 +21,10 @@ enum_name ProtobufError:
 	JSON_VALUE_OUT_OF_RANGE = 10
 	## google.protobuf.Any has no JSON form yet; it needs a type-URL registry.
 	JSON_ANY_UNSUPPORTED = 11
+	## A Dictionary presented as a Struct has a key that is not a String.
+	STRUCT_KEY_NOT_STRING = 12
+	## A native value presented as a protobuf Value has no representation.
+	STRUCT_VALUE_UNREPRESENTABLE = 13
+	## A native float is non-finite or normalizes outside the protobuf
+	## Timestamp or Duration range.
+	WELL_KNOWN_TIME_OUT_OF_RANGE = 14

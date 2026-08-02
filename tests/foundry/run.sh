@@ -72,8 +72,27 @@ if [ -d "$OUT/google" ]; then
   exit 1
 fi
 
-if grep -R -n -E -e '(^|[^_])func [A-Za-z0-9_]+\(.*Variant|-> Variant' "$OUT"; then
-  echo "public Variant signature found in generated Foundry Script"
+unexpected_variant=0
+while IFS= read -r match; do
+  file="${match%%:*}"
+  rest="${match#*:}"
+  signature="${rest#*:}"
+  relative="${file#"$OUT"/}"
+  case "$relative|$signature" in
+    'foundry/proto/wkt/Value.pb.fs|func to_variant() -> Variant:' | \
+    'foundry/proto/wkt/Value.pb.fs|static func from_variant(_pb_value: Variant) -> (Value?, ProtobufError):' | \
+    'foundry/proto/wkt/Struct.pb.fs|func to_dictionary() -> Dictionary[String, Variant]:' | \
+    'foundry/proto/wkt/ListValue.pb.fs|func to_array() -> Array[Variant]:' | \
+    'foundry/proto/wkt/ListValue.pb.fs|static func from_array(_pb_value: Array[Variant]) -> (ListValue?, ProtobufError):')
+      ;;
+    *)
+      echo "$match"
+      unexpected_variant=1
+      ;;
+  esac
+done < <(grep -R -n -E -e '(^|[^_])func [A-Za-z0-9][A-Za-z0-9_]*\(.*Variant|-> Variant' "$OUT" || true)
+if [ "$unexpected_variant" -ne 0 ]; then
+  echo "public Variant signature found outside the well-known native bridge"
   exit 1
 fi
 

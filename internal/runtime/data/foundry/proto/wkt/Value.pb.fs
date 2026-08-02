@@ -138,6 +138,66 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
 
+## Returns this protobuf Value as its native Foundry representation.
+##
+## An unset Value is represented as null, matching its proto3 JSON form.
+func to_variant() -> Variant:
+	match kind:
+		ValueKindCase.NullValue(_):
+			return null
+		ValueKindCase.NumberValue(var _pb_kind_number_value):
+			return _pb_kind_number_value
+		ValueKindCase.StringValue(var _pb_kind_string_value):
+			return _pb_kind_string_value
+		ValueKindCase.BoolValue(var _pb_kind_bool_value):
+			return _pb_kind_bool_value
+		ValueKindCase.StructValue(var _pb_kind_struct_value):
+			return _pb_kind_struct_value.to_dictionary()
+		ValueKindCase.ListValue(var _pb_kind_list_value):
+			return _pb_kind_list_value.to_array()
+		_:
+			return null
+
+## Converts a native Foundry value into a protobuf Value.
+##
+## An int narrows to Value's float and is lossy beyond 2^53. Unsupported
+## Variant kinds and Dictionaries with non-String keys are refused.
+static func from_variant(_pb_value: Variant) -> (Value?, ProtobufError):
+	var _pb_ancestors: Array[Variant] = []
+	return Value._from_variant(_pb_value, _pb_ancestors)
+
+static func _from_variant(_pb_value: Variant, _pb_ancestors: Array[Variant]) -> (Value?, ProtobufError):
+	var _pb_failed: Value? = null
+	var _pb_result: Value = Value.new()
+	match typeof(_pb_value):
+		TYPE_NIL:
+			_pb_result.kind = ValueKindCase.NullValue(NullValue.NULL_VALUE)
+		TYPE_BOOL:
+			_pb_result.kind = ValueKindCase.BoolValue(_pb_value)
+		TYPE_INT:
+			_pb_result.kind = ValueKindCase.NumberValue(float(_pb_value))
+		TYPE_FLOAT:
+			_pb_result.kind = ValueKindCase.NumberValue(_pb_value)
+		TYPE_STRING:
+			_pb_result.kind = ValueKindCase.StringValue(_pb_value)
+		TYPE_DICTIONARY:
+			var (_pb_converted, _pb_error) = Struct._from_dictionary(_pb_value, _pb_ancestors)
+			if _pb_error != ProtobufError.OK:
+				return (_pb_failed, _pb_error)
+			if not (_pb_converted is Struct):
+				return (_pb_failed, ProtobufError.STRUCT_VALUE_UNREPRESENTABLE)
+			_pb_result.kind = ValueKindCase.StructValue(_pb_converted)
+		TYPE_ARRAY:
+			var (_pb_converted, _pb_error) = ListValue._from_array(_pb_value, _pb_ancestors)
+			if _pb_error != ProtobufError.OK:
+				return (_pb_failed, _pb_error)
+			if not (_pb_converted is ListValue):
+				return (_pb_failed, ProtobufError.STRUCT_VALUE_UNREPRESENTABLE)
+			_pb_result.kind = ValueKindCase.ListValue(_pb_converted)
+		_:
+			return (_pb_failed, ProtobufError.STRUCT_VALUE_UNREPRESENTABLE)
+	return (_pb_result, ProtobufError.OK)
+
 ## Returns this message as a proto3 canonical JSON document.
 ##
 ## JSON.stringify(message, "", false) renders it as text; the third argument

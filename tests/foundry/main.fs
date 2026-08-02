@@ -285,6 +285,8 @@ func _init() -> void:
 	check_packing()
 	check_well_known()
 	check_well_known_name_collision()
+	check_well_known_native_values()
+	check_well_known_time_helpers()
 	check_json_base64()
 	check_json_timestamp()
 	check_json_duration()
@@ -298,6 +300,216 @@ func _init() -> void:
 		return
 	print("round trip ok")
 	quit(0)
+
+## Struct, Value, and ListValue are protobuf's dynamic JSON tree. Their native
+## bridge is deliberately strict on input, so a bad value never becomes a
+## silently partial message.
+func check_well_known_native_values() -> void:
+	var source: Dictionary = {
+		"nothing": null,
+		"enabled": true,
+		"count": 9007199254740993,
+		"ratio": 0.5,
+		"name": "axe",
+		"nested": {"level": 7},
+		"items": ["first", {"deep": false}, null],
+	}
+	var (converted, conversion_error) = Struct.from_dictionary(source)
+	check(conversion_error == ProtobufError.OK, "a native Dictionary converts to Struct")
+	check(converted is Struct, "a successful Struct conversion carries a value")
+	if converted is Struct:
+		var native: Dictionary[String, Variant] = converted.to_dictionary()
+		check(native["nothing"] == null, "a null Struct member round trips")
+		check(native["enabled"] == true, "a bool Struct member round trips")
+		## Value carries a double. An int beyond 2^53 therefore comes back as the
+		## closest float, which is the documented narrowing at this boundary.
+		check(native["count"] == 9007199254740992.0, "a wide int narrows to the nearest Value number")
+		check(native["ratio"] == 0.5, "a float Struct member round trips")
+		check(native["name"] == "axe", "a String Struct member round trips")
+		var nested: Variant = native["nested"]
+		check(nested is Dictionary and nested["level"] == 7.0, "a nested Dictionary round trips recursively")
+		var items: Variant = native["items"]
+		check(items is Array and items.size() == 3, "a nested Array round trips recursively")
+		if items is Array and items.size() == 3:
+			check(items[0] == "first", "a nested Array keeps its string")
+			check(items[1] is Dictionary and items[1]["deep"] == false, "an Array can contain a nested Dictionary")
+			check(items[2] == null, "a nested Array keeps null")
+
+	var (bad_key, bad_key_error) = Struct.from_dictionary({1: "not a Struct key"})
+	check(bad_key_error == ProtobufError.STRUCT_KEY_NOT_STRING, "a non-String Struct key is refused")
+	check(bad_key == null, "a refused Struct key returns no partial message")
+
+	var (bad_value, bad_value_error) = Value.from_variant(Vector2(1.0, 2.0))
+	check(bad_value_error == ProtobufError.STRUCT_VALUE_UNREPRESENTABLE, "an unsupported Variant kind is refused")
+	check(bad_value == null, "an unsupported Variant returns no partial Value")
+
+	var nested_bad_source: Dictionary = {"kept": "before", "bad": [1, Vector2(1.0, 2.0)]}
+	var (nested_bad, nested_bad_error) = Struct.from_dictionary(nested_bad_source)
+	check(nested_bad_error == ProtobufError.STRUCT_VALUE_UNREPRESENTABLE, "a nested unsupported Variant aborts conversion")
+	check(nested_bad == null, "a nested failure returns no partial Struct")
+
+	var nested_bad_key_source: Dictionary = {"outer": {false: "not a Struct key"}}
+	var (nested_bad_key, nested_bad_key_error) = Struct.from_dictionary(nested_bad_key_source)
+	check(nested_bad_key_error == ProtobufError.STRUCT_KEY_NOT_STRING, "a nested non-String key aborts conversion")
+	check(nested_bad_key == null, "a nested bad key returns no partial Struct")
+
+	## A homogeneous native collection normally carries its element type in
+	## alpha19. It is still an Array Variant kind and must cross the bridge.
+	var typed_numbers: Array[int] = [1, 2]
+	var (typed_list, typed_list_error) = Value.from_variant(typed_numbers)
+	check(typed_list_error == ProtobufError.OK, "a typed native Array converts to Value")
+	check(typed_list is Value, "a typed native Array produces a Value")
+
+	var self_dictionary: Dictionary = {}
+	self_dictionary["self"] = self_dictionary
+	var (self_dictionary_value, self_dictionary_error) = Struct.from_dictionary(self_dictionary)
+	check(self_dictionary_error == ProtobufError.STRUCT_VALUE_UNREPRESENTABLE,
+		"a self-referential Dictionary is refused")
+	check(self_dictionary_value == null, "a self-referential Dictionary returns no partial Struct")
+
+	var first_dictionary: Dictionary = {}
+	var second_dictionary: Dictionary = {}
+	first_dictionary["second"] = second_dictionary
+	second_dictionary["first"] = first_dictionary
+	var (mutual_dictionary, mutual_dictionary_error) = Struct.from_dictionary(first_dictionary)
+	check(mutual_dictionary_error == ProtobufError.STRUCT_VALUE_UNREPRESENTABLE,
+		"mutually recursive Dictionaries are refused")
+	check(mutual_dictionary == null, "mutually recursive Dictionaries return no partial Struct")
+
+	var self_array: Array[Variant] = []
+	self_array.append(self_array)
+	var (self_array_value, self_array_error) = Value.from_variant(self_array)
+	check(self_array_error == ProtobufError.STRUCT_VALUE_UNREPRESENTABLE,
+		"a self-referential Array is refused")
+	check(self_array_value == null, "a self-referential Array returns no partial Value")
+
+	var first_array: Array[Variant] = []
+	var second_array: Array[Variant] = []
+	first_array.append(second_array)
+	second_array.append(first_array)
+	var (mutual_array, mutual_array_error) = Value.from_variant(first_array)
+	check(mutual_array_error == ProtobufError.STRUCT_VALUE_UNREPRESENTABLE,
+		"mutually recursive Arrays are refused")
+	check(mutual_array == null, "mutually recursive Arrays return no partial Value")
+
+	var shared_dictionary: Dictionary = {"leaf": "shared"}
+	var shared_dictionary_siblings: Dictionary = {
+		"left": shared_dictionary,
+		"right": shared_dictionary,
+	}
+	var (shared_struct, shared_struct_error) = Struct.from_dictionary(shared_dictionary_siblings)
+	check(shared_struct_error == ProtobufError.OK,
+		"an acyclic Dictionary shared by siblings is accepted")
+	check(shared_struct is Struct, "shared acyclic Dictionaries produce a Struct")
+
+	var shared_array: Array[Variant] = ["shared"]
+	var shared_array_siblings: Array[Variant] = [shared_array, shared_array]
+	var (shared_list, shared_list_error) = ListValue.from_array(shared_array_siblings)
+	check(shared_list_error == ProtobufError.OK, "an acyclic Array shared by siblings is accepted")
+	check(shared_list is ListValue, "shared acyclic Arrays produce a ListValue")
+
+## Foundry's native time surface is float seconds. The generated helpers keep
+## protobuf's canonical field normalization while documenting the precision
+## boundary where nanoseconds become a double.
+func check_well_known_time_helpers() -> void:
+	var unix_seconds: float = 1700000000.1234567
+	var (timestamp, timestamp_error) = foundry.proto.wkt.Timestamp.from_unix_time(unix_seconds)
+	check(timestamp_error == ProtobufError.OK, "a finite in-range Timestamp is accepted")
+	if timestamp is foundry.proto.wkt.Timestamp:
+		check(timestamp.seconds == 1700000000, "Timestamp extracts whole unix seconds")
+		check(timestamp.nanos >= 0 and timestamp.nanos < 1000000000, "Timestamp nanos are canonical")
+		check(timestamp.to_unix_time() == unix_seconds, "Timestamp round trips at the input float's precision")
+
+	var (negative_timestamp, negative_timestamp_error) = foundry.proto.wkt.Timestamp.from_unix_time(-0.25)
+	check(negative_timestamp_error == ProtobufError.OK, "a negative Timestamp is accepted")
+	if negative_timestamp is foundry.proto.wkt.Timestamp:
+		check(negative_timestamp.seconds == -1, "a negative Timestamp floors its seconds")
+		check(negative_timestamp.nanos == 750000000, "a negative Timestamp keeps nonnegative nanos")
+		check(negative_timestamp.to_unix_time() == -0.25, "a negative Timestamp round trips")
+
+	var (carried_timestamp, carried_timestamp_error) = foundry.proto.wkt.Timestamp.from_unix_time(0.9999999996)
+	check(carried_timestamp_error == ProtobufError.OK, "an in-range Timestamp carry is accepted")
+	if carried_timestamp is foundry.proto.wkt.Timestamp:
+		check(carried_timestamp.seconds == 1 and carried_timestamp.nanos == 0,
+			"Timestamp rounding carries into seconds")
+
+	var (subnanosecond_timestamp, subnanosecond_timestamp_error) = foundry.proto.wkt.Timestamp.from_unix_time(0.0000000004)
+	check(subnanosecond_timestamp_error == ProtobufError.OK, "a sub-nanosecond Timestamp is accepted")
+	if subnanosecond_timestamp is foundry.proto.wkt.Timestamp:
+		check(subnanosecond_timestamp.seconds == 0 and subnanosecond_timestamp.nanos == 0,
+			"Timestamp input rounds to the nearest nanosecond")
+
+	var (minimum_timestamp, minimum_timestamp_error) = foundry.proto.wkt.Timestamp.from_unix_time(-62135596800.0)
+	check(minimum_timestamp_error == ProtobufError.OK, "the minimum Timestamp is accepted")
+	check(minimum_timestamp is foundry.proto.wkt.Timestamp and minimum_timestamp.seconds == -62135596800,
+		"the minimum Timestamp keeps its exact seconds")
+	var (maximum_timestamp, maximum_timestamp_error) = foundry.proto.wkt.Timestamp.from_unix_time(253402300799.0)
+	check(maximum_timestamp_error == ProtobufError.OK, "the maximum Timestamp second is accepted")
+	check(maximum_timestamp is foundry.proto.wkt.Timestamp and maximum_timestamp.seconds == 253402300799,
+		"the maximum Timestamp keeps its exact seconds")
+
+	for invalid_timestamp: float in [NAN, INF, -INF, -62135596801.0, 253402300800.0, 253402300799.9999999996]:
+		var (invalid_timestamp_value, invalid_timestamp_error) = foundry.proto.wkt.Timestamp.from_unix_time(invalid_timestamp)
+		check(invalid_timestamp_error == ProtobufError.WELL_KNOWN_TIME_OUT_OF_RANGE,
+			"an invalid Timestamp input is refused")
+		check(invalid_timestamp_value == null, "an invalid Timestamp returns no partial value")
+
+	var precise_timestamp: foundry.proto.wkt.Timestamp = foundry.proto.wkt.Timestamp.new()
+	precise_timestamp.seconds = 1700000000
+	precise_timestamp.nanos = 1
+	check(precise_timestamp.to_unix_time() == 1700000000.0,
+		"outbound unix seconds document float precision loss near the present epoch")
+
+	var before: float = Time.get_unix_time_from_system()
+	var current: foundry.proto.wkt.Timestamp = foundry.proto.wkt.Timestamp.now()
+	check(absf(current.to_unix_time() - before) < 5.0, "Timestamp.now uses the system unix clock")
+
+	var (duration, duration_error) = Duration.from_seconds(1.25)
+	check(duration_error == ProtobufError.OK, "a finite in-range Duration is accepted")
+	if duration is Duration:
+		check(duration.seconds == 1 and duration.nanos == 250000000,
+			"Duration extracts positive seconds and nanos")
+		check(duration.to_seconds() == 1.25, "a positive Duration round trips")
+
+	var (negative_duration, negative_duration_error) = Duration.from_seconds(-1.25)
+	check(negative_duration_error == ProtobufError.OK, "a negative Duration is accepted")
+	if negative_duration is Duration:
+		check(negative_duration.seconds == -1 and negative_duration.nanos == -250000000,
+			"a negative Duration keeps seconds and nanos the same sign")
+		check(negative_duration.to_seconds() == -1.25, "a negative Duration round trips")
+
+	var (negative_fraction, negative_fraction_error) = Duration.from_seconds(-0.25)
+	check(negative_fraction_error == ProtobufError.OK, "a negative fractional Duration is accepted")
+	if negative_fraction is Duration:
+		check(negative_fraction.seconds == 0 and negative_fraction.nanos == -250000000,
+			"a sub-second negative Duration keeps signed nanos")
+
+	var (positive_carry, positive_carry_error) = Duration.from_seconds(0.9999999996)
+	check(positive_carry_error == ProtobufError.OK, "an in-range positive Duration carry is accepted")
+	if positive_carry is Duration:
+		check(positive_carry.seconds == 1 and positive_carry.nanos == 0, "positive Duration rounding carries")
+	var (negative_carry, negative_carry_error) = Duration.from_seconds(-0.9999999996)
+	check(negative_carry_error == ProtobufError.OK, "an in-range negative Duration carry is accepted")
+	if negative_carry is Duration:
+		check(negative_carry.seconds == -1 and negative_carry.nanos == 0, "negative Duration rounding carries")
+
+	var (subnanosecond_duration, subnanosecond_duration_error) = Duration.from_seconds(0.0000000004)
+	check(subnanosecond_duration_error == ProtobufError.OK, "a sub-nanosecond Duration is accepted")
+	if subnanosecond_duration is Duration:
+		check(subnanosecond_duration.seconds == 0 and subnanosecond_duration.nanos == 0,
+			"Duration input rounds to the nearest nanosecond")
+
+	for boundary_duration: float in [-315576000000.0, 315576000000.0]:
+		var (boundary_duration_value, boundary_duration_error) = Duration.from_seconds(boundary_duration)
+		check(boundary_duration_error == ProtobufError.OK, "an exact Duration boundary is accepted")
+		check(boundary_duration_value is Duration and boundary_duration_value.seconds == int(boundary_duration),
+			"an exact Duration boundary keeps its seconds")
+
+	for invalid_duration: float in [NAN, INF, -INF, -315576000001.0, 315576000001.0, 315576000000.9999999996]:
+		var (invalid_duration_value, invalid_duration_error) = Duration.from_seconds(invalid_duration)
+		check(invalid_duration_error == ProtobufError.WELL_KNOWN_TIME_OUT_OF_RANGE,
+			"an invalid Duration input is refused")
+		check(invalid_duration_value == null, "an invalid Duration returns no partial value")
 
 ## The eight scalars that are not plain varints, checked against bytes a
 ## reference protobuf implementation produced for the same values. Lint proves

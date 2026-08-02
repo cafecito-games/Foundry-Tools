@@ -57,6 +57,38 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
 
+## Returns this ListValue as a native Array.
+func to_array() -> Array[Variant]:
+	var _pb_result: Array[Variant] = []
+	for _pb_item: Value in values:
+		_pb_result.append(_pb_item.to_variant())
+	return _pb_result
+
+## Converts a native Array into a ListValue.
+## A nested failure returns no partial ListValue.
+static func from_array(_pb_value: Array[Variant]) -> (ListValue?, ProtobufError):
+	var _pb_ancestors: Array[Variant] = []
+	return ListValue._from_array(_pb_value, _pb_ancestors)
+
+static func _from_array(_pb_value: Array[Variant], _pb_ancestors: Array[Variant]) -> (ListValue?, ProtobufError):
+	var _pb_failed: ListValue? = null
+	for _pb_ancestor: Variant in _pb_ancestors:
+		if is_same(_pb_ancestor, _pb_value):
+			return (_pb_failed, ProtobufError.STRUCT_VALUE_UNREPRESENTABLE)
+	_pb_ancestors.append(_pb_value)
+	var _pb_result: ListValue = ListValue.new()
+	for _pb_item: Variant in _pb_value:
+		var (_pb_converted, _pb_error) = Value._from_variant(_pb_item, _pb_ancestors)
+		if _pb_error != ProtobufError.OK:
+			_pb_ancestors.pop_back()
+			return (_pb_failed, _pb_error)
+		if not (_pb_converted is Value):
+			_pb_ancestors.pop_back()
+			return (_pb_failed, ProtobufError.STRUCT_VALUE_UNREPRESENTABLE)
+		_pb_result.values.append(_pb_converted)
+	_pb_ancestors.pop_back()
+	return (_pb_result, ProtobufError.OK)
+
 ## Returns this message as a proto3 canonical JSON document.
 ##
 ## JSON.stringify(message, "", false) renders it as text; the third argument
