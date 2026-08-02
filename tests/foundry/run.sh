@@ -36,6 +36,7 @@ RUN_LOG="$(mktemp)"
 
 "$ROOT/bin/anvil" proto generate \
   -I "$ROOT/tests/integration/fixtures/basic" \
+  -I "$ROOT/tests/integration/fixtures/conformance" \
   -I "$PROJECT" \
   -o "$OUT" \
   "$ROOT/tests/integration/fixtures/basic/player.proto" \
@@ -45,7 +46,15 @@ RUN_LOG="$(mktemp)"
   "$PROJECT/scalars.proto" \
   "$PROJECT/packing.proto" \
   "$PROJECT/well_known_dependency.proto" \
-  "$PROJECT/well_known.proto"
+  "$PROJECT/well_known.proto" \
+  "$ROOT/tests/integration/fixtures/conformance/test_messages_proto3.proto" \
+  "$ROOT/tests/integration/fixtures/conformance/google/protobuf/any.proto" \
+  "$ROOT/tests/integration/fixtures/conformance/google/protobuf/duration.proto" \
+  "$ROOT/tests/integration/fixtures/conformance/google/protobuf/empty.proto" \
+  "$ROOT/tests/integration/fixtures/conformance/google/protobuf/field_mask.proto" \
+  "$ROOT/tests/integration/fixtures/conformance/google/protobuf/struct.proto" \
+  "$ROOT/tests/integration/fixtures/conformance/google/protobuf/timestamp.proto" \
+  "$ROOT/tests/integration/fixtures/conformance/google/protobuf/wrappers.proto"
 
 # The JSON option is off above, so everything generated so far covers the wire
 # codec on its own. The JSON surface is generated from the schema the JSON
@@ -91,12 +100,19 @@ fi
 # "round trip ok" and exit 0 even though a construct broke mid-run, so the exit
 # code alone cannot be trusted -- the captured output has to be checked for a
 # SCRIPT ERROR too.
-if ! "$FOUNDRY" --headless project run --project "$PROJECT" --script "$PROJECT/main.fs" 2>&1 | tee "$RUN_LOG"; then
-  echo "generated Foundry Script failed its round-trip checks"
-  exit 1
-fi
+run_fixture() {
+  local script="$1"
+  local label="$2"
+  if ! "$FOUNDRY" --headless project run --project "$PROJECT" --script "$script" 2>&1 | tee -a "$RUN_LOG"; then
+    echo "$label failed its round-trip checks"
+    exit 1
+  fi
+}
+
+run_fixture "$PROJECT/main.fs" "generated Foundry Script"
+run_fixture "$PROJECT/conformance.fs" "upstream conformance binding"
 
 if grep -q "SCRIPT ERROR" "$RUN_LOG"; then
-  echo "generated Foundry Script emitted a SCRIPT ERROR during the round-trip run"
+  echo "generated Foundry Script emitted a SCRIPT ERROR during a round-trip run"
   exit 1
 fi
