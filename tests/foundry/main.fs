@@ -320,11 +320,11 @@ func check_scalars() -> void:
 
 	check(decoded.sint32_list == [0, -1, 1, -2147483648, 2147483647], "packed sint32 round trips")
 	check(decoded.sfixed32_list == [-1, 0, 2147483647], "packed sfixed32 round trips")
-	check(decoded.double_list.size() == 4, "packed double keeps every element")
-	if decoded.double_list.size() == 4:
-		check(decoded.double_list[1] == 1.5, "packed double round trips")
-		check(decoded.double_list[2] == INF, "positive infinity round trips")
-		check(decoded.double_list[3] == -INF, "negative infinity round trips")
+	check(decoded.double_list.size() == 5, "packed double keeps every element")
+	if decoded.double_list.size() == 5:
+		check(decoded.double_list[2] == 1.5, "packed double round trips")
+		check(decoded.double_list[3] == INF, "positive infinity round trips")
+		check(decoded.double_list[4] == -INF, "negative infinity round trips")
 
 	match decoded.choice:
 		ScalarSuiteChoiceCase.ChoiceDelta(var delta):
@@ -399,8 +399,7 @@ func check_truncated_map_entry() -> void:
 ## -0.0 is a distinct value protobuf writes, so it has to survive a decode and
 ## re-encode rather than being folded onto the default and dropped.
 func check_negative_zero_presence() -> void:
-	## Built from bytes: a -0.0 written as a literal cannot be relied on here.
-	## See cafecito-games/Foundry#1371.
+	## Build this from bytes to exercise the decode path that receives -0.0.
 	var negative_zero: PackedByteArray = PackedByteArray()
 	negative_zero.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_64BIT)))
 	negative_zero.append_array(PackedByteArray([0, 0, 0, 0, 0, 0, 0, 128]))
@@ -438,10 +437,7 @@ func populated_scalar_suite() -> ScalarSuite:
 	suite.sint32_value = -2147483648
 	suite.sint64_value = min_int64()
 	suite.sint32_list = [0, -1, 1, -2147483648, 2147483647]
-	## No -0.0 here: this engine cannot hold one written as a literal, and a
-	## -0.0 anywhere in the script would take the sign of every 0.0 with it.
-	## See cafecito-games/Foundry#1371.
-	suite.double_list = [0.0, 1.5, INF, -INF]
+	suite.double_list = [0.0, -0.0, 1.5, INF, -INF]
 	suite.sfixed32_list = [-1, 0, 2147483647]
 	suite.choice = ScalarSuiteChoiceCase.ChoiceDelta(-4096)
 	return suite
