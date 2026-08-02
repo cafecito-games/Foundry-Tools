@@ -183,7 +183,7 @@ func normalize(file *protoast.ProtoFile, importPath string) (schemaShape, mismat
 		registerMessage(&shape, message, qualify(file.Package, "", message.Name), importPath, &errors)
 	}
 	for _, enum := range file.Enums {
-		registerEnum(&shape, enum, qualify(file.Package, "", enum.Name), importPath, &errors)
+		registerEnum(&shape, qualify(file.Package, "", enum.Name), importPath, &errors)
 	}
 	for _, message := range file.Messages {
 		populateMessage(&shape, message, qualify(file.Package, "", message.Name), importPath, &errors)
@@ -206,11 +206,11 @@ func registerMessage(shape *schemaShape, message *protoast.Message, fullName, im
 		registerMessage(shape, nested, fullName+"."+nested.Name, importPath, errors)
 	}
 	for _, enum := range message.NestedEnums {
-		registerEnum(shape, enum, fullName+"."+enum.Name, importPath, errors)
+		registerEnum(shape, fullName+"."+enum.Name, importPath, errors)
 	}
 }
 
-func registerEnum(shape *schemaShape, enum *protoast.Enum, fullName, importPath string, errors *mismatchList) {
+func registerEnum(shape *schemaShape, fullName, importPath string, errors *mismatchList) {
 	if existing := shape.kinds[fullName]; existing != "" {
 		*errors = append(*errors, mismatch{path: importPath, subject: fullName, detail: "duplicate type declaration"})
 		return

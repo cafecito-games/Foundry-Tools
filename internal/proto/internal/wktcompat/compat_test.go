@@ -71,10 +71,10 @@ message Timestamp {
 		ImportPath: "google/protobuf/timestamp.proto",
 		File:       candidate,
 	}})
-	require.EqualError(t, err, strings.Join([]string{
-		"google/protobuf/timestamp.proto: google.protobuf.Timestamp.seconds (#1): expected singular int64; found repeated string",
-		"google/protobuf/timestamp.proto: google.protobuf.Timestamp.nanos (#2): missing canonical field",
-	}, "\n"))
+	require.EqualError(t, err,
+		"google/protobuf/timestamp.proto: google.protobuf.Timestamp.seconds (#1): "+
+			"expected singular int64; found repeated string\n"+
+			"google/protobuf/timestamp.proto: google.protobuf.Timestamp.nanos (#2): missing canonical field")
 }
 
 func canonicalSource(t *testing.T, importPath string) string {
