@@ -78,8 +78,8 @@ fi
 # Build the script index first; without it every file reports unresolved namespaces.
 "$FOUNDRY" --headless project import --project "$PROJECT"
 
-if ! "$FOUNDRY" script lint --no-header --format=json --fail-on=error --project "$PROJECT" "res://"; then
-  echo "Foundry Script lint reported errors in the generated project"
+if ! "$FOUNDRY" script lint --no-header --format=json --fail-on=warning --project "$PROJECT" "res://"; then
+  echo "Foundry Script lint reported warnings or errors in the generated project"
   exit 1
 fi
 

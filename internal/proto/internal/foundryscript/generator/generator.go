@@ -386,7 +386,7 @@ func messageClass(plan *messagePlan, inner bool, emission jsonEmission) fsast.Cl
 		// A nested binding is as much a leaf as a top-level one.
 		Final:   true,
 		Name:    plan.Name,
-		Extends: "RefCounted",
+		Extends: foundryEngineMessageBaseClass,
 		Uses:    jsonUses(emission),
 		Members: members,
 	}

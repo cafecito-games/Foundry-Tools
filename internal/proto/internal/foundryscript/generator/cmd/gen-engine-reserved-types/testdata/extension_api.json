@@ -1,5 +1,28 @@
 {
   "header": {"version_full_name": "Foundry v0.1.alpha14.gh"},
   "builtin_classes": [{"name": "String"}, {"name": "Array"}],
-  "classes": [{"name": "Timer"}, {"name": "Node"}]
+  "classes": [
+    {"name": "Timer"},
+    {"name": "Node"},
+    {
+      "name": "Object",
+      "methods": [{"name": "get_class"}, {"name": "shared"}],
+      "properties": [{"name": "script"}],
+      "signals": [{"name": "script_changed"}],
+      "constants": [{"name": "NOTIFICATION_PREDELETE", "value": 1}],
+      "enums": [{
+        "name": "ConnectFlags",
+        "values": [{"name": "CONNECT_DEFERRED", "value": 1}]
+      }]
+    },
+    {
+      "name": "RefCounted",
+      "inherits": "Object",
+      "methods": [
+        {"name": "reference"},
+        {"name": "unreference"},
+        {"name": "shared"}
+      ]
+    }
+  ]
 }
