@@ -92,6 +92,108 @@ func TestGenerateSkipsWellKnownFiles(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestGenerateRejectsIncompatibleWellKnownSchemas(t *testing.T) {
+	const incompatibleTimestamp = `syntax = "proto3";
+package google.protobuf;
+message Timestamp {
+  string seconds = 1;
+  int32 nanos = 2;
+}
+`
+
+	tests := []struct {
+		name  string
+		files map[string]string
+		root  string
+	}{
+		{
+			name: "direct input",
+			files: map[string]string{
+				"google/protobuf/timestamp.proto": incompatibleTimestamp,
+			},
+			root: "google/protobuf/timestamp.proto",
+		},
+		{
+			name: "direct import",
+			files: map[string]string{
+				"event.proto": `syntax = "proto3";
+package demo;
+import "google/protobuf/timestamp.proto";
+message Event { google.protobuf.Timestamp occurred_at = 1; }
+`,
+				"google/protobuf/timestamp.proto": incompatibleTimestamp,
+			},
+			root: "event.proto",
+		},
+		{
+			name: "public transitive import",
+			files: map[string]string{
+				"event.proto": `syntax = "proto3";
+package demo;
+import "bridge.proto";
+message Event {}
+`,
+				"bridge.proto": `syntax = "proto3";
+package bridge;
+import public "google/protobuf/timestamp.proto";
+`,
+				"google/protobuf/timestamp.proto": incompatibleTimestamp,
+			},
+			root: "event.proto",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			for name, source := range test.files {
+				writeProtoFile(t, root, name, source)
+			}
+
+			outDir := t.TempDir()
+			var stdout bytes.Buffer
+			cmd := NewCommand(&stdout)
+			cmd.SetArgs([]string{
+				"generate", "-o", outDir, "-I", root, filepath.Join(root, filepath.FromSlash(test.root)),
+			})
+
+			err := cmd.Execute()
+			require.ErrorContains(t, err,
+				"google/protobuf/timestamp.proto: google.protobuf.Timestamp.seconds (#1): "+
+					"expected singular int64; found singular string")
+			entries, readErr := os.ReadDir(outDir)
+			require.NoError(t, readErr)
+			require.Empty(t, entries, "an incompatible schema must produce no output at all")
+		})
+	}
+}
+
+func TestGenerateAcceptsCompatibleCallerSuppliedWellKnownSchema(t *testing.T) {
+	root := t.TempDir()
+	name := "google/protobuf/timestamp.proto"
+	writeProtoFile(t, root, name, `syntax = "proto3";
+package google.protobuf;
+message Timestamp {
+  int64 renamed_seconds = 1;
+  int32 renamed_nanos = 2;
+  string future = 3;
+}
+message Future {}
+`)
+
+	outDir := t.TempDir()
+	var stdout bytes.Buffer
+	cmd := NewCommand(&stdout)
+	cmd.SetArgs([]string{
+		"generate", "-o", outDir, "-I", root, filepath.Join(root, filepath.FromSlash(name)),
+	})
+
+	require.NoError(t, cmd.Execute())
+	require.Contains(t, stdout.String(), "generated Foundry Script for 0 proto file(s)")
+	_, err := os.Stat(filepath.Join(outDir, "foundry", "proto", "wkt", "Timestamp.pb.fs"))
+	require.NoError(t, err)
+}
+
 // A repo that vendors the well-known protos names them by an absolute or
 // vendor-prefixed path under `-I vendor`, which resolves to the bare import
 // spelling and so is the same schema. Generating a project-local binding for it
@@ -322,4 +424,11 @@ message Empty {
 	cmd.SetArgs([]string{"generate", "-o", outDir, "-I", root, filepath.Join(root, "shadow.proto")})
 	execute(t, cmd)
 	return outDir
+}
+
+func writeProtoFile(t *testing.T, root, name, source string) {
+	t.Helper()
+	filename := filepath.Join(root, filepath.FromSlash(name))
+	require.NoError(t, os.MkdirAll(filepath.Dir(filename), 0o755))
+	require.NoError(t, os.WriteFile(filename, []byte(source), 0o600))
 }
