@@ -40,6 +40,9 @@ final class Badge extends RefCounted uses Message:
 	func type_name() -> String:
 		return Badge.protobuf_type_name()
 
+	static func _pb_any_uses_value() -> bool:
+		return false
+
 	## Decodes protobuf wire data into a new Badge message.
 	static func from_bytes(_pb_data: PackedByteArray) -> (Badge?, ProtobufError):
 		var _pb_message: Badge = Badge.new()
@@ -167,6 +170,9 @@ static func protobuf_type_name() -> String:
 
 func type_name() -> String:
 	return Player.protobuf_type_name()
+
+static func _pb_any_uses_value() -> bool:
+	return false
 
 ## Decodes protobuf wire data into a new Player message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Player?, ProtobufError):
