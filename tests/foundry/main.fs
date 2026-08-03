@@ -315,6 +315,7 @@ func _init() -> void:
 
 	check_message_identity()
 	check_any_registry()
+	check_any_wire_api()
 	check_scalars()
 	check_packing()
 	check_well_known()
@@ -408,6 +409,92 @@ func check_any_registry() -> void:
 	var (cleared_type, cleared_error) = AnyTypeRegistry._resolve("cafecito.game.v1.Player")
 	check(cleared_error == ProtobufError.ANY_TYPE_NOT_REGISTERED, "clear removes registrations")
 	check(cleared_type == null, "clear leaves no stale class handle")
+
+func check_any_wire_api() -> void:
+	AnyTypeRegistry.clear()
+
+	var player: Player = Player.new()
+	player.name = "Ava"
+	player.level = 7
+	player.active = true
+	var player_bytes: PackedByteArray = player.to_bytes()
+	var packed: Any = Any.pack(player)
+	check(packed.type_url == "type.googleapis.com/cafecito.game.v1.Player", "Any.pack emits the canonical type URL")
+	check(packed.value == player_bytes, "Any.pack copies the exact message bytes")
+
+	var (unregistered_message, unregistered_error) = packed.unpack()
+	check(unregistered_error == ProtobufError.ANY_TYPE_NOT_REGISTERED, "Any.pack does not register its message type")
+	check(unregistered_message == null, "unpacking before registration returns no message")
+	check(AnyTypeRegistry.register(Player) == ProtobufError.OK, "Any wire test registers Player explicitly")
+	check(AnyTypeRegistry.register(Player.Badge) == ProtobufError.OK, "Any wire test registers a nested message explicitly")
+
+	for accepted_url in [
+		"type.googleapis.com/cafecito.game.v1.Player",
+		"https://peer.example/types/cafecito.game.v1.Player",
+		"cafecito.game.v1.Player",
+	]:
+		packed.type_url = accepted_url
+		check(packed.is_type(Player), "Any.is_type accepts canonical, foreign-prefix, and bare URLs")
+		check(not packed.is_type(Player.Badge), "Any.is_type rejects another registered message type")
+
+	packed.type_url = "type.googleapis.com/cafecito.game.v1.Player"
+	var (unpacked, unpack_error) = packed.unpack()
+	check(unpack_error == ProtobufError.OK, "Any.unpack decodes a registered message")
+	check(unpacked is Player, "Any.unpack preserves the registered concrete dynamic type")
+	if unpacked is Player:
+		check(unpacked.name == "Ava", "Any.unpack preserves a string field")
+		check(unpacked.level == 7, "Any.unpack preserves an integer field")
+		check(unpacked.active, "Any.unpack preserves a boolean field")
+		check(unpacked.to_bytes() == player_bytes, "Any.unpack preserves the exact canonical wire value")
+
+	var badge: Player.Badge = Player.Badge.new()
+	badge.code = "veteran"
+	var packed_badge: Any = Any.pack(badge)
+	check(packed_badge.type_url == "type.googleapis.com/cafecito.game.v1.Player.Badge",
+		"Any.pack uses a nested message's protobuf full name")
+	check(packed_badge.is_type(Player.Badge), "Any.is_type recognizes a nested message")
+	var (unpacked_badge, badge_error) = packed_badge.unpack()
+	check(badge_error == ProtobufError.OK, "Any.unpack decodes a registered nested message")
+	check(unpacked_badge is Player.Badge, "Any.unpack preserves a nested concrete dynamic type")
+	if unpacked_badge is Player.Badge:
+		check(unpacked_badge.code == "veteran", "Any.unpack preserves nested message fields")
+
+	packed.value = PackedByteArray([255])
+	check(packed.is_type(Player), "Any.is_type does not inspect corrupt payload bytes")
+	packed.value = player_bytes
+	for invalid_url in ["", "peer.example/", "peer.example/cafecito..game.v1.Player"]:
+		var invalid: Any = Any.new()
+		invalid.type_url = invalid_url
+		invalid.value = PackedByteArray([255, 0, 4])
+		var original_value: PackedByteArray = invalid.value.duplicate()
+		var (invalid_message, invalid_error) = invalid.unpack()
+		check(invalid_error == ProtobufError.ANY_TYPE_URL_INVALID, "Any.unpack rejects a malformed type URL")
+		check(invalid_message == null, "a malformed type URL returns no message")
+		check(invalid.type_url == invalid_url, "a malformed lookup preserves the opaque type URL")
+		check(invalid.value == original_value, "a malformed lookup preserves opaque value bytes")
+		check(not invalid.is_type(Player), "Any.is_type rejects a malformed type URL")
+
+	var missing: Any = Any.new()
+	missing.type_url = "peer.example/cafecito.game.v1.Missing"
+	missing.value = PackedByteArray([7, 8, 9])
+	var missing_value: PackedByteArray = missing.value.duplicate()
+	var (missing_message, missing_error) = missing.unpack()
+	check(missing_error == ProtobufError.ANY_TYPE_NOT_REGISTERED, "Any.unpack distinguishes a valid unregistered name")
+	check(missing_message == null, "an unregistered Any returns no message")
+	check(missing.type_url == "peer.example/cafecito.game.v1.Missing", "an unregistered lookup preserves the opaque URL")
+	check(missing.value == missing_value, "an unregistered lookup preserves opaque value bytes")
+
+	var corrupt: Any = Any.new()
+	corrupt.type_url = "type.googleapis.com/cafecito.game.v1.Player"
+	## The valid leading name field mutates the fresh decoder before the final
+	## tag fails to provide a length. unpack must discard that partial Player.
+	corrupt.value = PackedByteArray([10, 7, 112, 97, 114, 116, 105, 97, 108, 10])
+	var corrupt_value: PackedByteArray = corrupt.value.duplicate()
+	var (corrupt_message, corrupt_error) = corrupt.unpack()
+	check(corrupt_error == ProtobufError.VARINT_NOT_FOUND, "Any.unpack preserves the wire decoder's exact error")
+	check(corrupt_message == null, "a corrupt payload does not leak a partially decoded message")
+	check(corrupt.type_url == "type.googleapis.com/cafecito.game.v1.Player", "a corrupt unpack preserves the source URL")
+	check(corrupt.value == corrupt_value, "a corrupt unpack preserves the source value bytes")
 
 ## Struct, Value, and ListValue are protobuf's dynamic JSON tree. Their native
 ## bridge is deliberately strict on input, so a bad value never becomes a
