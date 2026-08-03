@@ -87,6 +87,13 @@ func wellKnownJSONFormFor(importPath, typeName string) wellKnownJSONForm {
 	return wellKnownJSONForms[path.Clean(strings.ReplaceAll(importPath, `\`, "/"))][typeName]
 }
 
+// anyUsesValue reports whether this canonical form is nested below Any's
+// reserved `value` member. Empty is the sole well-known ordinary-object
+// exception; non-WKT messages use the ordinary form too.
+func (f wellKnownJSONForm) anyUsesValue() bool {
+	return f != wellKnownJSONNone && f != wellKnownJSONEmpty
+}
+
 // Helper is the runtime class that converts this form to and from its JSON
 // text, or empty for a form the emitters build inline. These shipped in the
 // foundations epic and are the one place the formatting rules live, so a

@@ -21,6 +21,9 @@ static func protobuf_type_name() -> String:
 func type_name() -> String:
 	return Empty.protobuf_type_name()
 
+static func _pb_any_uses_value() -> bool:
+	return false
+
 ## Decodes protobuf wire data into a new Empty message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Empty?, ProtobufError):
 	var _pb_message: Empty = Empty.new()

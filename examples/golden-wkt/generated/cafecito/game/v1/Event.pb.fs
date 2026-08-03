@@ -32,6 +32,9 @@ static func protobuf_type_name() -> String:
 func type_name() -> String:
 	return Event.protobuf_type_name()
 
+static func _pb_any_uses_value() -> bool:
+	return false
+
 ## Decodes protobuf wire data into a new Event message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Event?, ProtobufError):
 	var _pb_message: Event = Event.new()

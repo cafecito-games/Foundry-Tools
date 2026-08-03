@@ -25,6 +25,9 @@ static func protobuf_type_name() -> String:
 func type_name() -> String:
 	return Reference.protobuf_type_name()
 
+static func _pb_any_uses_value() -> bool:
+	return false
+
 ## Decodes protobuf wire data into a new Reference message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Reference?, ProtobufError):
 	var _pb_message: Reference = Reference.new()

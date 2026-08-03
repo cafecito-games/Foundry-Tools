@@ -6,6 +6,8 @@ abstract static func create_message() -> Self
 
 abstract static func protobuf_type_name() -> String
 
+abstract static func _pb_any_uses_value() -> bool
+
 abstract func type_name() -> String
 
 abstract func to_bytes() -> PackedByteArray

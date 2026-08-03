@@ -7,7 +7,7 @@ import (
 	fstypes "github.com/cafecito-games/foundry-tools/internal/proto/internal/foundryscript/types"
 )
 
-func messageIdentityMembers(plan *messagePlan) []fsast.Node {
+func messageIdentityMembers(plan *messagePlan, form wellKnownJSONForm) []fsast.Node {
 	return []fsast.Node{
 		fsast.Func{
 			Static:     true,
@@ -25,6 +25,12 @@ func messageIdentityMembers(plan *messagePlan) []fsast.Node {
 			Name:       typeNameMethod,
 			ReturnType: fstypes.Named("String"),
 			Body:       []fsast.Node{fsast.Return{Value: plan.Name + "." + protobufTypeNameMethod + "()"}},
+		},
+		fsast.Func{
+			Static:     true,
+			Name:       anyUsesValueMethod,
+			ReturnType: fstypes.Named("bool"),
+			Body:       []fsast.Node{fsast.Return{Value: strconv.FormatBool(form.anyUsesValue())}},
 		},
 	}
 }

@@ -81,7 +81,7 @@ func TestAnyTypeRegistrySerializesOrdinaryJSONThroughPrivateCheckedNarrowing(t *
 	require.Contains(t, source, `result["@type"] = JsonNode.Str(type_url)`)
 	require.Contains(t, source, "for key: String in entries:")
 	require.Contains(t, source, "result[key] = entries[key]")
-	require.NotContains(t, source, `result["value"]`)
+	require.Contains(t, source, "var special: bool = message_type._pb_any_uses_value()")
 
 	capability := strings.Index(source, "if not (message_type_value is Type[JsonSerializable]):")
 	decode := strings.Index(source, "message.merge_from_bytes(bytes)")
@@ -108,7 +108,9 @@ func TestAnyTypeRegistryDecodesOrdinaryJSONTransactionallyAtRootPaths(t *testing
 	require.Contains(t, source, "var json_message_type: Type[JsonSerializable] = message_type_value")
 	require.Contains(t, source, "payload[key] = entries[key]")
 	require.Contains(t, source,
-		"var decoded: JsonResult[JsonSerializable] = json_message_type.from_json(JsonNode.object_of(payload))")
+		"payload_node = JsonNode.object_of(payload)")
+	require.Contains(t, source,
+		"var decoded: JsonResult[JsonSerializable] = json_message_type.from_json(payload_node)")
 	require.Contains(t, source, "return (\"\", PackedByteArray(), decoded.error)")
 	require.Contains(t, source, "var decoded_value: Variant = decoded.value")
 	require.Contains(t, source, "if not (decoded_value is Message):")
@@ -117,8 +119,39 @@ func TestAnyTypeRegistryDecodesOrdinaryJSONTransactionallyAtRootPaths(t *testing
 		"var packed: foundry.proto.wkt.Any = foundry.proto.wkt.Any.pack(message)")
 	require.Contains(t, source, "packed.type_url = type_url")
 	require.Contains(t, source, "return (packed.type_url, packed.value, no_error)")
-	require.NotContains(t, source, `payload["value"]`)
-	require.NotContains(t, source, `entries.has("value")`)
+	require.Contains(t, source, "var special: bool = message_type._pb_any_uses_value()")
+}
+
+func TestAnyTypeRegistryWrapsSpecialWKTJSONWithoutNameComparisons(t *testing.T) {
+	source := runtime.Files()["foundry/proto/any_type_registry.fs"]
+
+	require.Contains(t, source, "var special: bool = message_type._pb_any_uses_value()")
+	require.Contains(t, source, `result["@type"] = JsonNode.Str(type_url)`)
+	require.Contains(t, source, `result["value"] = embedded`)
+	require.NotRegexp(t, `protobuf_type_name\(\)\s*(==|!=)`, source)
+	require.NotRegexp(t, `(?m)^\s*(if|elif).*"(?:google\.protobuf\.|type\.googleapis\.com/)`, source)
+}
+
+func TestAnyTypeRegistryDecodesSpecialWKTJSONAtValuePaths(t *testing.T) {
+	source := runtime.Files()["foundry/proto/any_type_registry.fs"]
+
+	require.Contains(t, source, "if message_type._pb_any_uses_value():")
+	require.Contains(t, source,
+		`JsonDecodeError.create("JSON_PARSE_FAILED: google.protobuf.Any special form requires value", "$.value")`)
+	require.Contains(t, source,
+		`JsonDecodeError.create("JSON_UNKNOWN_FIELD: google.protobuf.Any special form has no member named " + key, "$." + key)`)
+	require.Contains(t, source,
+		"payload_node = entries[\"value\"]")
+	require.Contains(t, source,
+		"var decoded: JsonResult[JsonSerializable] = json_message_type.from_json(payload_node)")
+	require.Contains(t, source,
+		`return ("", PackedByteArray(), JsonResult[JsonSerializable].nested(decoded.error, "value").error)`)
+
+	decode := strings.Index(source, "var decoded: JsonResult[JsonSerializable] = json_message_type.from_json(payload_node)")
+	pack := strings.Index(source, "var packed: foundry.proto.wkt.Any = foundry.proto.wkt.Any.pack(message)")
+	require.NotEqual(t, -1, decode)
+	require.NotEqual(t, -1, pack)
+	require.Less(t, decode, pack, "a failed special payload must not produce partially packed Any bytes")
 }
 
 func TestAnyBindingCarriesGeneratedWireHelpers(t *testing.T) {
@@ -141,6 +174,7 @@ func TestTraitRequirementsAreAbstract(t *testing.T) {
 	require.Contains(t, files["foundry/proto/message.fs"], "trait_name Message\n")
 	require.Contains(t, files["foundry/proto/message.fs"], "abstract static func create_message() -> Self")
 	require.Contains(t, files["foundry/proto/message.fs"], "abstract static func protobuf_type_name() -> String")
+	require.Contains(t, files["foundry/proto/message.fs"], "abstract static func _pb_any_uses_value() -> bool")
 	require.Contains(t, files["foundry/proto/message.fs"], "abstract func type_name() -> String")
 	require.Contains(t, files["foundry/proto/message.fs"], "abstract func to_bytes()")
 	require.Contains(t, files["foundry/proto/codec.fs"], "abstract func encode(")
