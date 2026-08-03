@@ -19,13 +19,15 @@ func TestFilesReturnsRuntimeSources(t *testing.T) {
 	require.Contains(t, files["foundry/proto/wire.fs"], "static func decode_bytes")
 	require.Contains(t, files["foundry/proto/wire.fs"], "static func skip_field")
 
-	// Struct/Value/ListValue are the one protobuf API that inherently bridges a
-	// dynamic native tree. Keep that exception confined to their generated
-	// bindings; every other runtime surface stays Variant-free.
-	nonBridge := make(map[string]string, len(files)-3)
+	// Struct/Value/ListValue inherently bridge a dynamic native tree. Any's
+	// registry also has a deliberately private, checked bridge between the
+	// unrelated Message and JsonSerializable traits. Every other runtime
+	// surface stays Variant-free.
+	nonBridge := make(map[string]string, len(files)-4)
 	for name, source := range files {
 		switch name {
-		case "foundry/proto/wkt/Struct.pb.fs", "foundry/proto/wkt/Value.pb.fs", "foundry/proto/wkt/ListValue.pb.fs":
+		case "foundry/proto/wkt/Struct.pb.fs", "foundry/proto/wkt/Value.pb.fs", "foundry/proto/wkt/ListValue.pb.fs",
+			"foundry/proto/any_type_registry.fs":
 			continue
 		default:
 			nonBridge[name] = source
@@ -53,8 +55,70 @@ func TestAnyTypeRegistryHasTypedExplicitPublicSurface(t *testing.T) {
 	require.Contains(t, source, "static func _type_name_from_url(type_url: String) -> (String, ProtobufError):")
 	require.NotRegexp(t, `(?m)^static func (resolve|type_name_from_url)\(`, source)
 	require.NotContains(t, source, "Callable")
-	require.NotContains(t, source, "Variant")
+	require.NotRegexp(t, `(?m)^static var .*Variant`, source)
+	require.NotRegexp(t, `(?m)^static func [^_].*Variant`, source)
+	require.NotRegexp(t, `(?m)^var .*Variant`, source)
 	require.NotRegexp(t, `(?i)(prototype|network|http|load\()`, source)
+}
+
+func TestAnyTypeRegistrySerializesOrdinaryJSONThroughPrivateCheckedNarrowing(t *testing.T) {
+	source := runtime.Files()["foundry/proto/any_type_registry.fs"]
+
+	require.Contains(t, source,
+		"static func _any_to_json(type_url: String, bytes: PackedByteArray) -> JsonNode:")
+	require.Contains(t, source,
+		"if type_url.is_empty() and bytes.is_empty():\n\t\treturn JsonNode.object_of({})")
+	require.Contains(t, source, "var message_type_value: Variant = message_type")
+	require.Contains(t, source, "if not (message_type_value is Type[JsonSerializable]):")
+	require.Contains(t, source, `push_error("ANY_JSON_UNSUPPORTED:`)
+	require.Contains(t, source, "var _json_message_type: Type[JsonSerializable] = message_type_value")
+	require.Contains(t, source, "var message: Message = message_type.create_message()")
+	require.Contains(t, source, "var merge_error: ProtobufError = message.merge_from_bytes(bytes)")
+	require.Contains(t, source, "var message_value: Variant = message")
+	require.Contains(t, source, "if not (message_value is JsonSerializable):")
+	require.Contains(t, source, "var json_message: JsonSerializable = message_value")
+	require.Contains(t, source, "var embedded: JsonNode = json_message.to_json()")
+	require.Contains(t, source, `result["@type"] = JsonNode.Str(type_url)`)
+	require.Contains(t, source, "for key: String in entries:")
+	require.Contains(t, source, "result[key] = entries[key]")
+	require.NotContains(t, source, `result["value"]`)
+
+	capability := strings.Index(source, "if not (message_type_value is Type[JsonSerializable]):")
+	decode := strings.Index(source, "message.merge_from_bytes(bytes)")
+	require.NotEqual(t, -1, capability)
+	require.NotEqual(t, -1, decode)
+	require.Less(t, capability, decode, "JSON capability must be rejected before reading wire bytes")
+}
+
+func TestAnyTypeRegistryDecodesOrdinaryJSONTransactionallyAtRootPaths(t *testing.T) {
+	source := runtime.Files()["foundry/proto/any_type_registry.fs"]
+
+	require.Contains(t, source,
+		"static func _any_from_json(node: JsonNode) -> (String, PackedByteArray, JsonDecodeError?):")
+	require.Contains(t, source, "var no_error: JsonDecodeError? = null")
+	require.Contains(t, source, "JsonNode.Null:\n\t\t\treturn (\"\", PackedByteArray(), no_error)")
+	require.Contains(t, source, "if entries.is_empty():\n\t\t\t\treturn (\"\", PackedByteArray(), no_error)")
+	require.Contains(t, source,
+		`JsonDecodeError.create("JSON_TYPE_MISMATCH: google.protobuf.Any expects a JSON object", "$")`)
+	require.Contains(t, source,
+		`JsonDecodeError.create("JSON_PARSE_FAILED: google.protobuf.Any requires @type", "$[\"@type\"]")`)
+	require.Contains(t, source,
+		`JsonDecodeError.create("JSON_TYPE_MISMATCH: google.protobuf.Any @type expects a string", "$[\"@type\"]")`)
+	require.Contains(t, source, "var message_type_value: Variant = message_type")
+	require.Contains(t, source, "var json_message_type: Type[JsonSerializable] = message_type_value")
+	require.Contains(t, source, "payload[key] = entries[key]")
+	require.Contains(t, source,
+		"var decoded: JsonResult[JsonSerializable] = json_message_type.from_json(JsonNode.object_of(payload))")
+	require.Contains(t, source, "return (\"\", PackedByteArray(), decoded.error)")
+	require.Contains(t, source, "var decoded_value: Variant = decoded.value")
+	require.Contains(t, source, "if not (decoded_value is Message):")
+	require.Contains(t, source, "var message: Message = decoded_value")
+	require.Contains(t, source,
+		"var packed: foundry.proto.wkt.Any = foundry.proto.wkt.Any.pack(message)")
+	require.Contains(t, source, "packed.type_url = type_url")
+	require.Contains(t, source, "return (packed.type_url, packed.value, no_error)")
+	require.NotContains(t, source, `payload["value"]`)
+	require.NotContains(t, source, `entries.has("value")`)
 }
 
 func TestAnyBindingCarriesGeneratedWireHelpers(t *testing.T) {

@@ -51,6 +51,44 @@ class ConflictingPlayer extends RefCounted uses Message:
 	func merge_from_bytes(_data: PackedByteArray) -> ProtobufError:
 		return ProtobufError.OK
 
+class WireOnlyMessage extends RefCounted uses Message:
+	static func create_message() -> WireOnlyMessage:
+		return WireOnlyMessage.new()
+
+	static func protobuf_type_name() -> String:
+		return "tests.WireOnlyMessage"
+
+	func type_name() -> String:
+		return WireOnlyMessage.protobuf_type_name()
+
+	func to_bytes() -> PackedByteArray:
+		return PackedByteArray()
+
+	func merge_from_bytes(_data: PackedByteArray) -> ProtobufError:
+		return ProtobufError.VARINT_NOT_FOUND
+
+class ScalarJsonMessage extends RefCounted uses Message, JsonSerializable:
+	static func create_message() -> ScalarJsonMessage:
+		return ScalarJsonMessage.new()
+
+	static func protobuf_type_name() -> String:
+		return "tests.ScalarJsonMessage"
+
+	func type_name() -> String:
+		return ScalarJsonMessage.protobuf_type_name()
+
+	func to_bytes() -> PackedByteArray:
+		return PackedByteArray()
+
+	func merge_from_bytes(_data: PackedByteArray) -> ProtobufError:
+		return ProtobufError.OK
+
+	func to_json() -> JsonNode:
+		return JsonNode.Str("custom")
+
+	static func from_json(_node: JsonNode) -> JsonResult[ScalarJsonMessage]:
+		return JsonResult[ScalarJsonMessage].ok(ScalarJsonMessage.new())
+
 func _init() -> void:
 	var collision: GameNode = GameNode.new()
 	var nested_timer: GameNode.GameTimer = GameNode.GameTimer.new()
@@ -316,6 +354,7 @@ func _init() -> void:
 	check_message_identity()
 	check_any_registry()
 	check_any_wire_api()
+	check_any_ordinary_json()
 	check_scalars()
 	check_packing()
 	check_well_known()
@@ -495,6 +534,150 @@ func check_any_wire_api() -> void:
 	check(corrupt_message == null, "a corrupt payload does not leak a partially decoded message")
 	check(corrupt.type_url == "type.googleapis.com/cafecito.game.v1.Player", "a corrupt unpack preserves the source URL")
 	check(corrupt.value == corrupt_value, "a corrupt unpack preserves the source value bytes")
+
+func check_any_ordinary_json() -> void:
+	AnyTypeRegistry.clear()
+	## The analyzer cannot statically narrow a class handle that conforms to two
+	## unrelated traits. Keep the dynamic bridge checked and local, matching the
+	## registry's private JSON capability seam.
+	var reference_handle_value: Variant = Reference
+	var suite_handle_value: Variant = JsonSuite
+	var scalar_handle_value: Variant = ScalarJsonMessage
+	check(reference_handle_value is Type[Message], "an ordinary JSON message handle retains Message conformance")
+	check(suite_handle_value is Type[Message], "a validation message handle retains Message conformance")
+	check(scalar_handle_value is Type[Message], "a non-object JSON message handle retains Message conformance")
+	if reference_handle_value is Type[Message] and suite_handle_value is Type[Message] and scalar_handle_value is Type[Message]:
+		var reference_message_type: Type[Message] = reference_handle_value
+		var suite_message_type: Type[Message] = suite_handle_value
+		var scalar_message_type: Type[Message] = scalar_handle_value
+		check(AnyTypeRegistry.register(reference_message_type) == ProtobufError.OK, "Any JSON registers an ordinary message")
+		check(AnyTypeRegistry.register(suite_message_type) == ProtobufError.OK, "Any JSON registers a message with validation cases")
+		check(AnyTypeRegistry.register(scalar_message_type) == ProtobufError.OK, "Any JSON registers a non-object JSON message")
+	check(AnyTypeRegistry.register(WireOnlyMessage) == ProtobufError.OK, "Any JSON registers a wire-only message")
+
+	var reference: Reference = Reference.new()
+	reference.label = "primary"
+	reference.weight = 7
+	var packed: Any = Any.pack(reference)
+	var encoded: JsonNode = packed.to_json()
+	check(json_text(encoded) == '{"@type":"type.googleapis.com/cafecito.json.v1.Reference","label":"primary","weight":"7"}',
+		"ordinary Any JSON inserts @type before inline canonical fields")
+	match encoded:
+		JsonNode.Object(var encoded_entries):
+			check(not encoded_entries.has("value"), "ordinary Any JSON emits no value envelope")
+		_:
+			check(false, "ordinary Any JSON emits an object")
+
+	for supplied_url in [
+		"type.googleapis.com/cafecito.json.v1.Reference",
+		"https://peer.example/types/cafecito.json.v1.Reference",
+		"cafecito.json.v1.Reference",
+	]:
+		var decoded: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+			"@type": JsonNode.Str(supplied_url),
+			"label": JsonNode.Str("primary"),
+			"weight": JsonNode.Str("7"),
+		}))
+		check(decoded.is_ok(), "ordinary Any JSON accepts canonical, foreign, and bare URLs")
+		if decoded.value is Any:
+			check(decoded.value.type_url == supplied_url, "ordinary Any JSON preserves the supplied type URL verbatim")
+			check(decoded.value.value == reference.to_bytes(), "ordinary Any JSON packs the decoded message bytes")
+			check(json_text(decoded.value.to_json()).find('"value"') < 0, "ordinary Any JSON stays inline after decode")
+
+	var null_result: JsonResult[Any] = Any.from_json(JsonNode.Null)
+	check(null_result.is_ok() and null_result.value is Any, "null decodes as an empty Any")
+	if null_result.value is Any:
+		check(null_result.value.type_url == "" and null_result.value.value.is_empty(), "null leaves both Any fields empty")
+	var empty_result: JsonResult[Any] = Any.from_json(JsonNode.object_of({}))
+	check(empty_result.is_ok() and empty_result.value is Any, "an empty object decodes as an empty Any")
+	if empty_result.value is Any:
+		check(json_text(empty_result.value.to_json()) == "{}", "an empty Any encodes as an empty object")
+
+	var wrong_root: JsonResult[Any] = Any.from_json(JsonNode.Str("wrong"))
+	check(not wrong_root.is_ok() and wrong_root.error.path == "$", "a non-object Any fails at the root")
+	check(wrong_root.error.message.find("JSON_TYPE_MISMATCH") >= 0, "a non-object Any reports JSON_TYPE_MISMATCH")
+	var missing_type: JsonResult[Any] = Any.from_json(JsonNode.object_of({"label": JsonNode.Str("primary")}))
+	check(not missing_type.is_ok() and missing_type.error.path == '$["@type"]', "a nonempty Any without @type fails at @type")
+	var nonstring_type: JsonResult[Any] = Any.from_json(JsonNode.object_of({"@type": JsonNode.Int(1)}))
+	check(not nonstring_type.is_ok() and nonstring_type.error.path == '$["@type"]', "a non-string @type fails at @type")
+	check(nonstring_type.error.message.find("JSON_TYPE_MISMATCH") >= 0, "a non-string @type reports JSON_TYPE_MISMATCH")
+	for invalid_url in ["", "peer.example/", "cafecito..json.v1.Reference"]:
+		var invalid_type: JsonResult[Any] = Any.from_json(JsonNode.object_of({"@type": JsonNode.Str(invalid_url)}))
+		check(not invalid_type.is_ok() and invalid_type.error.path == '$["@type"]', "an empty or malformed @type fails at @type")
+		check(invalid_type.error.message.find("ANY_TYPE_URL_INVALID") >= 0, "an empty or malformed @type reports its category")
+	var unregistered: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/cafecito.json.v1.Missing"),
+	}))
+	check(not unregistered.is_ok() and unregistered.error.path == '$["@type"]', "an unregistered @type fails at @type")
+	check(unregistered.error.message.find("ANY_TYPE_NOT_REGISTERED") >= 0, "an unregistered @type reports its category")
+
+	var wire_only: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/tests.WireOnlyMessage"),
+	}))
+	check(not wire_only.is_ok() and wire_only.error.path == '$["@type"]', "a wire-only registered type fails at @type")
+	check(wire_only.error.message.find("ANY_JSON_UNSUPPORTED") >= 0, "a wire-only registered type reports ANY_JSON_UNSUPPORTED")
+
+	var embedded_unknown: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/cafecito.json.v1.JsonSuite"),
+		"nope": JsonNode.Int(1),
+	}))
+	check(not embedded_unknown.is_ok() and embedded_unknown.error.path == "$.nope", "an embedded unknown field keeps its root path")
+	var embedded_type: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/cafecito.json.v1.JsonSuite"),
+		"int32Value": JsonNode.Str("wrong"),
+	}))
+	check(not embedded_type.is_ok() and embedded_type.error.path == "$.int32Value", "an embedded type error keeps its root path")
+	var embedded_range: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/cafecito.json.v1.JsonSuite"),
+		"int32Value": JsonNode.Int(2147483648),
+	}))
+	check(not embedded_range.is_ok() and embedded_range.error.path == "$.int32Value", "an embedded range error keeps its root path")
+	var embedded_alias_duplicate: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/cafecito.json.v1.JsonSuite"),
+		"twoWordName": JsonNode.Str("first"),
+		"two_word_name": JsonNode.Str("second"),
+	}))
+	check(not embedded_alias_duplicate.is_ok() and embedded_alias_duplicate.error.path == "$.two_word_name",
+		"an alternate-name duplicate keeps its root path")
+	var embedded_oneof: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/cafecito.json.v1.JsonSuite"),
+		"note": JsonNode.Str("first"),
+		"tally": JsonNode.Str("2"),
+	}))
+	check(not embedded_oneof.is_ok() and embedded_oneof.error.path == "$.tally", "an embedded oneof error keeps its root path")
+	## Identical raw duplicate keys are not representable once the engine has
+	## parsed text into a JsonNode.Object; alternate field spellings above are.
+
+	var original: Any = Any.new()
+	original.type_url = "opaque/original.Type"
+	original.value = PackedByteArray([1, 2, 3])
+	var transaction_error: JsonDecodeError? = original._pb_merge_from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/cafecito.json.v1.JsonSuite"),
+		"int32Value": JsonNode.Str("wrong"),
+	}))
+	check(transaction_error != null, "a failed Any merge returns an error")
+	check(original.type_url == "opaque/original.Type" and original.value == PackedByteArray([1, 2, 3]),
+		"a failed Any merge leaves the receiver unchanged")
+
+	for bad_url in ["peer.example/", "type.googleapis.com/cafecito.json.v1.Missing"]:
+		var bad_encode: Any = Any.new()
+		bad_encode.type_url = bad_url
+		bad_encode.value = PackedByteArray([255])
+		check(bad_encode.to_json() == JsonNode.Null, "an invalid or unregistered Any cannot be encoded")
+	var corrupt: Any = Any.pack(reference)
+	corrupt.value = PackedByteArray([255])
+	check(corrupt.to_json() == JsonNode.Null, "corrupt ordinary Any bytes cannot be encoded")
+	var corrupt_wire_only: Any = Any.new()
+	corrupt_wire_only.type_url = "type.googleapis.com/tests.WireOnlyMessage"
+	corrupt_wire_only.value = PackedByteArray([255])
+	check(corrupt_wire_only.to_json() == JsonNode.Null, "wire-only capability is rejected before corrupt bytes are read")
+	var scalar_json: Any = Any.new()
+	scalar_json.type_url = "type.googleapis.com/tests.ScalarJsonMessage"
+	check(scalar_json.to_json() == JsonNode.Null, "an ordinary Any payload with non-object JSON is unsupported")
+
+	AnyTypeRegistry.clear()
+	var (_cleared_type, cleared_error) = AnyTypeRegistry._resolve(Reference.protobuf_type_name())
+	check(cleared_error == ProtobufError.ANY_TYPE_NOT_REGISTERED, "Any JSON leaves the registry clear for later tests")
 
 ## Struct, Value, and ListValue are protobuf's dynamic JSON tree. Their native
 ## bridge is deliberately strict on input, so a bad value never becomes a
