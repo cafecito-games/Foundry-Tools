@@ -132,6 +132,18 @@ func TestAnyProtoJSONFixturesMatchProtobuf(t *testing.T) {
 			embedded: timestamppb.New(time.Date(2006, time.January, 2, 15, 4, 5, 0, time.UTC)),
 		},
 		{
+			name:     "duration",
+			file:     "duration.json",
+			typeURL:  "type.googleapis.com/google.protobuf.Duration",
+			embedded: durationpb.New(1250 * time.Millisecond),
+		},
+		{
+			name:     "field mask",
+			file:     "field-mask.json",
+			typeURL:  "type.googleapis.com/google.protobuf.FieldMask",
+			embedded: &fieldmaskpb.FieldMask{Paths: []string{"user_display_name", "photo"}},
+		},
+		{
 			name:     "wrapper",
 			file:     "int32-wrapper.json",
 			typeURL:  "type.googleapis.com/google.protobuf.Int32Value",
@@ -194,6 +206,10 @@ func TestAnyProtoJSONFixturesMatchProtobuf(t *testing.T) {
 	require.Equal(t, map[string]json.RawMessage{
 		"@type": json.RawMessage(`"type.googleapis.com/google.protobuf.Empty"`),
 	}, emptyObject)
+	var decodedEmpty anypb.Any
+	require.NoError(t, (protojson.UnmarshalOptions{Resolver: resolver}).Unmarshal(emptyDocument, &decodedEmpty))
+	require.Equal(t, "type.googleapis.com/google.protobuf.Empty", decodedEmpty.TypeUrl)
+	require.Empty(t, decodedEmpty.Value)
 	emptyWire, err := (proto.MarshalOptions{Deterministic: true}).Marshal(&emptypb.Empty{})
 	require.NoError(t, err)
 	require.Empty(t, emptyWire)
@@ -204,6 +220,9 @@ func TestAnyProtoJSONMalformedFixturesAreRejected(t *testing.T) {
 	resolver, _ := anyFixtureResolver(t, root)
 	fixtureDir := filepath.Join(root, "tests/integration/fixtures/conformance/any_protojson")
 
+	// These exact failure shapes are also exercised through Foundry's
+	// Any.from_json in check_any_ordinary_json. Keep this layer focused on the
+	// independent Go oracle instead of introducing a second fixture loader.
 	for _, name := range []string{
 		"malformed-missing-type.json",
 		"malformed-nonstring-type.json",

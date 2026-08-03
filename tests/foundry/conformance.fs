@@ -108,6 +108,14 @@ func _init() -> void:
 		"the registry dynamically unpacks the upstream nested message")
 	check(packed.to_json() == JsonNode.Null,
 		"a generated wire-only upstream message rejects Any JSON")
+	var wire_only_json: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str(packed.type_url),
+	}))
+	check(not wire_only_json.is_ok() and
+		wire_only_json.error.path == '$["@type"]',
+		"wire-only upstream Any JSON fails at @type")
+	check(wire_only_json.error.message.find("ANY_JSON_UNSUPPORTED") >= 0,
+		"wire-only upstream Any JSON reports ANY_JSON_UNSUPPORTED")
 	AnyTypeRegistry.clear()
 	var (_cleared_type, cleared_error) = AnyTypeRegistry._resolve(
 		TestAllTypesProto3.protobuf_type_name())
