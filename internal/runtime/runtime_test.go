@@ -57,6 +57,18 @@ func TestAnyTypeRegistryHasTypedExplicitPublicSurface(t *testing.T) {
 	require.NotRegexp(t, `(?i)(prototype|network|http|load\()`, source)
 }
 
+func TestAnyBindingCarriesGeneratedWireHelpers(t *testing.T) {
+	const path = "foundry/proto/wkt/Any.pb.fs"
+	source := runtime.Files()[path]
+	require.Contains(t, source, "static func pack(message: Message) -> Any:")
+	require.Contains(t, source, "func is_type(message_type: Type[Message]) -> bool:")
+	require.Contains(t, source, "func unpack() -> (Message?, ProtobufError):")
+
+	generated, err := wellknowngen.Generate()
+	require.NoError(t, err)
+	require.Equal(t, generated[path], source, "%s must only change through `task gen-wkt`", path)
+}
+
 // Trait requirements must be abstract; a bare func fails to resolve the trait
 // body in every consumer that applies it.
 func TestTraitRequirementsAreAbstract(t *testing.T) {

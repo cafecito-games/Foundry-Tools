@@ -8,15 +8,18 @@ import (
 )
 
 const (
-	nativeValueParameter = generatedPrefix + "value"
-	nativeResultLocal    = generatedPrefix + "result"
-	nativeFailedLocal    = generatedPrefix + "failed"
-	nativeConvertedLocal = generatedPrefix + "converted"
-	nativeErrorLocal     = generatedPrefix + "error"
-	nativeKeyLocal       = generatedPrefix + "key"
-	nativeItemLocal      = generatedPrefix + "item"
-	nativeAncestorsLocal = generatedPrefix + "ancestors"
-	nativeAncestorLocal  = generatedPrefix + "ancestor"
+	nativeValueParameter   = generatedPrefix + "value"
+	nativeResultLocal      = generatedPrefix + "result"
+	nativeFailedLocal      = generatedPrefix + "failed"
+	nativeConvertedLocal   = generatedPrefix + "converted"
+	nativeErrorLocal       = generatedPrefix + "error"
+	nativeNameLocal        = generatedPrefix + "name"
+	nativeMessageLocal     = generatedPrefix + "message"
+	nativeMessageTypeLocal = generatedPrefix + "message_type"
+	nativeKeyLocal         = generatedPrefix + "key"
+	nativeItemLocal        = generatedPrefix + "item"
+	nativeAncestorsLocal   = generatedPrefix + "ancestors"
+	nativeAncestorLocal    = generatedPrefix + "ancestor"
 )
 
 var variantType = fstypes.Named("Variant")
@@ -27,6 +30,8 @@ var variantType = fstypes.Named("Variant")
 // semantics use the same discriminator as canonical JSON.
 func wellKnownNativeMembers(form wellKnownJSONForm, plan *messagePlan) []fsast.Node {
 	switch form {
+	case wellKnownJSONAny:
+		return anyNativeMembers(plan)
 	case wellKnownJSONStruct:
 		return structNativeMembers(plan)
 	case wellKnownJSONValue:
@@ -39,6 +44,57 @@ func wellKnownNativeMembers(form wellKnownJSONForm, plan *messagePlan) []fsast.N
 		return durationNativeMembers(plan)
 	default:
 		return nil
+	}
+}
+
+func anyNativeMembers(plan *messagePlan) []fsast.Node {
+	messageType := fstypes.Named("Message")
+	return []fsast.Node{
+		fsast.Func{
+			Static:     true,
+			Name:       "pack",
+			Parameters: []fsast.Parameter{{Name: "message", Type: messageType}},
+			ReturnType: fstypes.Named(plan.Name),
+			Body: []fsast.Node{
+				line(0, fmt.Sprintf("var %s: %s = %s.new()", nativeResultLocal, plan.Name, plan.Name)),
+				line(0, fmt.Sprintf(`%s.type_url = "type.googleapis.com/" + message.type_name()`, nativeResultLocal)),
+				line(0, fmt.Sprintf("%s.value = message.to_bytes()", nativeResultLocal)),
+				fsast.Return{Value: nativeResultLocal},
+			},
+		},
+		fsast.Func{
+			Name: "is_type",
+			Parameters: []fsast.Parameter{{
+				Name: "message_type",
+				Type: fstypes.Generic("Type", messageType),
+			}},
+			ReturnType: fstypes.Named("bool"),
+			Body: []fsast.Node{
+				line(0, fmt.Sprintf("var (%s, %s) = AnyTypeRegistry._type_name_from_url(type_url)",
+					nativeNameLocal, nativeErrorLocal)),
+				line(0, fmt.Sprintf("if %s != ProtobufError.OK:", nativeErrorLocal)),
+				line(1, "return false"),
+				fsast.Return{Value: nativeNameLocal + " == message_type.protobuf_type_name()"},
+			},
+		},
+		fsast.Func{
+			Name:       "unpack",
+			ReturnType: fstypes.Tuple(fstypes.Nullable(messageType), fstypes.Named("ProtobufError")),
+			Body: []fsast.Node{
+				line(0, fmt.Sprintf("var (%s, %s) = AnyTypeRegistry._resolve(type_url)",
+					nativeMessageTypeLocal, nativeErrorLocal)),
+				line(0, fmt.Sprintf("var %s: Message? = null", nativeFailedLocal)),
+				line(0, fmt.Sprintf("if %s != ProtobufError.OK or %s == null:",
+					nativeErrorLocal, nativeMessageTypeLocal)),
+				line(1, fmt.Sprintf("return (%s, %s)", nativeFailedLocal, nativeErrorLocal)),
+				line(0, fmt.Sprintf("var %s: Message = %s.create_message()",
+					nativeMessageLocal, nativeMessageTypeLocal)),
+				line(0, fmt.Sprintf("%s = %s.merge_from_bytes(value)", nativeErrorLocal, nativeMessageLocal)),
+				line(0, fmt.Sprintf("if %s != ProtobufError.OK:", nativeErrorLocal)),
+				line(1, fmt.Sprintf("return (%s, %s)", nativeFailedLocal, nativeErrorLocal)),
+				fsast.Return{Value: fmt.Sprintf("(%s, ProtobufError.OK)", nativeMessageLocal)},
+			},
+		},
 	}
 }
 
