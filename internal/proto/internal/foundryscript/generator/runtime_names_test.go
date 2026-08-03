@@ -44,6 +44,10 @@ func TestRuntimeTypeNamesCoverEveryExportedRuntimeType(t *testing.T) {
 	require.Empty(t, stale, "runtimeTypeNames escapes names foundry.proto no longer exports")
 }
 
+func TestAnyTypeRegistryRuntimeExportIsEscapedFromSchemaTypes(t *testing.T) {
+	require.Equal(t, "AnyTypeRegistry_", TypeName("any_type_registry"))
+}
+
 // foundry.proto.wkt is imported only by a file that references a well-known
 // type, and a reference that would be ambiguous is emitted namespace-qualified
 // instead. So, unlike foundry.proto, none of its exports is escaped: a schema

@@ -219,7 +219,7 @@ func deriveJSONName(protoName string) string {
 // TestRuntimeTypeNamesCoverEveryExportedRuntimeType keeps this in step with
 // the runtime source, so a type added there cannot be forgotten here.
 var runtimeTypeNames = map[string]bool{
-	"BytesRead": true, "Codec": true, "FixedRead": true, "FloatRead": true,
+	"AnyTypeRegistry": true, "BytesRead": true, "Codec": true, "FixedRead": true, "FloatRead": true,
 	"JsonBase64": true, "JsonDuration": true, "JsonFieldMask": true, "JsonTimestamp": true,
 	"JsonUint64": true, "Message": true,
 	"ProtobufError": true, "SkipRead": true, "StringRead": true, "VarintRead": true, "Wire": true,

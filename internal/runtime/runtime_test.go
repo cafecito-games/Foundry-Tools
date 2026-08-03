@@ -40,6 +40,23 @@ func TestFilesReturnsRuntimeSources(t *testing.T) {
 		"static func from_array(_pb_value: Array[Variant]) -> (ListValue?, ProtobufError):")
 }
 
+func TestAnyTypeRegistryHasTypedExplicitPublicSurface(t *testing.T) {
+	files := runtime.Files()
+	const path = "foundry/proto/any_type_registry.fs"
+	source, ok := files[path]
+	require.True(t, ok, "%s must be embedded with the runtime", path)
+	require.Contains(t, source, "class_name AnyTypeRegistry extends RefCounted")
+	require.Contains(t, source, "static var _types: Dictionary[String, Type[Message]] = {}")
+	require.Contains(t, source, "static func register(message_type: Type[Message]) -> ProtobufError:")
+	require.Contains(t, source, "static func clear() -> void:")
+	require.Contains(t, source, "static func _resolve(type_url: String) -> (Type[Message]?, ProtobufError):")
+	require.Contains(t, source, "static func _type_name_from_url(type_url: String) -> (String, ProtobufError):")
+	require.NotRegexp(t, `(?m)^static func (resolve|type_name_from_url)\(`, source)
+	require.NotContains(t, source, "Callable")
+	require.NotContains(t, source, "Variant")
+	require.NotRegexp(t, `(?i)(prototype|network|http|load\()`, source)
+}
+
 // Trait requirements must be abstract; a bare func fails to resolve the trait
 // body in every consumer that applies it.
 func TestTraitRequirementsAreAbstract(t *testing.T) {
@@ -92,6 +109,20 @@ func TestProtobufErrorCarriesTheStructConversionCases(t *testing.T) {
 	require.Contains(t, source, "STRUCT_KEY_NOT_STRING = 12")
 	require.Contains(t, source, "STRUCT_VALUE_UNREPRESENTABLE = 13")
 	require.Contains(t, source, "WELL_KNOWN_TIME_OUT_OF_RANGE = 14")
+}
+
+func TestProtobufErrorCarriesTheAnyRegistryCases(t *testing.T) {
+	source := runtime.Files()["foundry/proto/protobuf_error.fs"]
+
+	require.Contains(t, source, "JSON_ANY_UNSUPPORTED = 11")
+	require.Contains(t, source, "STRUCT_KEY_NOT_STRING = 12")
+	require.Contains(t, source, "STRUCT_VALUE_UNREPRESENTABLE = 13")
+	require.Contains(t, source, "WELL_KNOWN_TIME_OUT_OF_RANGE = 14")
+	require.Contains(t, source, "ANY_TYPE_NAME_INVALID = 15")
+	require.Contains(t, source, "ANY_REGISTRY_CONFLICT = 16")
+	require.Contains(t, source, "ANY_TYPE_URL_INVALID = 17")
+	require.Contains(t, source, "ANY_TYPE_NOT_REGISTERED = 18")
+	require.Contains(t, source, "ANY_JSON_UNSUPPORTED = 19")
 }
 
 // The well-known bindings are checked in so consumers get them without running
