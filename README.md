@@ -101,6 +101,7 @@ The generated runtime bindings carry native helpers as real class members:
 | `ListValue` | `from_array(Array[Variant]) -> (ListValue?, ProtobufError)`, `to_array() -> Array[Variant]` |
 | `Timestamp` | `from_unix_time(float) -> (Timestamp?, ProtobufError)`, `now() -> Timestamp`, `to_unix_time() -> float` |
 | `Duration` | `from_seconds(float) -> (Duration?, ProtobufError)`, `to_seconds() -> float` |
+| `Any` | `pack(Message) -> Any`, `is_type(Type[Message]) -> bool`, `unpack() -> (Message?, ProtobufError)` |
 
 The dynamic mapping is exactly null, bool, int/float, `String`, `Dictionary`,
 and `Array`, recursively. An int becomes `Value.number_value`, so it returns as
@@ -124,8 +125,84 @@ lossy (near current unix time, a double resolves to roughly 238 nanoseconds).
 Callers needing exact nanoseconds should use the generated `seconds` and
 `nanos` fields directly.
 
-`Any` still does not pack or unpack; that needs the type-URL registry tracked
-separately. The scalar wrappers remain ordinary messages.
+### Any
+
+`google.protobuf.Any` uses the runtime-wide `foundry.proto.AnyTypeRegistry`.
+Registration is explicit: the registry stores generated class handles by
+protobuf full name and never performs networking, reflection, automatic class
+discovery, or load-time registration. Register every message type that an
+application needs to resolve, including well-known types:
+
+```foundryscript
+## Test setup. Clear first when the process needs an isolated scope.
+AnyTypeRegistry.clear()
+
+var player: Player = Player.new()
+player.name = "Ada"
+
+## Packing and is_type use the message identity and do not require registration.
+var packed: Any = Any.pack(player)
+assert(packed.type_url == "type.googleapis.com/cafecito.game.v1.Player")
+assert(packed.is_type(Player))
+
+## Startup registration is explicit; add every type the application resolves.
+assert(AnyTypeRegistry.register(Player) == ProtobufError.OK)
+assert(AnyTypeRegistry.register(Duration) == ProtobufError.OK)
+
+## Dynamic unpacking resolves the concrete generated class through the registry.
+var (message, error) = packed.unpack()
+assert(error == ProtobufError.OK)
+assert(message is Player)
+```
+
+Packing always writes `type.googleapis.com/<protobuf-full-name>` and copies the
+message's exact wire bytes. Resolution accepts that canonical URL, a foreign
+prefix such as `https://peer.example/types/cafecito.game.v1.Player`, or the bare
+name `cafecito.game.v1.Player`; only the valid final segment selects the type.
+JSON decoding preserves the supplied URL verbatim, while packing is the only
+operation that canonicalizes it. A valid unknown type remains an opaque Any —
+its original URL and bytes stay intact — and operations that require resolution
+fail transactionally rather than returning a partial message.
+
+Any ProtoJSON requires the embedded class to come from a JSON-enabled binding
+generated with `--json`. Ordinary messages put their fields beside `@type`:
+
+```json
+{"@type":"type.googleapis.com/cafecito.game.v1.Player","name":"Ada"}
+```
+
+Well-known types with a custom JSON form put that form under `value`, and a
+nested Any puts the complete inner Any object there:
+
+```json
+{"@type":"type.googleapis.com/google.protobuf.Duration","value":"1.250s"}
+{"@type":"type.googleapis.com/google.protobuf.Any","value":{"@type":"type.googleapis.com/cafecito.game.v1.Player","name":"Ada"}}
+```
+
+`Empty` is the deliberate exception: it stays an ordinary inline object,
+`{"@type":"type.googleapis.com/google.protobuf.Empty"}`, with no `value`
+member. Well-known bindings are not registered automatically. A wire-only
+generated message can still pack, pass `is_type`, and unpack after registration,
+but Any JSON conversion reports `ANY_JSON_UNSUPPORTED`.
+
+The deterministic Any errors retain their numeric assignments:
+
+| Value | Error | Meaning |
+|---:|---|---|
+| 15 | `ANY_TYPE_NAME_INVALID` | A registered class reports an invalid protobuf full name. |
+| 16 | `ANY_REGISTRY_CONFLICT` | Another class handle already owns that full name. |
+| 17 | `ANY_TYPE_URL_INVALID` | The URL is empty, ends in `/`, or has an invalid final name. |
+| 18 | `ANY_TYPE_NOT_REGISTERED` | The URL is valid but its class handle is absent. |
+| 19 | `ANY_JSON_UNSUPPORTED` | The registered class has no supported canonical JSON form. |
+
+`JSON_ANY_UNSUPPORTED = 11` remains in `ProtobufError` only for numeric
+compatibility and is deprecated and unused. JSON decode errors carry the active
+category in `JsonDecodeError.message` and locate the failure with a JSONPath-like
+path. Once text has been parsed into the engine's `JsonNode.Object`, identical
+duplicate keys are no longer representable; duplicates that remain observable,
+including a field's protobuf and JSON spellings, are rejected.
+
+The scalar wrappers remain ordinary messages.
 
 The scalar wrappers are not mapped onto nullable scalars. proto3 `optional`
 already gives a scalar explicit presence, and the message form is needed anyway
@@ -167,14 +244,14 @@ A JSON round trip is lossy in ways a wire round trip is not:
   `JsonNode.Float`, never an `Int`. Our own output emits 64-bit integers as
   JSON strings, which the canonical mapping requires, so output round-trips
   exactly; the loss only applies to a bare number sent by a peer.
-- **`Any` has no JSON form yet** (#48).
 - **Errors use a different shape than the wire path.** The JSON path reports
   `JsonDecodeError`, carrying a JSONPath-like location such as
   `$.inventory.0.name`, while the wire path keeps returning `ProtobufError`.
-  `ProtobufError`'s five JSON cases (`JSON_PARSE_FAILED` through
-  `JSON_ANY_UNSUPPORTED`, 7 through 11) are retained for numbering but are no
-  longer returned directly; they survive only as the leading text of a
-  `JsonDecodeError.message`, so the categories stay greppable.
+  `ProtobufError`'s original five JSON cases (`JSON_PARSE_FAILED` through
+  deprecated `JSON_ANY_UNSUPPORTED`, 7 through 11) are retained for numbering
+  but are no longer returned directly; active categories survive as the leading
+  text of a `JsonDecodeError.message`, so they stay greppable. Any wire and
+  registry APIs return their applicable 15 through 18 enum values directly.
 - **A `uint64` at or above 2^63 reads back negative from `to_bytes` /
   `from_bytes`, even though its JSON text is correct and unsigned.** The JSON
   mapping emits `uint64` and `fixed64` as unsigned decimal strings (for

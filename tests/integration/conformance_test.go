@@ -3,11 +3,27 @@
 package integration
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/dynamicpb"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 // The upstream conformance schema is the exhaustive statement of proto3, so
@@ -76,4 +92,205 @@ func TestConformanceSchemaGenerates(t *testing.T) {
 
 	// Recursion, direct and mutual, resolves rather than looping the emitter.
 	require.Contains(t, source, "var recursive_message: TestAllTypesProto3? = null")
+}
+
+func TestAnyProtoJSONFixturesMatchProtobuf(t *testing.T) {
+	root := repoRoot(t)
+	resolver, ordinary := anyFixtureResolver(t, root)
+
+	ordinary.Set(ordinary.Descriptor().Fields().ByName("optional_int32"), protoreflect.ValueOfInt32(7))
+	ordinary.Set(ordinary.Descriptor().Fields().ByName("optional_string"), protoreflect.ValueOfString("Ada"))
+	object, err := structpb.NewStruct(map[string]any{"enabled": true, "name": "Ada"})
+	require.NoError(t, err)
+	list, err := structpb.NewList([]any{"first", nil, float64(7)})
+	require.NoError(t, err)
+	inner, err := anypb.New(wrapperspb.String("nested"))
+	require.NoError(t, err)
+
+	cases := []struct {
+		name     string
+		file     string
+		typeURL  string
+		embedded proto.Message
+	}{
+		{
+			name:     "ordinary canonical URL",
+			file:     "ordinary.json",
+			typeURL:  "type.googleapis.com/protobuf_test_messages.proto3.TestAllTypesProto3",
+			embedded: ordinary,
+		},
+		{
+			name:     "ordinary foreign URL",
+			file:     "ordinary-foreign-prefix.json",
+			typeURL:  "https://peer.example/types/protobuf_test_messages.proto3.TestAllTypesProto3",
+			embedded: ordinary,
+		},
+		{
+			name:     "timestamp",
+			file:     "timestamp.json",
+			typeURL:  "type.googleapis.com/google.protobuf.Timestamp",
+			embedded: timestamppb.New(time.Date(2006, time.January, 2, 15, 4, 5, 0, time.UTC)),
+		},
+		{
+			name:     "duration",
+			file:     "duration.json",
+			typeURL:  "type.googleapis.com/google.protobuf.Duration",
+			embedded: durationpb.New(1250 * time.Millisecond),
+		},
+		{
+			name:     "field mask",
+			file:     "field-mask.json",
+			typeURL:  "type.googleapis.com/google.protobuf.FieldMask",
+			embedded: &fieldmaskpb.FieldMask{Paths: []string{"user_display_name", "photo"}},
+		},
+		{
+			name:     "wrapper",
+			file:     "int32-wrapper.json",
+			typeURL:  "type.googleapis.com/google.protobuf.Int32Value",
+			embedded: wrapperspb.Int32(7),
+		},
+		{
+			name:     "struct",
+			file:     "struct.json",
+			typeURL:  "type.googleapis.com/google.protobuf.Struct",
+			embedded: object,
+		},
+		{
+			name:     "value",
+			file:     "value.json",
+			typeURL:  "type.googleapis.com/google.protobuf.Value",
+			embedded: structpb.NewNullValue(),
+		},
+		{
+			name:     "list value",
+			file:     "list-value.json",
+			typeURL:  "type.googleapis.com/google.protobuf.ListValue",
+			embedded: list,
+		},
+		{
+			name:     "nested Any",
+			file:     "nested-any.json",
+			typeURL:  "type.googleapis.com/google.protobuf.Any",
+			embedded: inner,
+		},
+	}
+
+	fixtureDir := filepath.Join(root, "tests/integration/fixtures/conformance/any_protojson")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			document, err := os.ReadFile(filepath.Join(fixtureDir, tc.file))
+			require.NoError(t, err)
+
+			var decoded anypb.Any
+			require.NoError(t, (protojson.UnmarshalOptions{Resolver: resolver}).Unmarshal(document, &decoded))
+			require.Equal(t, tc.typeURL, decoded.TypeUrl, "a valid supplied URL must be retained verbatim")
+
+			expectedWire, err := (proto.MarshalOptions{Deterministic: true}).Marshal(tc.embedded)
+			require.NoError(t, err)
+			require.Equal(t, expectedWire, decoded.Value, "Any.value must contain the canonical embedded wire bytes")
+
+			emitted, err := (protojson.MarshalOptions{Resolver: resolver}).Marshal(&decoded)
+			require.NoError(t, err)
+			require.JSONEq(t, string(document), string(emitted), "fixture must use protobuf's canonical Any JSON structure")
+		})
+	}
+
+	// The approved Foundry mapping deliberately treats Empty as an ordinary
+	// message, so its Any has no value envelope. The engine acceptance test
+	// exercises its decode and exact empty payload; this fixture pins the one
+	// intentional shape difference from Go protojson's custom-WKT treatment.
+	emptyDocument, err := os.ReadFile(filepath.Join(fixtureDir, "empty.json"))
+	require.NoError(t, err)
+	var emptyObject map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(emptyDocument, &emptyObject))
+	require.Equal(t, map[string]json.RawMessage{
+		"@type": json.RawMessage(`"type.googleapis.com/google.protobuf.Empty"`),
+	}, emptyObject)
+	var decodedEmpty anypb.Any
+	require.NoError(t, (protojson.UnmarshalOptions{Resolver: resolver}).Unmarshal(emptyDocument, &decodedEmpty))
+	require.Equal(t, "type.googleapis.com/google.protobuf.Empty", decodedEmpty.TypeUrl)
+	require.Empty(t, decodedEmpty.Value)
+	emptyWire, err := (proto.MarshalOptions{Deterministic: true}).Marshal(&emptypb.Empty{})
+	require.NoError(t, err)
+	require.Empty(t, emptyWire)
+}
+
+func TestAnyProtoJSONMalformedFixturesAreRejected(t *testing.T) {
+	root := repoRoot(t)
+	resolver, _ := anyFixtureResolver(t, root)
+	fixtureDir := filepath.Join(root, "tests/integration/fixtures/conformance/any_protojson")
+
+	// These exact failure shapes are also exercised through Foundry's
+	// Any.from_json in check_any_ordinary_json. Keep this layer focused on the
+	// independent Go oracle instead of introducing a second fixture loader.
+	for _, name := range []string{
+		"malformed-missing-type.json",
+		"malformed-nonstring-type.json",
+		"malformed-trailing-slash.json",
+		"malformed-type-name.json",
+		"malformed-unregistered-type.json",
+	} {
+		t.Run(name, func(t *testing.T) {
+			document, err := os.ReadFile(filepath.Join(fixtureDir, name))
+			require.NoError(t, err)
+			var decoded anypb.Any
+			require.Error(t, (protojson.UnmarshalOptions{Resolver: resolver}).Unmarshal(document, &decoded))
+		})
+	}
+}
+
+func anyFixtureResolver(t *testing.T, root string) (*protoregistry.Types, *dynamicpb.Message) {
+	t.Helper()
+	descriptorPath := filepath.Join(t.TempDir(), "conformance.desc")
+	fixture := "tests/integration/fixtures/conformance"
+	run(t, root, "protoc",
+		"--descriptor_set_out="+descriptorPath,
+		"--include_imports",
+		"-I", fixture,
+		filepath.Join(fixture, "test_messages_proto3.proto"),
+	)
+
+	raw, err := os.ReadFile(descriptorPath)
+	require.NoError(t, err)
+	var set descriptorpb.FileDescriptorSet
+	require.NoError(t, proto.Unmarshal(raw, &set))
+	files, err := protodesc.NewFiles(&set)
+	require.NoError(t, err)
+	descriptor, err := files.FindDescriptorByName("protobuf_test_messages.proto3.TestAllTypesProto3")
+	require.NoError(t, err)
+	ordinaryDescriptor := descriptor.(protoreflect.MessageDescriptor)
+
+	resolver := new(protoregistry.Types)
+	for _, message := range []proto.Message{
+		&anypb.Any{},
+		&durationpb.Duration{},
+		&emptypb.Empty{},
+		&fieldmaskpb.FieldMask{},
+		&structpb.Struct{},
+		&structpb.Value{},
+		&structpb.ListValue{},
+		&timestamppb.Timestamp{},
+		&wrapperspb.BoolValue{},
+		&wrapperspb.Int32Value{},
+		&wrapperspb.Int64Value{},
+		&wrapperspb.UInt32Value{},
+		&wrapperspb.UInt64Value{},
+		&wrapperspb.FloatValue{},
+		&wrapperspb.DoubleValue{},
+		&wrapperspb.StringValue{},
+		&wrapperspb.BytesValue{},
+	} {
+		require.NoError(t, resolver.RegisterMessage(message.ProtoReflect().Type()))
+	}
+	registerDynamicMessages(t, resolver, ordinaryDescriptor.ParentFile().Messages())
+	return resolver, dynamicpb.NewMessage(ordinaryDescriptor)
+}
+
+func registerDynamicMessages(t *testing.T, resolver *protoregistry.Types, messages protoreflect.MessageDescriptors) {
+	t.Helper()
+	for i := 0; i < messages.Len(); i++ {
+		descriptor := messages.Get(i)
+		require.NoError(t, resolver.RegisterMessage(dynamicpb.NewMessageType(descriptor)))
+		registerDynamicMessages(t, resolver, descriptor.Messages())
+	}
 }
