@@ -23,6 +23,15 @@ var detail: EventDetailCase? = null
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
+static func create_message() -> Event:
+	return Event.new()
+
+static func protobuf_type_name() -> String:
+	return "cafecito.game.v1.Event"
+
+func type_name() -> String:
+	return Event.protobuf_type_name()
+
 ## Decodes protobuf wire data into a new Event message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Event?, ProtobufError):
 	var _pb_message: Event = Event.new()

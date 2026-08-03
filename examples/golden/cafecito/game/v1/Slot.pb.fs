@@ -13,6 +13,15 @@ var quantity: int = 0
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
+static func create_message() -> Slot:
+	return Slot.new()
+
+static func protobuf_type_name() -> String:
+	return "cafecito.game.v1.Slot"
+
+func type_name() -> String:
+	return Slot.protobuf_type_name()
+
 ## Decodes protobuf wire data into a new Slot message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Slot?, ProtobufError):
 	var _pb_message: Slot = Slot.new()

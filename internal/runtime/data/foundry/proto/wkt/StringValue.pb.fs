@@ -13,6 +13,15 @@ var value: String = ""
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
+static func create_message() -> StringValue:
+	return StringValue.new()
+
+static func protobuf_type_name() -> String:
+	return "google.protobuf.StringValue"
+
+func type_name() -> String:
+	return StringValue.protobuf_type_name()
+
 ## Decodes protobuf wire data into a new StringValue message.
 static func from_bytes(_pb_data: PackedByteArray) -> (StringValue?, ProtobufError):
 	var _pb_message: StringValue = StringValue.new()

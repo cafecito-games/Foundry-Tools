@@ -16,6 +16,15 @@ var fields: Dictionary[String, Value] = {}
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
+static func create_message() -> Struct:
+	return Struct.new()
+
+static func protobuf_type_name() -> String:
+	return "google.protobuf.Struct"
+
+func type_name() -> String:
+	return Struct.protobuf_type_name()
+
 ## Decodes protobuf wire data into a new Struct message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Struct?, ProtobufError):
 	var _pb_message: Struct = Struct.new()

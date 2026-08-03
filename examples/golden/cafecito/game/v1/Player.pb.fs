@@ -31,6 +31,15 @@ final class Badge extends RefCounted uses Message:
 	## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 	var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
+	static func create_message() -> Badge:
+		return Badge.new()
+
+	static func protobuf_type_name() -> String:
+		return "cafecito.game.v1.Player.Badge"
+
+	func type_name() -> String:
+		return Badge.protobuf_type_name()
+
 	## Decodes protobuf wire data into a new Badge message.
 	static func from_bytes(_pb_data: PackedByteArray) -> (Badge?, ProtobufError):
 		var _pb_message: Badge = Badge.new()
@@ -149,6 +158,15 @@ var _pb_tier_unknown: PackedByteArray = PackedByteArray()
 
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
+
+static func create_message() -> Player:
+	return Player.new()
+
+static func protobuf_type_name() -> String:
+	return "cafecito.game.v1.Player"
+
+func type_name() -> String:
+	return Player.protobuf_type_name()
 
 ## Decodes protobuf wire data into a new Player message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Player?, ProtobufError):

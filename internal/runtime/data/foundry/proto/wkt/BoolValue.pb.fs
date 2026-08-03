@@ -13,6 +13,15 @@ var value: bool = false
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
+static func create_message() -> BoolValue:
+	return BoolValue.new()
+
+static func protobuf_type_name() -> String:
+	return "google.protobuf.BoolValue"
+
+func type_name() -> String:
+	return BoolValue.protobuf_type_name()
+
 ## Decodes protobuf wire data into a new BoolValue message.
 static func from_bytes(_pb_data: PackedByteArray) -> (BoolValue?, ProtobufError):
 	var _pb_message: BoolValue = BoolValue.new()

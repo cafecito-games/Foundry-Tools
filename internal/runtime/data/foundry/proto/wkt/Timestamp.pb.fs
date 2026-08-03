@@ -84,6 +84,15 @@ var nanos: int = 0
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
+static func create_message() -> Timestamp:
+	return Timestamp.new()
+
+static func protobuf_type_name() -> String:
+	return "google.protobuf.Timestamp"
+
+func type_name() -> String:
+	return Timestamp.protobuf_type_name()
+
 ## Decodes protobuf wire data into a new Timestamp message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Timestamp?, ProtobufError):
 	var _pb_message: Timestamp = Timestamp.new()

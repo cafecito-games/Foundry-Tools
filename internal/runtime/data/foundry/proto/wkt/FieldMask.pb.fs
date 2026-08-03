@@ -160,6 +160,15 @@ var paths: Array[String] = []
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
+static func create_message() -> FieldMask:
+	return FieldMask.new()
+
+static func protobuf_type_name() -> String:
+	return "google.protobuf.FieldMask"
+
+func type_name() -> String:
+	return FieldMask.protobuf_type_name()
+
 ## Decodes protobuf wire data into a new FieldMask message.
 static func from_bytes(_pb_data: PackedByteArray) -> (FieldMask?, ProtobufError):
 	var _pb_message: FieldMask = FieldMask.new()
