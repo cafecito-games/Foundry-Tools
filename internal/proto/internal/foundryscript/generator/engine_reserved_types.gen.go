@@ -29,7 +29,7 @@ type engineMemberEntry struct {
 	owner string
 }
 
-const foundryEngineTypeSourceVersion = "0.1.alpha19.gh.7a86a1464"
+const foundryEngineTypeSourceVersion = "0.1.alpha21.gh.c11e3a080"
 
 const foundryEngineMessageBaseClass = "RefCounted"
 
@@ -227,6 +227,7 @@ var foundryEngineReservedTypes = map[string]engineTypeEntry{
 	"CheckButton":                         {kind: engineTypeNativeClass},
 	"CircleShape2D":                       {kind: engineTypeNativeClass},
 	"ClassDB":                             {kind: engineTypeNativeClass},
+	"ClassHandle":                         {kind: engineTypeNativeClass},
 	"CodeEdit":                            {kind: engineTypeNativeClass},
 	"CodeHighlighter":                     {kind: engineTypeNativeClass},
 	"CollisionObject2D":                   {kind: engineTypeNativeClass},
