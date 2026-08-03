@@ -370,8 +370,9 @@ func messageClass(plan *messagePlan, inner bool, emission jsonEmission) fsast.Cl
 			members = append(members, unknownEnumMember(&plan.Fields[i]))
 		}
 	}
+	members = append(members, unknownFieldsMemberDeclaration())
+	members = append(members, messageIdentityMembers(plan)...)
 	members = append(members,
-		unknownFieldsMemberDeclaration(),
 		fromBytesFactory(plan.Name),
 		toBytesFunction(plan.Fields, plan.Oneofs),
 		mergeFromBytesFunction(plan.Fields),

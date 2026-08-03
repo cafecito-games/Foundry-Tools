@@ -17,6 +17,15 @@ final class Inner extends RefCounted uses Message, JsonSerializable:
 	## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 	var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
+	static func create_message() -> Inner:
+		return Inner.new()
+
+	static func protobuf_type_name() -> String:
+		return "cafecito.json.v1.JsonSuite.Inner"
+
+	func type_name() -> String:
+		return Inner.protobuf_type_name()
+
 	## Decodes protobuf wire data into a new Inner message.
 	static func from_bytes(_pb_data: PackedByteArray) -> (Inner?, ProtobufError):
 		var _pb_message: Inner = Inner.new()
@@ -239,6 +248,15 @@ var _pb_flavor_unknown: PackedByteArray = PackedByteArray()
 
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
+
+static func create_message() -> JsonSuite:
+	return JsonSuite.new()
+
+static func protobuf_type_name() -> String:
+	return "cafecito.json.v1.JsonSuite"
+
+func type_name() -> String:
+	return JsonSuite.protobuf_type_name()
 
 ## Decodes protobuf wire data into a new JsonSuite message.
 static func from_bytes(_pb_data: PackedByteArray) -> (JsonSuite?, ProtobufError):

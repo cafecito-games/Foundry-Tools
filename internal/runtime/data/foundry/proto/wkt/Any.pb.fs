@@ -105,6 +105,15 @@ var value: PackedByteArray = PackedByteArray()
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
+static func create_message() -> Any:
+	return Any.new()
+
+static func protobuf_type_name() -> String:
+	return "google.protobuf.Any"
+
+func type_name() -> String:
+	return Any.protobuf_type_name()
+
 ## Decodes protobuf wire data into a new Any message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Any?, ProtobufError):
 	var _pb_message: Any = Any.new()

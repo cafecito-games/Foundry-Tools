@@ -190,6 +190,26 @@ func TestGenerateMethodEscapeCollidesOnlyAtEscapedSpelling(t *testing.T) {
 	require.NotContains(t, err.Error(), "generated method")
 }
 
+func TestGeneratedMemberIdentityNamesAreEscaped(t *testing.T) {
+	fields := make([]*protoast.Field, 0, 3)
+	for number, name := range []string{"create_message", "protobuf_type_name", "type_name"} {
+		fields = append(fields, &protoast.Field{
+			FieldType: "string",
+			Name:      name,
+			Number:    number + 1,
+		})
+	}
+
+	source := playerSource(t, fields)
+	for _, name := range []string{"create_message", "protobuf_type_name", "type_name"} {
+		t.Run(name, func(t *testing.T) {
+			require.Contains(t, source, "var "+name+"_: String")
+			require.NotContains(t, source, "var "+name+"__: String")
+			require.Equal(t, "generated member", planMemberName(name).Escape.description())
+		})
+	}
+}
+
 func TestGenerateInheritedMemberEscapeCollidesOnlyAtEscapedSpelling(t *testing.T) {
 	files, err := Generate(namespacedFile([]*protoast.Message{{
 		Name: "Player",

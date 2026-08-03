@@ -998,8 +998,9 @@ func (o *oneofPlan) Namespaces() []string {
 
 // messagePlan is a message resolved for emission, including its nested types.
 type messagePlan struct {
-	Doc  []string
-	Name string
+	Doc       []string
+	Name      string
+	ProtoName string
 	// Scope is the qualified path of this message, used to resolve type
 	// references declared in an enclosing message.
 	Scope  string
@@ -1143,13 +1144,14 @@ func planMessage(
 
 	sortPlansByNumber(plans)
 	plan := messagePlan{
-		Doc:    message.Doc,
-		Name:   name,
-		Scope:  protoScope,
-		Fields: plans,
-		Oneofs: oneofs,
-		Enums:  enums,
-		Nested: nested,
+		Doc:       message.Doc,
+		Name:      name,
+		ProtoName: protoOwnerIdentity,
+		Scope:     protoScope,
+		Fields:    plans,
+		Oneofs:    oneofs,
+		Enums:     enums,
+		Nested:    nested,
 	}
 	resolve.memberCollisions.addMessage(resolve.sourceName, protoOwnerIdentity, plans, oneofs)
 	return plan, nil

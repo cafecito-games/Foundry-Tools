@@ -12,6 +12,15 @@ final class_name Empty extends RefCounted uses Message, JsonSerializable
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
+static func create_message() -> Empty:
+	return Empty.new()
+
+static func protobuf_type_name() -> String:
+	return "google.protobuf.Empty"
+
+func type_name() -> String:
+	return Empty.protobuf_type_name()
+
 ## Decodes protobuf wire data into a new Empty message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Empty?, ProtobufError):
 	var _pb_message: Empty = Empty.new()

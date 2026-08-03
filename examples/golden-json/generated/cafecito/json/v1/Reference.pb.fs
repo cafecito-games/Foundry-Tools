@@ -16,6 +16,15 @@ var weight: int = 0
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
 
+static func create_message() -> Reference:
+	return Reference.new()
+
+static func protobuf_type_name() -> String:
+	return "cafecito.json.v1.Reference"
+
+func type_name() -> String:
+	return Reference.protobuf_type_name()
+
 ## Decodes protobuf wire data into a new Reference message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Reference?, ProtobufError):
 	var _pb_message: Reference = Reference.new()
