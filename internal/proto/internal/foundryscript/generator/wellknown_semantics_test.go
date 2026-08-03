@@ -1,6 +1,7 @@
 package fsgenerator
 
 import (
+	"strings"
 	"testing"
 
 	protoast "github.com/cafecito-games/foundry-tools/internal/proto/internal/ast"
@@ -121,15 +122,62 @@ func TestNativeWellKnownConversionsAreSelectedByDeclarationFile(t *testing.T) {
 	require.NotContains(t, ordinary["cafecito/game/v1/Value.pb.fs"], "to_variant")
 	require.NotContains(t, ordinary["cafecito/game/v1/Timestamp.pb.fs"], "from_unix_time")
 
-	anySource := nativeWellKnownSource(t, "google/protobuf/any.proto", "Any",
-		&protoast.Message{Name: "Any"})
-	require.NotContains(t, anySource, "pack(")
-	require.NotContains(t, anySource, "unpack")
-
 	wrapperSource := nativeWellKnownSource(t, "google/protobuf/wrappers.proto", "StringValue",
 		&protoast.Message{Name: "StringValue", Fields: []*protoast.Field{{
 			FieldType: "string", Name: "value", Number: 1,
 		}}})
 	require.NotContains(t, wrapperSource, "to_variant")
 	require.NotContains(t, wrapperSource, "from_variant")
+}
+
+func TestWellKnownAnyEmitsPackTypeCheckAndUnpack(t *testing.T) {
+	anySource := nativeWellKnownSource(t, "google/protobuf/any.proto", "Any",
+		&protoast.Message{Name: "Any"})
+	require.Contains(t, anySource, "static func pack(message: Message) -> Any:")
+	require.Contains(t, anySource, "func is_type(message_type: Type[Message]) -> bool:")
+	require.Contains(t, anySource, "func unpack() -> (Message?, ProtobufError):")
+	require.Contains(t, anySource, `static func pack(message: Message) -> Any:
+	var _pb_result: Any = Any.new()
+	_pb_result.type_url = "type.googleapis.com/" + message.type_name()
+	_pb_result.value = message.to_bytes()
+	return _pb_result`)
+	require.Contains(t, anySource, `func is_type(message_type: Type[Message]) -> bool:
+	var (_pb_name, _pb_error) = AnyTypeRegistry._type_name_from_url(type_url)
+	if _pb_error != ProtobufError.OK:
+		return false
+	return _pb_name == message_type.protobuf_type_name()`)
+
+	packAt := strings.Index(anySource, "static func pack(message: Message) -> Any:")
+	isTypeAt := strings.Index(anySource, "func is_type(message_type: Type[Message]) -> bool:")
+	require.NotEqual(t, -1, packAt)
+	require.Greater(t, isTypeAt, packAt)
+	packSource := anySource[packAt:isTypeAt]
+	require.NotContains(t, packSource, "AnyTypeRegistry.register")
+	require.NotContains(t, packSource, "AnyTypeRegistry._resolve")
+	require.Contains(t, anySource, `func unpack() -> (Message?, ProtobufError):
+	var (_pb_message_type, _pb_error) = AnyTypeRegistry._resolve(type_url)
+	var _pb_failed: Message? = null
+	if _pb_error != ProtobufError.OK or _pb_message_type == null:
+		return (_pb_failed, _pb_error)
+	var _pb_message: Message = _pb_message_type.create_message()
+	_pb_error = _pb_message.merge_from_bytes(value)
+	if _pb_error != ProtobufError.OK:
+		return (_pb_failed, _pb_error)
+	return (_pb_message, ProtobufError.OK)`)
+
+	unpackAt := strings.Index(anySource, "func unpack() -> (Message?, ProtobufError):")
+	require.Greater(t, unpackAt, isTypeAt)
+	unpackSource := anySource[unpackAt:]
+	resolveAt := strings.Index(unpackSource, "AnyTypeRegistry._resolve(type_url)")
+	createAt := strings.Index(unpackSource, "_pb_message_type.create_message()")
+	mergeAt := strings.Index(unpackSource, "_pb_message.merge_from_bytes(value)")
+	require.GreaterOrEqual(t, resolveAt, 0)
+	require.Greater(t, createAt, resolveAt)
+	require.Greater(t, mergeAt, createAt)
+
+	ordinary := generate(t, namespacedFile([]*protoast.Message{{Name: "Any"}}, nil))
+	ordinarySource := ordinary["cafecito/game/v1/Any.pb.fs"]
+	require.NotContains(t, ordinarySource, "static func pack(message: Message) -> Any:")
+	require.NotContains(t, ordinarySource, "func is_type(message_type: Type[Message]) -> bool:")
+	require.NotContains(t, ordinarySource, "func unpack() -> (Message?, ProtobufError):")
 }
