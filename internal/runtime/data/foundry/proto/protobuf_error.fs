@@ -19,7 +19,8 @@ enum_name ProtobufError:
 	## A number falls outside its field's domain, which includes a timestamp
 	## outside the range RFC 3339 can express.
 	JSON_VALUE_OUT_OF_RANGE = 10
-	## google.protobuf.Any has no JSON form yet; it needs a type-URL registry.
+	## Deprecated: retained for numeric compatibility. New Any JSON paths use
+	## ANY_JSON_UNSUPPORTED.
 	JSON_ANY_UNSUPPORTED = 11
 	## A Dictionary presented as a Struct has a key that is not a String.
 	STRUCT_KEY_NOT_STRING = 12
@@ -28,3 +29,13 @@ enum_name ProtobufError:
 	## A native float is non-finite or normalizes outside the protobuf
 	## Timestamp or Duration range.
 	WELL_KNOWN_TIME_OUT_OF_RANGE = 14
+	## A registered Message handle reports an invalid protobuf full name.
+	ANY_TYPE_NAME_INVALID = 15
+	## A different Message handle already owns the same protobuf full name.
+	ANY_REGISTRY_CONFLICT = 16
+	## A type URL has no valid trailing protobuf full name.
+	ANY_TYPE_URL_INVALID = 17
+	## A valid type URL names a Message handle that has not been registered.
+	ANY_TYPE_NOT_REGISTERED = 18
+	## A registered Message does not implement canonical protobuf JSON.
+	ANY_JSON_UNSUPPORTED = 19

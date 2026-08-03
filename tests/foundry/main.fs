@@ -19,6 +19,38 @@ func check(condition: bool, label: String) -> void:
 		printerr("FAIL: ", label)
 		failures += 1
 
+class InvalidIdentityMessage extends RefCounted uses Message:
+	static func create_message() -> InvalidIdentityMessage:
+		return InvalidIdentityMessage.new()
+
+	static func protobuf_type_name() -> String:
+		return "bad name"
+
+	func type_name() -> String:
+		return InvalidIdentityMessage.protobuf_type_name()
+
+	func to_bytes() -> PackedByteArray:
+		return PackedByteArray()
+
+	func merge_from_bytes(_data: PackedByteArray) -> ProtobufError:
+		return ProtobufError.OK
+
+class ConflictingPlayer extends RefCounted uses Message:
+	static func create_message() -> ConflictingPlayer:
+		return ConflictingPlayer.new()
+
+	static func protobuf_type_name() -> String:
+		return "cafecito.game.v1.Player"
+
+	func type_name() -> String:
+		return ConflictingPlayer.protobuf_type_name()
+
+	func to_bytes() -> PackedByteArray:
+		return PackedByteArray()
+
+	func merge_from_bytes(_data: PackedByteArray) -> ProtobufError:
+		return ProtobufError.OK
+
 func _init() -> void:
 	var collision: GameNode = GameNode.new()
 	var nested_timer: GameNode.GameTimer = GameNode.GameTimer.new()
@@ -282,6 +314,7 @@ func _init() -> void:
 	check(merged.primary is Slot and merged.primary.quantity == 4, "split message field merges the second record")
 
 	check_message_identity()
+	check_any_registry()
 	check_scalars()
 	check_packing()
 	check_well_known()
@@ -318,6 +351,63 @@ func check_message_identity() -> void:
 	var badge_message: Message = badge_type.create_message()
 	check(badge_message is Player.Badge, "nested trait factory preserves the concrete type")
 	check(badge_message.type_name() == badge_type.protobuf_type_name(), "nested instance identity matches its handle")
+
+func check_any_registry() -> void:
+	AnyTypeRegistry.clear()
+
+	var (missing_type, missing_error) = AnyTypeRegistry._resolve("cafecito.game.v1.Player")
+	check(missing_error == ProtobufError.ANY_TYPE_NOT_REGISTERED, "an unregistered type is missing deterministically")
+	check(missing_type == null, "an unregistered lookup returns no handle")
+
+	check(AnyTypeRegistry.register(InvalidIdentityMessage) == ProtobufError.ANY_TYPE_NAME_INVALID,
+		"registration rejects an invalid protobuf identity")
+	check(AnyTypeRegistry.register(Player) == ProtobufError.OK, "Player registers")
+	check(AnyTypeRegistry.register(Player) == ProtobufError.OK, "same-handle registration is idempotent")
+
+	for type_url in [
+		"type.googleapis.com/cafecito.game.v1.Player",
+		"https://peer.example/types/cafecito.game.v1.Player",
+		"cafecito.game.v1.Player",
+	]:
+		var (resolved_type, resolved_error) = AnyTypeRegistry._resolve(type_url)
+		check(resolved_error == ProtobufError.OK, "a canonical, foreign, or bare type URL resolves")
+		check(resolved_type == Player, "resolution preserves the registered Player handle")
+
+	for invalid_url in [
+		"",
+		"/",
+		"peer.example/",
+		"cafecito..game.v1.Player",
+		".cafecito.game.v1.Player",
+		"cafecito.game.v1.Player.",
+		"cafecito.game.v1.1Player",
+		"cafecito.game.v1.Player Name",
+		"cafecito.game.v1.Player!",
+	]:
+		var (invalid_type, invalid_error) = AnyTypeRegistry._resolve(invalid_url)
+		check(invalid_error == ProtobufError.ANY_TYPE_URL_INVALID, "a malformed type URL is invalid, not unregistered")
+		check(invalid_type == null, "a malformed type URL returns no handle")
+
+	var (absent_type, absent_error) = AnyTypeRegistry._resolve("cafecito.game.v1.Missing")
+	check(absent_error == ProtobufError.ANY_TYPE_NOT_REGISTERED, "a valid absent name is unregistered")
+	check(absent_type == null, "a valid absent name returns no handle")
+
+	var unrelated_handle: Variant = JsonCarrier
+	check(not (unrelated_handle is Type[Message]), "a non-Message class handle is rejected by the registry value type")
+	var player_instance: Variant = Player.new()
+	check(not (player_instance is Type[Message]), "a Message instance is rejected where a class handle is required")
+
+	check(AnyTypeRegistry.register(ConflictingPlayer) == ProtobufError.ANY_REGISTRY_CONFLICT,
+		"a different handle cannot replace an existing protobuf identity")
+	var (still_player, conflict_lookup_error) = AnyTypeRegistry._resolve("cafecito.game.v1.Player")
+	check(conflict_lookup_error == ProtobufError.OK, "a conflict leaves the existing registration available")
+	check(still_player == Player, "a conflict leaves the real Player handle registered")
+	check(AnyTypeRegistry.register(Player) == ProtobufError.OK, "same-handle registration remains idempotent after conflict")
+
+	AnyTypeRegistry.clear()
+	var (cleared_type, cleared_error) = AnyTypeRegistry._resolve("cafecito.game.v1.Player")
+	check(cleared_error == ProtobufError.ANY_TYPE_NOT_REGISTERED, "clear removes registrations")
+	check(cleared_type == null, "clear leaves no stale class handle")
 
 ## Struct, Value, and ListValue are protobuf's dynamic JSON tree. Their native
 ## bridge is deliberately strict on input, so a bad value never becomes a
