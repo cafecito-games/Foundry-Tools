@@ -527,6 +527,15 @@ overlap:
 6. #103 supplies cross-cutting conformance, regeneration, documentation, and
    final review convergence.
 
+Each child has its own executable TDD plan:
+
+- [#98: message identity and construction](../plans/2026-08-02-any-message-identity.md)
+- [#99: explicit type registry](../plans/2026-08-02-any-type-registry.md)
+- [#100: wire API](../plans/2026-08-02-any-wire-api.md)
+- [#101: ordinary-message ProtoJSON](../plans/2026-08-02-any-ordinary-protojson.md)
+- [#102: WKT and nested-Any ProtoJSON](../plans/2026-08-02-any-wkt-protojson.md)
+- [#103: conformance, regeneration, and documentation](../plans/2026-08-02-any-conformance-docs.md)
+
 Every child owns focused tests for its behavior. #103 is a completion gate,
 not a place to defer unit coverage from earlier children.
 
