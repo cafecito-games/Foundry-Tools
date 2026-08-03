@@ -171,6 +171,29 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				_pb_offset = _pb_skipped.offset
 	return ProtobufError.OK
 
+static func pack(message: Message) -> Any:
+	var _pb_result: Any = Any.new()
+	_pb_result.type_url = "type.googleapis.com/" + message.type_name()
+	_pb_result.value = message.to_bytes()
+	return _pb_result
+
+func is_type(message_type: Type[Message]) -> bool:
+	var (_pb_name, _pb_error) = AnyTypeRegistry._type_name_from_url(type_url)
+	if _pb_error != ProtobufError.OK:
+		return false
+	return _pb_name == message_type.protobuf_type_name()
+
+func unpack() -> (Message?, ProtobufError):
+	var (_pb_message_type, _pb_error) = AnyTypeRegistry._resolve(type_url)
+	var _pb_failed: Message? = null
+	if _pb_error != ProtobufError.OK or _pb_message_type == null:
+		return (_pb_failed, _pb_error)
+	var _pb_message: Message = _pb_message_type.create_message()
+	_pb_error = _pb_message.merge_from_bytes(value)
+	if _pb_error != ProtobufError.OK:
+		return (_pb_failed, _pb_error)
+	return (_pb_message, ProtobufError.OK)
+
 ## Returns this message as a proto3 canonical JSON document.
 ##
 ## JSON.stringify(message, "", false) renders it as text; the third argument
