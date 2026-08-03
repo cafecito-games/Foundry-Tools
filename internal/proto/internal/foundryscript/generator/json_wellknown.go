@@ -37,7 +37,7 @@ const (
 	wellKnownJSONWrapper
 	// wellKnownJSONEmpty is an empty JSON object.
 	wellKnownJSONEmpty
-	// wellKnownJSONAny has no JSON form until the type-URL registry lands.
+	// wellKnownJSONAny delegates its dynamic payload to AnyTypeRegistry.
 	wellKnownJSONAny
 )
 
@@ -103,13 +103,6 @@ func (f wellKnownJSONForm) Helper() string {
 		return ""
 	}
 }
-
-// jsonAnyUnsupportedMessage explains why google.protobuf.Any has no JSON form.
-// It leads with the ProtobufError case name so the category stays greppable
-// across both directions, which is the same convention the decoder's
-// JsonDecodeError messages follow.
-const jsonAnyUnsupportedMessage = "JSON_ANY_UNSUPPORTED: " +
-	"google.protobuf.Any has no JSON form until the type-URL registry lands"
 
 // wellKnownField is the field a well-known form is defined in terms of, found
 // by its protobuf name rather than by position: a well-known binding is

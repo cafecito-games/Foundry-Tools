@@ -361,11 +361,8 @@ func wellKnownToJSONBody(form wellKnownJSONForm, plan *messagePlan) []fsast.Node
 	case wellKnownJSONValue:
 		return wellKnownValueBody(plan)
 	case wellKnownJSONAny:
-		// Rendering an Any needs its type URL resolved to a generated binding,
-		// which needs a runtime type registry that does not exist yet.
 		return []fsast.Node{
-			line(0, "push_error("+strconv.Quote(jsonAnyUnsupportedMessage)+")"),
-			fsast.Return{Value: jsonNodeType + ".Null"},
+			fsast.Return{Value: "AnyTypeRegistry._any_to_json(type_url, value)"},
 		}
 	default:
 		return nil

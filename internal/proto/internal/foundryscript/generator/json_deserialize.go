@@ -594,7 +594,12 @@ func wellKnownFromJSONBody(form wellKnownJSONForm, plan *messagePlan) []fsast.No
 		return wellKnownValueFromJSONBody(plan)
 	case wellKnownJSONAny:
 		return []fsast.Node{
-			fsast.Return{Value: jsonFail(jsonAnyUnsupportedMessage, jsonRootPath)},
+			line(0, "var (_pb_type_url, _pb_value, _pb_error) = AnyTypeRegistry._any_from_json(_pb_node)"),
+			line(0, "if _pb_error is JsonDecodeError:"),
+			line(1, "return _pb_error"),
+			line(0, "type_url = _pb_type_url"),
+			line(0, "value = _pb_value"),
+			fsast.Return{Value: "null"},
 		}
 	default:
 		return nil

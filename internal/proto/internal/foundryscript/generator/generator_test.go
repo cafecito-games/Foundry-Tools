@@ -2279,17 +2279,15 @@ func TestWellKnownStructAndListValueSerializeAsPlainJSON(t *testing.T) {
 	require.Contains(t, valueSource, "_:\n\t\t\treturn JsonNode.Null")
 }
 
-// Any needs its type URL resolved to a generated binding, which needs a runtime
-// type registry that does not exist yet.
-func TestWellKnownAnyReportsThatItHasNoJSONForm(t *testing.T) {
+func TestWellKnownAnySerializesThroughTheRegistry(t *testing.T) {
 	source := wellKnownSource(t, "google/protobuf/any.proto", "Any",
 		&protoast.Message{Name: "Any", Fields: []*protoast.Field{
 			{FieldType: "string", Name: "type_url", Number: 1},
 			{FieldType: "bytes", Name: "value", Number: 2},
 		}})
 
-	require.Contains(t, source, `push_error("JSON_ANY_UNSUPPORTED: `)
-	require.Contains(t, source, "return JsonNode.Null")
+	require.Contains(t, source, "return AnyTypeRegistry._any_to_json(type_url, value)")
+	require.NotContains(t, source, `push_error("JSON_ANY_UNSUPPORTED: `)
 	require.NotContains(t, source, `_pb_json["typeUrl"]`)
 }
 
@@ -2759,15 +2757,23 @@ func TestWellKnownStructListValueAndValueDecodeFromPlainJSON(t *testing.T) {
 	require.Contains(t, valueSource, "Struct.from_json(JsonNode.object_of(_pb_object))")
 }
 
-// Any needs its type URL resolved to a generated binding, which needs a runtime
-// type registry that does not exist yet, so the decode half says so too.
-func TestWellKnownAnyReportsThatItCannotBeDecoded(t *testing.T) {
+func TestWellKnownAnyDecodesThroughTheRegistry(t *testing.T) {
 	source := wellKnownSource(t, "google/protobuf/any.proto", "Any",
 		&protoast.Message{Name: "Any", Fields: []*protoast.Field{
 			{FieldType: "string", Name: "type_url", Number: 1},
 			{FieldType: "bytes", Name: "value", Number: 2},
 		}})
 
-	require.Contains(t, source, `return JsonDecodeError.create("JSON_ANY_UNSUPPORTED: `)
+	require.Contains(t, source,
+		"var (_pb_type_url, _pb_value, _pb_error) = AnyTypeRegistry._any_from_json(_pb_node)")
+	require.Contains(t, source, "if _pb_error is JsonDecodeError:\n\t\treturn _pb_error")
+	mergeBody := source[strings.LastIndex(source, "func _pb_merge_from_json"):]
+	typeURLAssignment := strings.Index(mergeBody, "\ttype_url = _pb_type_url")
+	valueAssignment := strings.Index(mergeBody, "\tvalue = _pb_value")
+	errorCheck := strings.Index(mergeBody, "if _pb_error is JsonDecodeError:")
+	require.Greater(t, typeURLAssignment, errorCheck)
+	require.Greater(t, valueAssignment, errorCheck)
+	require.Contains(t, source, "\treturn null")
+	require.NotContains(t, source, `JSON_ANY_UNSUPPORTED: google.protobuf.Any`)
 	require.NotContains(t, source, "_pb_json_read_bytes")
 }

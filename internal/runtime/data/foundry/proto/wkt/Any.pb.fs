@@ -199,8 +199,7 @@ func unpack() -> (Message?, ProtobufError):
 ## JSON.stringify(message, "", false) renders it as text; the third argument
 ## turns off key sorting, which keeps members in field declaration order.
 func to_json() -> JsonNode:
-	push_error("JSON_ANY_UNSUPPORTED: google.protobuf.Any has no JSON form until the type-URL registry lands")
-	return JsonNode.Null
+	return AnyTypeRegistry._any_to_json(type_url, value)
 
 ## Decodes a proto3 canonical JSON document into a new Any message.
 ##
@@ -219,4 +218,9 @@ static func from_json(_pb_node: JsonNode) -> JsonResult[Any]:
 ## A failure is returned rather than raised, matching the wire path, and
 ## carries the JSONPath of the value that could not be read.
 func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
-	return JsonDecodeError.create("JSON_ANY_UNSUPPORTED: google.protobuf.Any has no JSON form until the type-URL registry lands", "$")
+	var (_pb_type_url, _pb_value, _pb_error) = AnyTypeRegistry._any_from_json(_pb_node)
+	if _pb_error is JsonDecodeError:
+		return _pb_error
+	type_url = _pb_type_url
+	value = _pb_value
+	return null
