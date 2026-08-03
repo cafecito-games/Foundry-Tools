@@ -66,6 +66,8 @@ func TestAnyTypeRegistrySerializesOrdinaryJSONThroughPrivateCheckedNarrowing(t *
 
 	require.Contains(t, source,
 		"static func _any_to_json(type_url: String, bytes: PackedByteArray) -> JsonNode:")
+	require.Contains(t, source,
+		"if type_url.is_empty() and bytes.is_empty():\n\t\treturn JsonNode.object_of({})")
 	require.Contains(t, source, "var message_type_value: Variant = message_type")
 	require.Contains(t, source, "if not (message_type_value is Type[JsonSerializable]):")
 	require.Contains(t, source, `push_error("ANY_JSON_UNSUPPORTED:`)

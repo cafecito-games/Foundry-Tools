@@ -45,6 +45,8 @@ static func _type_name_from_url(type_url: String) -> (String, ProtobufError):
 	return (name, ProtobufError.OK)
 
 static func _any_to_json(type_url: String, bytes: PackedByteArray) -> JsonNode:
+	if type_url.is_empty() and bytes.is_empty():
+		return JsonNode.object_of({})
 	var (message_type, resolve_error) = _resolve(type_url)
 	if resolve_error != ProtobufError.OK or message_type == null:
 		push_error(_error_name(resolve_error) + ": google.protobuf.Any cannot resolve @type")

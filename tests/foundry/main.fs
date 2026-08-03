@@ -590,6 +590,8 @@ func check_any_ordinary_json() -> void:
 		check(null_result.value.type_url == "" and null_result.value.value.is_empty(), "null leaves both Any fields empty")
 	var empty_result: JsonResult[Any] = Any.from_json(JsonNode.object_of({}))
 	check(empty_result.is_ok() and empty_result.value is Any, "an empty object decodes as an empty Any")
+	if empty_result.value is Any:
+		check(json_text(empty_result.value.to_json()) == "{}", "an empty Any encodes as an empty object")
 
 	var wrong_root: JsonResult[Any] = Any.from_json(JsonNode.Str("wrong"))
 	check(not wrong_root.is_ok() and wrong_root.error.path == "$", "a non-object Any fails at the root")
@@ -672,6 +674,10 @@ func check_any_ordinary_json() -> void:
 	var scalar_json: Any = Any.new()
 	scalar_json.type_url = "type.googleapis.com/tests.ScalarJsonMessage"
 	check(scalar_json.to_json() == JsonNode.Null, "an ordinary Any payload with non-object JSON is unsupported")
+
+	AnyTypeRegistry.clear()
+	var (_cleared_type, cleared_error) = AnyTypeRegistry._resolve(Reference.protobuf_type_name())
+	check(cleared_error == ProtobufError.ANY_TYPE_NOT_REGISTERED, "Any JSON leaves the registry clear for later tests")
 
 ## Struct, Value, and ListValue are protobuf's dynamic JSON tree. Their native
 ## bridge is deliberately strict on input, so a bad value never becomes a
