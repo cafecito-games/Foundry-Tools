@@ -281,6 +281,7 @@ func _init() -> void:
 	check(merged.primary is Slot and merged.primary.label == "axe", "split message field keeps the first record")
 	check(merged.primary is Slot and merged.primary.quantity == 4, "split message field merges the second record")
 
+	check_message_identity()
 	check_scalars()
 	check_packing()
 	check_well_known()
@@ -300,6 +301,23 @@ func _init() -> void:
 		return
 	print("round trip ok")
 	quit(0)
+
+func check_message_identity() -> void:
+	var message_types: Dictionary[String, Type[Message]] = {}
+	message_types[Player.protobuf_type_name()] = Player
+	message_types[Player.Badge.protobuf_type_name()] = Player.Badge
+
+	var player_type: Type[Message] = message_types["cafecito.game.v1.Player"]
+	check(player_type.protobuf_type_name() == "cafecito.game.v1.Player", "Player static protobuf identity")
+	var player_message: Message = player_type.create_message()
+	check(player_message is Player, "Player trait factory preserves the concrete type")
+	check(player_message.type_name() == player_type.protobuf_type_name(), "Player instance identity matches its handle")
+
+	var badge_type: Type[Message] = message_types["cafecito.game.v1.Player.Badge"]
+	check(badge_type.protobuf_type_name() == "cafecito.game.v1.Player.Badge", "nested static protobuf identity")
+	var badge_message: Message = badge_type.create_message()
+	check(badge_message is Player.Badge, "nested trait factory preserves the concrete type")
+	check(badge_message.type_name() == badge_type.protobuf_type_name(), "nested instance identity matches its handle")
 
 ## Struct, Value, and ListValue are protobuf's dynamic JSON tree. Their native
 ## bridge is deliberately strict on input, so a bad value never becomes a
