@@ -46,6 +46,9 @@ func TestTraitRequirementsAreAbstract(t *testing.T) {
 	files := runtime.Files()
 
 	require.Contains(t, files["foundry/proto/message.fs"], "trait_name Message\n")
+	require.Contains(t, files["foundry/proto/message.fs"], "abstract static func create_message() -> Self")
+	require.Contains(t, files["foundry/proto/message.fs"], "abstract static func protobuf_type_name() -> String")
+	require.Contains(t, files["foundry/proto/message.fs"], "abstract func type_name() -> String")
 	require.Contains(t, files["foundry/proto/message.fs"], "abstract func to_bytes()")
 	require.Contains(t, files["foundry/proto/codec.fs"], "abstract func encode(")
 	require.NotRegexp(t, `(?m)^func `, files["foundry/proto/message.fs"])
