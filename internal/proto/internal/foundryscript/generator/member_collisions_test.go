@@ -210,6 +210,11 @@ func TestGeneratedMemberIdentityNamesAreEscaped(t *testing.T) {
 	}
 }
 
+func TestAnyValueMetadataUsesTheReservedGeneratedPrefix(t *testing.T) {
+	require.Equal(t, generatedPrefix+"any_uses_value", anyUsesValueMethod)
+	require.True(t, generatedMemberNames[anyUsesValueMethod])
+}
+
 func TestGenerateInheritedMemberEscapeCollidesOnlyAtEscapedSpelling(t *testing.T) {
 	files, err := Generate(namespacedFile([]*protoast.Message{{
 		Name: "Player",

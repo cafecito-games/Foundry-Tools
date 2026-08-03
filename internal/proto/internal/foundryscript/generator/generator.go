@@ -371,15 +371,14 @@ func messageClass(plan *messagePlan, inner bool, emission jsonEmission) fsast.Cl
 		}
 	}
 	members = append(members, unknownFieldsMemberDeclaration())
-	members = append(members, messageIdentityMembers(plan)...)
+	form := wellKnownJSONFormFor(emission.SourceName, plan.Scope)
+	members = append(members, messageIdentityMembers(plan, form)...)
 	members = append(members,
 		fromBytesFactory(plan.Name),
 		toBytesFunction(plan.Fields, plan.Oneofs),
 		mergeFromBytesFunction(plan.Fields),
 	)
-	members = append(members, wellKnownNativeMembers(
-		wellKnownJSONFormFor(emission.SourceName, plan.Scope), plan,
-	)...)
+	members = append(members, wellKnownNativeMembers(form, plan)...)
 	if emission.Enabled {
 		members = append(members, jsonMembers(plan, emission)...)
 	}

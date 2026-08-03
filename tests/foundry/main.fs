@@ -26,6 +26,9 @@ class InvalidIdentityMessage extends RefCounted uses Message:
 	static func protobuf_type_name() -> String:
 		return "bad name"
 
+	static func _pb_any_uses_value() -> bool:
+		return false
+
 	func type_name() -> String:
 		return InvalidIdentityMessage.protobuf_type_name()
 
@@ -41,6 +44,9 @@ class ConflictingPlayer extends RefCounted uses Message:
 
 	static func protobuf_type_name() -> String:
 		return "cafecito.game.v1.Player"
+
+	static func _pb_any_uses_value() -> bool:
+		return false
 
 	func type_name() -> String:
 		return ConflictingPlayer.protobuf_type_name()
@@ -58,6 +64,9 @@ class WireOnlyMessage extends RefCounted uses Message:
 	static func protobuf_type_name() -> String:
 		return "tests.WireOnlyMessage"
 
+	static func _pb_any_uses_value() -> bool:
+		return false
+
 	func type_name() -> String:
 		return WireOnlyMessage.protobuf_type_name()
 
@@ -73,6 +82,9 @@ class ScalarJsonMessage extends RefCounted uses Message, JsonSerializable:
 
 	static func protobuf_type_name() -> String:
 		return "tests.ScalarJsonMessage"
+
+	static func _pb_any_uses_value() -> bool:
+		return false
 
 	func type_name() -> String:
 		return ScalarJsonMessage.protobuf_type_name()
@@ -355,6 +367,7 @@ func _init() -> void:
 	check_any_registry()
 	check_any_wire_api()
 	check_any_ordinary_json()
+	check_any_wkt_json()
 	check_scalars()
 	check_packing()
 	check_well_known()
@@ -678,6 +691,206 @@ func check_any_ordinary_json() -> void:
 	AnyTypeRegistry.clear()
 	var (_cleared_type, cleared_error) = AnyTypeRegistry._resolve(Reference.protobuf_type_name())
 	check(cleared_error == ProtobufError.ANY_TYPE_NOT_REGISTERED, "Any JSON leaves the registry clear for later tests")
+
+func check_special_any_round_trip(message: Message, expected: String, label: String) -> void:
+	var packed: Any = Any.pack(message)
+	var encoded: JsonNode = packed.to_json()
+	check(json_text(encoded) == expected, label + " encodes in the canonical Any value envelope")
+	var decoded: JsonResult[Any] = Any.from_json(encoded)
+	check(decoded.is_ok() and decoded.value is Any, label + " decodes from its canonical Any value envelope")
+	if decoded.value is Any:
+		check(decoded.value.type_url == packed.type_url, label + " preserves its canonical type URL")
+		var (unpacked, unpack_error) = decoded.value.unpack()
+		check(unpack_error == ProtobufError.OK and unpacked != null, label + " unpacks after JSON decode")
+		if unpacked != null:
+			check(unpacked.type_name() == message.type_name(), label + " keeps the concrete protobuf identity")
+			check(unpacked.to_bytes() == message.to_bytes(), label + " keeps exact payload bytes")
+
+func register_any_json_type(handle: Variant, label: String) -> void:
+	check(handle is Type[Message], label + " handle retains Message conformance")
+	if handle is Type[Message]:
+		var message_type: Type[Message] = handle
+		check(AnyTypeRegistry.register(message_type) == ProtobufError.OK, label + " registers")
+
+func check_any_wkt_json() -> void:
+	AnyTypeRegistry.clear()
+	register_any_json_type(Any, "Any WKT JSON Any")
+	register_any_json_type(foundry.proto.wkt.Timestamp, "Any WKT JSON Timestamp")
+	register_any_json_type(Duration, "Any WKT JSON Duration")
+	register_any_json_type(FieldMask, "Any WKT JSON FieldMask")
+	register_any_json_type(Int32Value, "Any WKT JSON Int32Value")
+	register_any_json_type(StringValue, "Any WKT JSON StringValue")
+	register_any_json_type(Struct, "Any WKT JSON Struct")
+	register_any_json_type(Value, "Any WKT JSON Value")
+	register_any_json_type(ListValue, "Any WKT JSON ListValue")
+	register_any_json_type(foundry.proto.wkt.Empty, "Any WKT JSON Empty")
+	register_any_json_type(Reference, "nested Any JSON ordinary payload")
+
+	var timestamp_result: JsonResult[foundry.proto.wkt.Timestamp] = foundry.proto.wkt.Timestamp.from_json(JsonNode.Str("2006-01-02T15:04:05Z"))
+	check(timestamp_result.is_ok() and timestamp_result.value is foundry.proto.wkt.Timestamp, "timestamp fixture decodes")
+	if timestamp_result.value is foundry.proto.wkt.Timestamp:
+		check_special_any_round_trip(timestamp_result.value,
+			'{"@type":"type.googleapis.com/google.protobuf.Timestamp","value":"2006-01-02T15:04:05Z"}', "Timestamp Any")
+
+	var duration_result: JsonResult[Duration] = Duration.from_json(JsonNode.Str("1.250s"))
+	check(duration_result.is_ok() and duration_result.value is Duration, "duration fixture decodes")
+	if duration_result.value is Duration:
+		check_special_any_round_trip(duration_result.value,
+			'{"@type":"type.googleapis.com/google.protobuf.Duration","value":"1.250s"}', "Duration Any")
+
+	var mask: FieldMask = FieldMask.new()
+	mask.paths = ["user_display_name", "photo"]
+	check_special_any_round_trip(mask,
+		'{"@type":"type.googleapis.com/google.protobuf.FieldMask","value":"userDisplayName,photo"}', "FieldMask Any")
+
+	var number: Int32Value = Int32Value.new()
+	number.value = 7
+	check_special_any_round_trip(number,
+		'{"@type":"type.googleapis.com/google.protobuf.Int32Value","value":7}', "numeric wrapper Any")
+
+	var text: StringValue = StringValue.new()
+	text.value = "hello"
+	check_special_any_round_trip(text,
+		'{"@type":"type.googleapis.com/google.protobuf.StringValue","value":"hello"}', "StringValue Any")
+
+	var struct_result: JsonResult[Struct] = Struct.from_json(JsonNode.object_of({"enabled": JsonNode.Bool(true)}))
+	check(struct_result.is_ok() and struct_result.value is Struct, "Struct fixture decodes")
+	if struct_result.value is Struct:
+		check_special_any_round_trip(struct_result.value,
+			'{"@type":"type.googleapis.com/google.protobuf.Struct","value":{"enabled":true}}', "Struct Any")
+
+	var value_result: JsonResult[Value] = Value.from_json(JsonNode.Null)
+	check(value_result.is_ok() and value_result.value is Value, "Value null fixture decodes")
+	if value_result.value is Value:
+		check_special_any_round_trip(value_result.value,
+			'{"@type":"type.googleapis.com/google.protobuf.Value","value":null}', "Value Any")
+
+	var list_result: JsonResult[ListValue] = ListValue.from_json(JsonNode.array_of([
+		JsonNode.Str("first"), JsonNode.Null,
+	]))
+	check(list_result.is_ok() and list_result.value is ListValue, "ListValue fixture decodes")
+	if list_result.value is ListValue:
+		check_special_any_round_trip(list_result.value,
+			'{"@type":"type.googleapis.com/google.protobuf.ListValue","value":["first",null]}', "ListValue Any")
+
+	var empty: foundry.proto.wkt.Empty = foundry.proto.wkt.Empty.new()
+	var empty_any: Any = Any.pack(empty)
+	check(json_text(empty_any.to_json()) == '{"@type":"type.googleapis.com/google.protobuf.Empty"}',
+		"Empty remains an ordinary Any object without value")
+	var empty_decoded: JsonResult[Any] = Any.from_json(empty_any.to_json())
+	check(empty_decoded.is_ok() and empty_decoded.value is Any, "Empty ordinary Any decodes")
+	if empty_decoded.value is Any:
+		var (decoded_empty, empty_error) = empty_decoded.value.unpack()
+		check(empty_error == ProtobufError.OK and decoded_empty is foundry.proto.wkt.Empty, "Empty keeps its concrete type")
+
+	var inner_payload: Reference = Reference.new()
+	inner_payload.label = "nested"
+	var inner: Any = Any.pack(inner_payload)
+	var outer: Any = Any.pack(inner)
+	var outer_json: JsonNode = outer.to_json()
+	check(json_text(outer_json) == '{"@type":"type.googleapis.com/google.protobuf.Any","value":{"@type":"type.googleapis.com/cafecito.json.v1.Reference","label":"nested"}}',
+		"nested Any uses an outer value object")
+	var outer_decoded: JsonResult[Any] = Any.from_json(outer_json)
+	check(outer_decoded.is_ok() and outer_decoded.value is Any, "nested Any decodes")
+	if outer_decoded.value is Any:
+		check(outer_decoded.value.type_url == "type.googleapis.com/google.protobuf.Any", "outer Any keeps its URL")
+		var (decoded_inner_message, inner_error) = outer_decoded.value.unpack()
+		check(inner_error == ProtobufError.OK and decoded_inner_message is Any, "outer Any unpacks to Any")
+		if decoded_inner_message is Any:
+			check(decoded_inner_message.type_url == inner.type_url, "inner Any keeps its URL")
+			check(decoded_inner_message.value == inner.value, "inner Any keeps exact bytes")
+			var (decoded_payload, payload_error) = decoded_inner_message.unpack()
+			check(payload_error == ProtobufError.OK and decoded_payload is Reference, "inner Any unpacks to its ordinary payload")
+			if decoded_payload is Reference:
+				check(decoded_payload.label == "nested", "nested payload data survives")
+
+	var foreign_scalar_url: String = "https://peer.example/types/google.protobuf.StringValue"
+	var foreign_scalar: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str(foreign_scalar_url),
+		"value": JsonNode.Str("foreign"),
+	}))
+	check(foreign_scalar.is_ok() and foreign_scalar.value is Any, "a foreign scalar WKT URL decodes")
+	if foreign_scalar.value is Any:
+		check(foreign_scalar.value.type_url == foreign_scalar_url, "a foreign scalar WKT URL is preserved verbatim")
+
+	var foreign_nested_url: String = "peer.example/google.protobuf.Any"
+	var foreign_nested: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str(foreign_nested_url),
+		"value": JsonNode.object_of({
+			"@type": JsonNode.Str("cafecito.json.v1.Reference"),
+			"label": JsonNode.Str("foreign nested"),
+		}),
+	}))
+	check(foreign_nested.is_ok() and foreign_nested.value is Any, "a foreign nested Any URL decodes")
+	if foreign_nested.value is Any:
+		check(foreign_nested.value.type_url == foreign_nested_url, "a foreign nested Any URL is preserved verbatim")
+		var (foreign_inner, foreign_inner_error) = foreign_nested.value.unpack()
+		check(foreign_inner_error == ProtobufError.OK and foreign_inner is Any, "foreign nested Any unpacks")
+		if foreign_inner is Any:
+			check(foreign_inner.type_url == "cafecito.json.v1.Reference", "a bare inner URL is preserved verbatim")
+
+	var missing_value: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/google.protobuf.Timestamp"),
+	}))
+	check(not missing_value.is_ok() and missing_value.error.path == "$.value", "missing WKT value fails at $.value")
+	check(missing_value.error.message.find("JSON_PARSE_FAILED") >= 0, "missing WKT value reports JSON_PARSE_FAILED")
+
+	var malformed_value: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/google.protobuf.Timestamp"),
+		"value": JsonNode.Str("not-a-timestamp"),
+	}))
+	check(not malformed_value.is_ok() and malformed_value.error.path == "$.value", "malformed WKT value reroots at $.value")
+
+	var range_value: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/google.protobuf.Int32Value"),
+		"value": JsonNode.Int(2147483648),
+	}))
+	check(not range_value.is_ok() and range_value.error.path == "$.value", "WKT range failure reroots at $.value")
+	check(range_value.error.message.find("JSON_VALUE_OUT_OF_RANGE") >= 0, "WKT range failure preserves its category")
+
+	var mistyped_struct: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/google.protobuf.Struct"),
+		"value": JsonNode.Str("wrong"),
+	}))
+	check(not mistyped_struct.is_ok() and mistyped_struct.error.path == "$.value", "WKT type failure reroots at $.value")
+
+	var extra_member: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/google.protobuf.StringValue"),
+		"value": JsonNode.Str("hello"),
+		"extra": JsonNode.Bool(true),
+	}))
+	check(not extra_member.is_ok() and extra_member.error.path == "$.extra", "unknown special-form member fails at its root path")
+	check(extra_member.error.message.find("JSON_UNKNOWN_FIELD") >= 0, "unknown special-form member preserves its category")
+
+	var malformed_inner_type: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/google.protobuf.Any"),
+		"value": JsonNode.object_of({"@type": JsonNode.Str("peer.example/")}),
+	}))
+	check(not malformed_inner_type.is_ok() and malformed_inner_type.error.path == '$.value["@type"]',
+		"nested Any @type failure reroots below $.value")
+
+	var invalid_inner_level: JsonResult[Any] = Any.from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/google.protobuf.Any"),
+		"value": JsonNode.object_of({
+			"@type": JsonNode.Str("type.googleapis.com/cafecito.json.v1.Reference"),
+			"level": JsonNode.Str("wrong"),
+		}),
+	}))
+	check(not invalid_inner_level.is_ok() and invalid_inner_level.error.path == "$.value.level",
+		"nested ordinary payload failure reroots below $.value")
+
+	var original: Any = Any.new()
+	original.type_url = "opaque/original.Type"
+	original.value = PackedByteArray([9, 8, 7])
+	var transaction_error: JsonDecodeError? = original._pb_merge_from_json(JsonNode.object_of({
+		"@type": JsonNode.Str("type.googleapis.com/google.protobuf.Any"),
+		"value": JsonNode.object_of({"@type": JsonNode.Str("peer.example/")}),
+	}))
+	check(transaction_error != null, "nested Any failure returns an error")
+	check(original.type_url == "opaque/original.Type" and original.value == PackedByteArray([9, 8, 7]),
+		"nested Any failure leaves the destination unchanged")
+
+	AnyTypeRegistry.clear()
 
 ## Struct, Value, and ListValue are protobuf's dynamic JSON tree. Their native
 ## bridge is deliberately strict on input, so a bad value never becomes a

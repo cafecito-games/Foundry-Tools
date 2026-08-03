@@ -1,6 +1,7 @@
 package fsgenerator
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -2302,6 +2303,42 @@ func TestWellKnownFormsAreKeyedOnTheImportPath(t *testing.T) {
 
 	require.NotContains(t, source, "JsonTimestamp")
 	require.Contains(t, source, `_pb_json["seconds"] = JsonNode.Str(str(seconds))`)
+}
+
+func TestGeneratedMessagesReportWhetherAnyUsesAValueEnvelope(t *testing.T) {
+	tests := []struct {
+		importPath string
+		typeName   string
+		want       bool
+	}{
+		{"google/protobuf/any.proto", "Any", true},
+		{"google/protobuf/duration.proto", "Duration", true},
+		{"google/protobuf/empty.proto", "Empty", false},
+		{"google/protobuf/field_mask.proto", "FieldMask", true},
+		{"google/protobuf/struct.proto", "ListValue", true},
+		{"google/protobuf/struct.proto", "Struct", true},
+		{"google/protobuf/struct.proto", "Value", true},
+		{"google/protobuf/timestamp.proto", "Timestamp", true},
+		{"google/protobuf/wrappers.proto", "BoolValue", true},
+		{"google/protobuf/wrappers.proto", "BytesValue", true},
+		{"google/protobuf/wrappers.proto", "DoubleValue", true},
+		{"google/protobuf/wrappers.proto", "FloatValue", true},
+		{"google/protobuf/wrappers.proto", "Int32Value", true},
+		{"google/protobuf/wrappers.proto", "Int64Value", true},
+		{"google/protobuf/wrappers.proto", "StringValue", true},
+		{"google/protobuf/wrappers.proto", "UInt32Value", true},
+		{"google/protobuf/wrappers.proto", "UInt64Value", true},
+		{"cafecito/game/v1/player.proto", "Player", false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.typeName, func(t *testing.T) {
+			source := wellKnownSource(t, test.importPath, test.typeName,
+				&protoast.Message{Name: test.typeName})
+			require.Contains(t, source, fmt.Sprintf(
+				"static func _pb_any_uses_value() -> bool:\n\treturn %t", test.want))
+		})
+	}
 }
 
 // A field named after a generated member would replace it rather than sit

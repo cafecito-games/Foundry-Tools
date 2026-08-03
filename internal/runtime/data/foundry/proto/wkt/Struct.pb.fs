@@ -25,6 +25,9 @@ static func protobuf_type_name() -> String:
 func type_name() -> String:
 	return Struct.protobuf_type_name()
 
+static func _pb_any_uses_value() -> bool:
+	return true
+
 ## Decodes protobuf wire data into a new Struct message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Struct?, ProtobufError):
 	var _pb_message: Struct = Struct.new()

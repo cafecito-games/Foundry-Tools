@@ -169,6 +169,9 @@ static func protobuf_type_name() -> String:
 func type_name() -> String:
 	return FieldMask.protobuf_type_name()
 
+static func _pb_any_uses_value() -> bool:
+	return true
+
 ## Decodes protobuf wire data into a new FieldMask message.
 static func from_bytes(_pb_data: PackedByteArray) -> (FieldMask?, ProtobufError):
 	var _pb_message: FieldMask = FieldMask.new()

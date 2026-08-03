@@ -335,6 +335,7 @@ const (
 	createMessageMethod    = "create_message"
 	protobufTypeNameMethod = "protobuf_type_name"
 	typeNameMethod         = "type_name"
+	anyUsesValueMethod     = generatedPrefix + "any_uses_value"
 	fromBytesMethod        = "from_bytes"
 	toBytesMethod          = "to_bytes"
 	mergeFromBytesMethod   = "merge_from_bytes"
@@ -352,6 +353,7 @@ func generatedMethodNames() []string {
 		createMessageMethod,
 		protobufTypeNameMethod,
 		typeNameMethod,
+		anyUsesValueMethod,
 		fromBytesMethod,
 		toBytesMethod,
 		mergeFromBytesMethod,

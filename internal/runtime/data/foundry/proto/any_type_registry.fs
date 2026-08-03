@@ -72,6 +72,11 @@ static func _any_to_json(type_url: String, bytes: PackedByteArray) -> JsonNode:
 		return JsonNode.Null
 	var json_message: JsonSerializable = message_value
 	var embedded: JsonNode = json_message.to_json()
+	if message_type._pb_any_uses_value():
+		var result: Dictionary[String, JsonNode] = {}
+		result["@type"] = JsonNode.Str(type_url)
+		result["value"] = embedded
+		return JsonNode.object_of(result)
 	match embedded:
 		JsonNode.Object(var entries):
 			var result: Dictionary[String, JsonNode] = {}
@@ -106,12 +111,25 @@ static func _any_from_json(node: JsonNode) -> (String, PackedByteArray, JsonDeco
 						return ("", PackedByteArray(), JsonDecodeError.create("ANY_JSON_UNSUPPORTED: registered Any type has no canonical JSON form", "$[\"@type\"]"))
 					var json_message_type: Type[JsonSerializable] = message_type_value
 
-					var payload: Dictionary[String, JsonNode] = {}
-					for key: String in entries:
-						if key != "@type":
-							payload[key] = entries[key]
-					var decoded: JsonResult[JsonSerializable] = json_message_type.from_json(JsonNode.object_of(payload))
+					var special: bool = message_type._pb_any_uses_value()
+					var payload_node: JsonNode = JsonNode.Null
+					if special:
+						if not entries.has("value"):
+							return ("", PackedByteArray(), JsonDecodeError.create("JSON_PARSE_FAILED: google.protobuf.Any special form requires value", "$.value"))
+						for key: String in entries:
+							if key != "@type" and key != "value":
+								return ("", PackedByteArray(), JsonDecodeError.create("JSON_UNKNOWN_FIELD: google.protobuf.Any special form has no member named " + key, "$." + key))
+						payload_node = entries["value"]
+					else:
+						var payload: Dictionary[String, JsonNode] = {}
+						for key: String in entries:
+							if key != "@type":
+								payload[key] = entries[key]
+						payload_node = JsonNode.object_of(payload)
+					var decoded: JsonResult[JsonSerializable] = json_message_type.from_json(payload_node)
 					if not decoded.is_ok():
+						if special:
+							return ("", PackedByteArray(), JsonResult[JsonSerializable].nested(decoded.error, "value").error)
 						return ("", PackedByteArray(), decoded.error)
 					var decoded_value: Variant = decoded.value
 					if not (decoded_value is Message):

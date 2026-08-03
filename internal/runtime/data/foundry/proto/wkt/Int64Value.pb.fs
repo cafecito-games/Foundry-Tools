@@ -22,6 +22,9 @@ static func protobuf_type_name() -> String:
 func type_name() -> String:
 	return Int64Value.protobuf_type_name()
 
+static func _pb_any_uses_value() -> bool:
+	return true
+
 ## Decodes protobuf wire data into a new Int64Value message.
 static func from_bytes(_pb_data: PackedByteArray) -> (Int64Value?, ProtobufError):
 	var _pb_message: Int64Value = Int64Value.new()
