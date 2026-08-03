@@ -8,6 +8,13 @@ target.
 
 `google/protobuf/` holds the seven well-known-type files it imports.
 
+`any_protojson/` holds canonical Any JSON documents exercised against the Go
+protobuf implementation as an independent oracle. The corpus covers an
+ordinary upstream message, a preserved foreign type-URL prefix, each JSON
+shape category, nested Any, and malformed inputs. `empty.json` pins Foundry
+Tools' approved Empty exception: Empty stays an ordinary inline object without
+the `value` envelope that Go protojson gives custom-form well-known types.
+
 ## Provenance
 
 Source: <https://github.com/protocolbuffers/protobuf>
