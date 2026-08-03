@@ -332,9 +332,12 @@ var reservedFieldNames = map[string]bool{
 // These constants are the source of truth for method spellings emitted and
 // reserved by every message binding.
 const (
-	fromBytesMethod      = "from_bytes"
-	toBytesMethod        = "to_bytes"
-	mergeFromBytesMethod = "merge_from_bytes"
+	createMessageMethod    = "create_message"
+	protobufTypeNameMethod = "protobuf_type_name"
+	typeNameMethod         = "type_name"
+	fromBytesMethod        = "from_bytes"
+	toBytesMethod          = "to_bytes"
+	mergeFromBytesMethod   = "merge_from_bytes"
 )
 
 // generatedMethodNames returns a fresh ordered inventory for naming and
@@ -346,6 +349,9 @@ const (
 // generator rather than of one run's options.
 func generatedMethodNames() []string {
 	return []string{
+		createMessageMethod,
+		protobufTypeNameMethod,
+		typeNameMethod,
 		fromBytesMethod,
 		toBytesMethod,
 		mergeFromBytesMethod,

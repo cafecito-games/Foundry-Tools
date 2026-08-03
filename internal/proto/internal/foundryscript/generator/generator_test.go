@@ -88,6 +88,46 @@ func playerSource(t *testing.T, fields []*protoast.Field, alsoDeclared ...*proto
 	return files["cafecito/game/v1/Player.pb.fs"]
 }
 
+func TestMessagesExposeExactProtobufIdentityAndConstruction(t *testing.T) {
+	file := namespacedFile([]*protoast.Message{{
+		Name: "Player",
+		NestedMessages: []*protoast.Message{{
+			Name: "Badge",
+		}},
+	}}, nil)
+	files := generate(t, file)
+	source := files["cafecito/game/v1/Player.pb.fs"]
+
+	require.Contains(t, source, `static func create_message() -> Player:
+	return Player.new()
+
+static func protobuf_type_name() -> String:
+	return "cafecito.game.v1.Player"
+
+func type_name() -> String:
+	return Player.protobuf_type_name()`)
+	require.Contains(t, source, `	static func create_message() -> Badge:
+		return Badge.new()
+
+	static func protobuf_type_name() -> String:
+		return "cafecito.game.v1.Player.Badge"
+
+	func type_name() -> String:
+		return Badge.protobuf_type_name()`)
+
+	file.Options = map[string]any{
+		NamespaceOptionKey:  "custom.bindings",
+		typePrefixOptionKey: "Game",
+	}
+	files = generate(t, file)
+	source = files["custom/bindings/GamePlayer.pb.fs"]
+	require.Contains(t, source, `static func create_message() -> GamePlayer:`)
+	require.Contains(t, source, `return "cafecito.game.v1.Player"`)
+	require.Contains(t, source, `return "cafecito.game.v1.Player.Badge"`)
+	require.NotContains(t, source, `return "custom.bindings`)
+	require.NotContains(t, source, `return "cafecito.game.v1.Game`)
+}
+
 func slotMessage() *protoast.Message {
 	return &protoast.Message{
 		Name:   "Slot",
