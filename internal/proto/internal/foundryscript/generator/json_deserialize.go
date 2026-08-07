@@ -1009,7 +1009,7 @@ func jsonUnsignedWideIntegerReaderBody() []fsast.Node {
 		line(2, fmt.Sprintf("if %s == 18446744073709551616.0:", jsonFloatLocal)),
 		line(3, jsonValueLocal+" = 18446744073709551615UL"),
 		line(2, "else:"),
-		line(3, fmt.Sprintf("%s = %s as ulong", jsonValueLocal, jsonFloatLocal)),
+		line(3, fmt.Sprintf("%s = (%s as long) as ulong", jsonValueLocal, jsonFloatLocal)),
 		line(1, fmt.Sprintf("%s.Str(var %s):", jsonNodeType, jsonTextLocal)),
 		line(2, fmt.Sprintf("var (%s, %s) = %s.parse(%s)", unsigned, unsignedError, jsonUint64Type, jsonTextLocal)),
 		line(2, fmt.Sprintf("if %s == ProtobufError.JSON_VALUE_OUT_OF_RANGE:", unsignedError)),
@@ -1049,6 +1049,18 @@ func jsonBytesReaderDoc() []string {
 // too large for the host int does not survive the conversion intact, so
 // checking the result would be checking a number the document never carried.
 func jsonIntegerReaderBody(description, minimum, maximum, floatMinimum, floatBound, resultType string) []fsast.Node {
+	// Error returns use the literal form of the declared result type, because
+	// the function signature fixes the tuple's first slot to that type and an
+	// unsuffixed 0 infers int — the wrong carrier for uint/ulong returns.
+	zero := "0"
+	switch resultType {
+	case "uint":
+		zero = "0U"
+	case "long":
+		zero = "0L"
+	case "ulong":
+		zero = "0UL"
+	}
 	body := []fsast.Node{
 		line(0, fmt.Sprintf("var %s: long = 0", jsonValueLocal)),
 		line(0, "match "+jsonNodeParameter+":"),
@@ -1058,18 +1070,18 @@ func jsonIntegerReaderBody(description, minimum, maximum, floatMinimum, floatBou
 		line(2, jsonValueLocal+" = "+jsonIntLocal),
 		line(1, fmt.Sprintf("%s.Float(var %s):", jsonNodeType, jsonFloatLocal)),
 		line(2, fmt.Sprintf("if %s != floor(%s):", jsonFloatLocal, jsonFloatLocal)),
-		line(3, "return (0, "+jsonFail(
+		line(3, "return ("+zero+", "+jsonFail(
 			jsonTypeMismatchPrefix+description+" field cannot take a fractional number", jsonPathParameter)+")"),
 		line(2, fmt.Sprintf("if %s %s %s or %s < %s:",
 			jsonFloatLocal, jsonFloatComparison(minimum), floatBound, jsonFloatLocal, floatMinimum)),
-		line(3, "return (0, "+jsonFail(
+		line(3, "return ("+zero+", "+jsonFail(
 			jsonValueOutOfRangePrefix+description+" field cannot hold this value", jsonPathParameter)+")"),
-		line(2, fmt.Sprintf("%s = int(%s)", jsonValueLocal, jsonFloatLocal)),
+		line(2, fmt.Sprintf("%s = %s as long", jsonValueLocal, jsonFloatLocal)),
 		line(1, fmt.Sprintf("%s.Str(var %s):", jsonNodeType, jsonTextLocal)),
 		line(2, fmt.Sprintf("if not %s.is_valid_int():", jsonTextLocal)),
-		line(3, "return (0, "+jsonFail(
+		line(3, "return ("+zero+", "+jsonFail(
 			jsonTypeMismatchPrefix+description+" field cannot take this string", jsonPathParameter)+")"),
-		line(2, fmt.Sprintf("%s = %s.to_int()", jsonValueLocal, jsonTextLocal)),
+		line(2, fmt.Sprintf("%s = %s.to_int() as long", jsonValueLocal, jsonTextLocal)),
 	}
 	if minimum == "" {
 		// A 64-bit field has no range check after the match to catch a string
@@ -1078,20 +1090,20 @@ func jsonIntegerReaderBody(description, minimum, maximum, floatMinimum, floatBou
 		// separates a value that survived from one that came back different.
 		body = append(body,
 			line(2, fmt.Sprintf("if str(%s) != %s:", jsonValueLocal, jsonTextLocal)),
-			line(3, "return (0, "+jsonFail(
+			line(3, "return ("+zero+", "+jsonFail(
 				jsonValueOutOfRangePrefix+description+" field takes a decimal string it can hold exactly",
 				jsonPathParameter)+")"),
 		)
 	}
 	body = append(body, []fsast.Node{
 		line(1, "_:"),
-		line(2, "return (0, "+jsonFail(
+		line(2, "return ("+zero+", "+jsonFail(
 			jsonTypeMismatchPrefix+description+" field takes a number or a string", jsonPathParameter)+")"),
 	}...)
 	if minimum != "" {
 		body = append(body,
 			line(0, fmt.Sprintf("if %s < %s or %s > %s:", jsonValueLocal, minimum, jsonValueLocal, maximum)),
-			line(1, "return (0, "+jsonFail(
+			line(1, "return ("+zero+", "+jsonFail(
 				jsonValueOutOfRangePrefix+description+" field cannot hold this value", jsonPathParameter)+")"),
 		)
 	}
@@ -1189,12 +1201,12 @@ func jsonReaderSuccess(valueLocal string) []fsast.Node {
 }
 
 // jsonReaderSuccessTyped emits the shared success epilogue, narrowing value to
-// castType when it is not int. The integer readers keep their intermediate in a
-// host int (which is 64-bit at runtime) so the JSON parsing and range checks
-// work uniformly, then narrow once at the boundary to the field's declared type.
+// castType when one is given. The integer readers keep their intermediate in a
+// long so the JSON parsing and range checks work uniformly, then narrow once at
+// the boundary to the field's declared type.
 func jsonReaderSuccessTyped(valueLocal, castType string) []fsast.Node {
 	valueExpr := valueLocal
-	if castType != "" && castType != "int" {
+	if castType != "" {
 		valueExpr = valueLocal + " as " + castType
 	}
 	return []fsast.Node{

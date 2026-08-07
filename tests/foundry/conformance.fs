@@ -26,7 +26,7 @@ func _init() -> void:
 	suite.optional_nested_message = nested
 	suite.optional_nested_enum = TestAllTypesProto3.NestedEnum.NEG
 	suite.optional_aliased_enum = TestAllTypesProto3.AliasedEnum.MOO
-	suite.map_uint64_uint64 = {-1: -1}
+	suite.map_uint64_uint64 = {0xFFFFFFFFFFFFFFFFUL: 0xFFFFFFFFFFFFFFFFUL}
 	suite.oneof_field = TestAllTypesProto3OneofFieldCase.OneofNullValue(NullValue.NULL_VALUE)
 
 	var (decoded, decode_error) = TestAllTypesProto3.from_bytes(suite.to_bytes())

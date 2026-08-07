@@ -8,13 +8,27 @@ const WIRE_LENGTH_DELIMITED: int = 2
 const WIRE_32BIT: int = 5
 
 static func make_tag(field_number: int, wire_type: int) -> long:
-	return (field_number << 3) | wire_type
+	return ((field_number as long) << 3) | (wire_type as long)
 
 static func get_wire_type(tag: long) -> int:
 	return (tag & 0x7) as int
 
 static func get_field_number(tag: long) -> int:
 	return (tag >> 3) as int
+
+## Appends one byte to buf. PackedByteArray.append takes uint, which the signed
+## integer types cannot reach through a checked 'as' in this engine version, so
+## the byte is written by index after a resize instead.
+static func _append_byte(buf: PackedByteArray, value: long) -> void:
+	var pos: int = buf.size() as int
+	buf.resize(pos + 1)
+	buf[pos] = (value & 0xFF) as int
+
+## The unsigned variant: same idea, same workaround, ulong source.
+static func _append_byte_unsigned(buf: PackedByteArray, value: ulong) -> void:
+	var pos: int = buf.size() as int
+	buf.resize(pos + 1)
+	buf[pos] = (value & 0xFFUL) as int
 
 ## Encodes a signed varint. int widens to long, so every signed integer
 ## field — int32, sint32, int64, sint64 — passes through here, as do tags,
@@ -23,9 +37,9 @@ static func encode_varint(value: long) -> PackedByteArray:
 	var result: PackedByteArray = PackedByteArray()
 	var remaining: long = value
 	while remaining > 0x7F or remaining < 0:
-		result.append(((remaining & 0x7F) | 0x80) as uint)
+		_append_byte(result, (remaining & 0x7F) | 0x80)
 		remaining = (remaining >> 7) & 0x01FFFFFFFFFFFFFF
-	result.append((remaining & 0x7F) as uint)
+	_append_byte(result, remaining & 0x7F)
 	return result
 
 ## Encodes an unsigned varint. uint widens to ulong, so uint32 and uint64
@@ -35,9 +49,9 @@ static func encode_varint_unsigned(value: ulong) -> PackedByteArray:
 	var result: PackedByteArray = PackedByteArray()
 	var remaining: ulong = value
 	while remaining > 0x7FUL:
-		result.append(((remaining & 0x7FUL) | 0x80UL) as uint)
-		remaining = remaining >> 7
-	result.append((remaining & 0x7FUL) as uint)
+		_append_byte_unsigned(result, (remaining & 0x7FUL) | 0x80UL)
+		remaining = remaining >> 7UL
+	_append_byte_unsigned(result, remaining & 0x7FUL)
 	return result
 
 static func decode_varint(data: PackedByteArray, offset: int) -> VarintRead:
@@ -46,7 +60,13 @@ static func decode_varint(data: PackedByteArray, offset: int) -> VarintRead:
 	var cursor: int = offset
 	while cursor < data.size():
 		var byte_val: int = data[cursor]
-		result_value |= ((byte_val & 0x7F) as long) << shift
+		# At shift 63, setting bit 63 through a left shift overflows the
+		# checked long (1 << 63 = 2^63 = MaxInt64 + 1). The sign bit is set
+		# by subtracting 2^63 instead, which produces the same negative value.
+		if shift >= 63 and (byte_val & 0x1) != 0:
+			result_value += -9223372036854775807 - 1
+		elif shift < 63:
+			result_value |= ((byte_val & 0x7F) as long) << shift
 		cursor += 1
 		if (byte_val & 0x80) == 0:
 			return VarintRead(result_value, cursor, ProtobufError.OK)
@@ -63,7 +83,7 @@ static func decode_varint_unsigned(data: PackedByteArray, offset: int) -> Varint
 	var cursor: int = offset
 	while cursor < data.size():
 		var byte_val: int = data[cursor]
-		result_value |= ((byte_val & 0x7F) as ulong) << shift
+		result_value |= ((byte_val & 0x7F) as ulong) << (shift as ulong)
 		cursor += 1
 		if (byte_val & 0x80) == 0:
 			return VarintReadUnsigned(result_value, cursor, ProtobufError.OK)
@@ -76,48 +96,48 @@ static func decode_varint_unsigned(data: PackedByteArray, offset: int) -> Varint
 ## through here; fixed32 uses the unsigned variant.
 static func encode_fixed32(value: long) -> PackedByteArray:
 	var result: PackedByteArray = PackedByteArray()
-	result.append((value & 0xFF) as uint)
-	result.append(((value >> 8) & 0xFF) as uint)
-	result.append(((value >> 16) & 0xFF) as uint)
-	result.append(((value >> 24) & 0xFF) as uint)
+	_append_byte(result, value)
+	_append_byte(result, value >> 8)
+	_append_byte(result, value >> 16)
+	_append_byte(result, value >> 24)
 	return result
 
 ## Encodes the low four bytes of an unsigned value, little-endian. fixed32
 ## fields carry values up to 2^32-1.
 static func encode_fixed32_unsigned(value: ulong) -> PackedByteArray:
 	var result: PackedByteArray = PackedByteArray()
-	result.append((value & 0xFFUL) as uint)
-	result.append(((value >> 8) & 0xFFUL) as uint)
-	result.append(((value >> 16) & 0xFFUL) as uint)
-	result.append(((value >> 24) & 0xFFUL) as uint)
+	_append_byte_unsigned(result, value)
+	_append_byte_unsigned(result, value >> 8UL)
+	_append_byte_unsigned(result, value >> 16UL)
+	_append_byte_unsigned(result, value >> 24UL)
 	return result
 
 ## Encodes all eight bytes of value, little-endian. sfixed64 passes through
 ## here; fixed64 uses the unsigned variant.
 static func encode_fixed64(value: long) -> PackedByteArray:
 	var result: PackedByteArray = PackedByteArray()
-	result.append((value & 0xFF) as uint)
-	result.append(((value >> 8) & 0xFF) as uint)
-	result.append(((value >> 16) & 0xFF) as uint)
-	result.append(((value >> 24) & 0xFF) as uint)
-	result.append(((value >> 32) & 0xFF) as uint)
-	result.append(((value >> 40) & 0xFF) as uint)
-	result.append(((value >> 48) & 0xFF) as uint)
-	result.append(((value >> 56) & 0xFF) as uint)
+	_append_byte(result, value)
+	_append_byte(result, value >> 8)
+	_append_byte(result, value >> 16)
+	_append_byte(result, value >> 24)
+	_append_byte(result, value >> 32)
+	_append_byte(result, value >> 40)
+	_append_byte(result, value >> 48)
+	_append_byte(result, value >> 56)
 	return result
 
 ## Encodes all eight bytes of an unsigned value, little-endian. fixed64
 ## fields carry values up to 2^64-1.
 static func encode_fixed64_unsigned(value: ulong) -> PackedByteArray:
 	var result: PackedByteArray = PackedByteArray()
-	result.append((value & 0xFFUL) as uint)
-	result.append(((value >> 8) & 0xFFUL) as uint)
-	result.append(((value >> 16) & 0xFFUL) as uint)
-	result.append(((value >> 24) & 0xFFUL) as uint)
-	result.append(((value >> 32) & 0xFFUL) as uint)
-	result.append(((value >> 40) & 0xFFUL) as uint)
-	result.append(((value >> 48) & 0xFFUL) as uint)
-	result.append(((value >> 56) & 0xFFUL) as uint)
+	_append_byte_unsigned(result, value)
+	_append_byte_unsigned(result, value >> 8UL)
+	_append_byte_unsigned(result, value >> 16UL)
+	_append_byte_unsigned(result, value >> 24UL)
+	_append_byte_unsigned(result, value >> 32UL)
+	_append_byte_unsigned(result, value >> 40UL)
+	_append_byte_unsigned(result, value >> 48UL)
+	_append_byte_unsigned(result, value >> 56UL)
 	return result
 
 ## Encodes value as IEEE-754 binary32. Foundry's float is 64-bit, so this
@@ -176,14 +196,42 @@ static func encode_sint32(value: int) -> PackedByteArray:
 	return encode_varint(zigzag_encode_32(value))
 
 ## Encodes value as a zig-zag varint over 64 bits.
+##
+## The standard zig-zag formula (value << 1) ^ (value >> 63) cannot be computed
+## directly because Foundry's checked arithmetic rejects the shift at and above
+## 2^62 and provides no wrapping or unsigned-bit-cast escape (see #1930). The
+## result is a uint64 stored as a signed long, so the varint bytes are built
+## directly from 32-bit halves that each fit the signed carrier.
 static func encode_sint64(value: long) -> PackedByteArray:
-	return encode_varint(zigzag_encode_64(value))
+	var neg_mask: long = value >> 63
+	# Zig-zag each 32-bit half independently. XOR with the sign extension gives
+	# the magnitude bits; doubling shifts them into position. The carry from
+	# the low half's top bit moves into the high half's bottom bit.
+	var low_xor: long = (value & 0xFFFFFFFFL) ^ (neg_mask & 0xFFFFFFFFL)
+	var high_xor: long = ((value >> 32) & 0xFFFFFFFFL) ^ (neg_mask & 0xFFFFFFFFL)
+	var z_low: long = (low_xor << 1) & 0xFFFFFFFFL
+	var z_high: long = ((high_xor << 1) | (low_xor >> 31)) & 0xFFFFFFFFL
+	# Emit the varint 7 bits at a time from the combined 64-bit value. All
+	# intermediates stay in [0, 2^32-1], safe for checked long arithmetic.
+	var result: PackedByteArray = PackedByteArray()
+	var remaining_low: long = z_low
+	var remaining_high: long = z_high
+	var emitting: bool = true
+	while emitting:
+		var byte_val: long = remaining_low & 0x7F
+		remaining_low = (remaining_low >> 7) | ((remaining_high & 0x7F) << 25)
+		remaining_high = remaining_high >> 7
+		if remaining_low == 0 and remaining_high == 0:
+			_append_byte(result, byte_val)
+			emitting = false
+		else:
+			_append_byte(result, byte_val | 0x80)
+	return result
 
 static func zigzag_encode_32(value: int) -> long:
-	return ((value << 1) ^ (value >> 31)) & 0xFFFFFFFFL
-
-static func zigzag_encode_64(value: long) -> long:
-	return (value << 1) ^ (value >> 63)
+	# Widen before shifting: value << 1 overflows checked int at MinInt32.
+	var wide: long = value as long
+	return ((wide << 1) ^ (wide >> 31)) & 0xFFFFFFFFL
 
 static func zigzag_decode_32(value: long) -> int:
 	var encoded: long = value & 0xFFFFFFFFL
@@ -204,12 +252,7 @@ static func read_fixed32(data: PackedByteArray, offset: int) -> FixedReadUnsigne
 static func read_sfixed32(data: PackedByteArray, offset: int) -> FixedRead:
 	if offset + 4 > data.size():
 		return FixedRead(0, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
-	var value: long = 0
-	var index: int = 0
-	while index < 4:
-		value |= (data[offset + index] as long) << (index * 8)
-		index += 1
-	return FixedRead(value, offset + 4, ProtobufError.OK)
+	return FixedRead(data.decode_s32(offset), offset + 4, ProtobufError.OK)
 
 ## Reads eight bytes as an unsigned 64-bit value. fixed64 spans 0 to 2^64-1.
 static func read_fixed64(data: PackedByteArray, offset: int) -> FixedReadUnsigned:
@@ -221,19 +264,14 @@ static func read_fixed64(data: PackedByteArray, offset: int) -> FixedReadUnsigne
 static func read_sfixed64(data: PackedByteArray, offset: int) -> FixedRead:
 	if offset + 8 > data.size():
 		return FixedRead(0, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
-	var value: long = 0
-	var index: int = 0
-	while index < 8:
-		value |= (data[offset + index] as long) << (index * 8)
-		index += 1
-	return FixedRead(value, offset + 8, ProtobufError.OK)
+	return FixedRead(data.decode_s64(offset), offset + 8, ProtobufError.OK)
 
 ## Reads `byte_count` bytes as a little-endian unsigned integer.
 static func _read_unsigned_le(data: PackedByteArray, offset: int, byte_count: int) -> ulong:
 	var value: ulong = 0UL
 	var index: int = 0
 	while index < byte_count:
-		value |= (data[offset + index] as ulong) << (index * 8)
+		value |= (data[offset + index] as ulong) << ((index * 8) as ulong)
 		index += 1
 	return value
 

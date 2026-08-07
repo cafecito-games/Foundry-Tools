@@ -148,9 +148,9 @@ static func from_seconds(_pb_value: float) -> (Duration?, ProtobufError):
 
 static func _from_valid_seconds(_pb_value: float) -> Duration:
 	var _pb_result: Duration = Duration.new()
-	var _pb_whole: int = int(_pb_value)
+	var _pb_whole: long = _pb_value as long
 	_pb_result.seconds = _pb_whole
-	_pb_result.nanos = roundi((_pb_value - float(_pb_whole)) * 1000000000.0)
+	_pb_result.nanos = roundi((_pb_value - float(_pb_whole)) * 1000000000.0) as int
 	if _pb_result.nanos >= 1000000000:
 		_pb_result.nanos -= 1000000000
 		_pb_result.seconds += 1

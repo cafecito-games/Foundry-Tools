@@ -93,8 +93,8 @@ func TestWellKnownTimestampAndDurationEmitNativeTimeConversions(t *testing.T) {
 	require.Contains(t, timestamp, "static func _from_valid_unix_time(_pb_value: float) -> Timestamp:")
 	require.Contains(t, timestamp, "static func now() -> Timestamp:")
 	require.Contains(t, timestamp, "func to_unix_time() -> float:")
-	require.Contains(t, timestamp, "var _pb_whole: int = floori(_pb_value)")
-	require.Contains(t, timestamp, "_pb_result.nanos = roundi((_pb_value - float(_pb_whole)) * 1000000000.0)")
+	require.Contains(t, timestamp, "var _pb_whole: long = floori(_pb_value) as long")
+	require.Contains(t, timestamp, "_pb_result.nanos = roundi((_pb_value - float(_pb_whole)) * 1000000000.0) as int")
 	require.Contains(t, timestamp, "if _pb_result.nanos >= 1000000000:")
 	require.Contains(t, timestamp, "return Timestamp._from_valid_unix_time(Time.get_unix_time_from_system())")
 
@@ -106,7 +106,7 @@ func TestWellKnownTimestampAndDurationEmitNativeTimeConversions(t *testing.T) {
 	require.Contains(t, duration, "ProtobufError.WELL_KNOWN_TIME_OUT_OF_RANGE")
 	require.Contains(t, duration, "if _pb_result.seconds < -315576000000 or _pb_result.seconds > 315576000000 or _pb_result.nanos < -999999999 or _pb_result.nanos > 999999999")
 	require.Contains(t, duration, "func to_seconds() -> float:")
-	require.Contains(t, duration, "var _pb_whole: int = int(_pb_value)")
+	require.Contains(t, duration, "var _pb_whole: long = _pb_value as long")
 	require.Contains(t, duration, "elif _pb_result.nanos <= -1000000000:")
 }
 

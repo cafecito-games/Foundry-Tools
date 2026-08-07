@@ -168,9 +168,9 @@ static func from_unix_time(_pb_value: float) -> (Timestamp?, ProtobufError):
 
 static func _from_valid_unix_time(_pb_value: float) -> Timestamp:
 	var _pb_result: Timestamp = Timestamp.new()
-	var _pb_whole: int = floori(_pb_value)
+	var _pb_whole: long = floori(_pb_value) as long
 	_pb_result.seconds = _pb_whole
-	_pb_result.nanos = roundi((_pb_value - float(_pb_whole)) * 1000000000.0)
+	_pb_result.nanos = roundi((_pb_value - float(_pb_whole)) * 1000000000.0) as int
 	if _pb_result.nanos >= 1000000000:
 		_pb_result.nanos -= 1000000000
 		_pb_result.seconds += 1

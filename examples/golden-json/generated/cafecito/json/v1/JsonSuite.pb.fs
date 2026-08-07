@@ -1693,17 +1693,17 @@ static func _pb_json_read_int32(_pb_node: JsonNode, _pb_path: String) -> (int, J
 				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a signed 32-bit integer field cannot take a fractional number", _pb_path))
 			if _pb_float >= 2147483648.0 or _pb_float < -2147483648.0:
 				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a signed 32-bit integer field cannot hold this value", _pb_path))
-			_pb_value = int(_pb_float)
+			_pb_value = _pb_float as long
 		JsonNode.Str(var _pb_text):
 			if not _pb_text.is_valid_int():
 				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a signed 32-bit integer field cannot take this string", _pb_path))
-			_pb_value = _pb_text.to_int()
+			_pb_value = _pb_text.to_int() as long
 		_:
 			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a signed 32-bit integer field takes a number or a string", _pb_path))
 	if _pb_value < -2147483648 or _pb_value > 2147483647:
 		return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a signed 32-bit integer field cannot hold this value", _pb_path))
 	var _pb_error: JsonDecodeError? = null
-	return (_pb_value, _pb_error)
+	return (_pb_value as int, _pb_error)
 
 ## Reads an unsigned 32-bit integer field out of a JSON value.
 ##
@@ -1719,18 +1719,18 @@ static func _pb_json_read_uint32(_pb_node: JsonNode, _pb_path: String) -> (uint,
 			_pb_value = _pb_int
 		JsonNode.Float(var _pb_float):
 			if _pb_float != floor(_pb_float):
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field cannot take a fractional number", _pb_path))
+				return (0U, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field cannot take a fractional number", _pb_path))
 			if _pb_float >= 4294967296.0 or _pb_float < 0.0:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 32-bit integer field cannot hold this value", _pb_path))
-			_pb_value = int(_pb_float)
+				return (0U, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 32-bit integer field cannot hold this value", _pb_path))
+			_pb_value = _pb_float as long
 		JsonNode.Str(var _pb_text):
 			if not _pb_text.is_valid_int():
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field cannot take this string", _pb_path))
-			_pb_value = _pb_text.to_int()
+				return (0U, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field cannot take this string", _pb_path))
+			_pb_value = _pb_text.to_int() as long
 		_:
-			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field takes a number or a string", _pb_path))
+			return (0U, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field takes a number or a string", _pb_path))
 	if _pb_value < 0 or _pb_value > 4294967295:
-		return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 32-bit integer field cannot hold this value", _pb_path))
+		return (0U, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 32-bit integer field cannot hold this value", _pb_path))
 	var _pb_error: JsonDecodeError? = null
 	return (_pb_value as uint, _pb_error)
 
@@ -1749,18 +1749,18 @@ static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (long, 
 			_pb_value = _pb_int
 		JsonNode.Float(var _pb_float):
 			if _pb_float != floor(_pb_float):
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take a fractional number", _pb_path))
+				return (0L, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take a fractional number", _pb_path))
 			if _pb_float > 9223372036854775808.0 or _pb_float < -9223372036854775808.0:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field cannot hold this value", _pb_path))
-			_pb_value = int(_pb_float)
+				return (0L, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field cannot hold this value", _pb_path))
+			_pb_value = _pb_float as long
 		JsonNode.Str(var _pb_text):
 			if not _pb_text.is_valid_int():
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take this string", _pb_path))
-			_pb_value = _pb_text.to_int()
+				return (0L, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take this string", _pb_path))
+			_pb_value = _pb_text.to_int() as long
 			if str(_pb_value) != _pb_text:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field takes a decimal string it can hold exactly", _pb_path))
+				return (0L, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field takes a decimal string it can hold exactly", _pb_path))
 		_:
-			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field takes a number or a string", _pb_path))
+			return (0L, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field takes a number or a string", _pb_path))
 	var _pb_error: JsonDecodeError? = null
 	return (_pb_value as long, _pb_error)
 
@@ -1790,7 +1790,7 @@ static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (ulong
 			if _pb_float == 18446744073709551616.0:
 				_pb_value = 18446744073709551615UL
 			else:
-				_pb_value = _pb_float as ulong
+				_pb_value = (_pb_float as long) as ulong
 		JsonNode.Str(var _pb_text):
 			var (_pb_unsigned, _pb_unsigned_error) = JsonUint64.parse(_pb_text)
 			if _pb_unsigned_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE:

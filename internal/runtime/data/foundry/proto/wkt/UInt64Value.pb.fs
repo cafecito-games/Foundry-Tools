@@ -124,7 +124,7 @@ static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (ulong
 			if _pb_float == 18446744073709551616.0:
 				_pb_value = 18446744073709551615UL
 			else:
-				_pb_value = _pb_float as ulong
+				_pb_value = (_pb_float as long) as ulong
 		JsonNode.Str(var _pb_text):
 			var (_pb_unsigned, _pb_unsigned_error) = JsonUint64.parse(_pb_text)
 			if _pb_unsigned_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE:

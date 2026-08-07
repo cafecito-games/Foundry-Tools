@@ -142,9 +142,9 @@ func timestampNativeMembers(plan *messagePlan) []fsast.Node {
 			ReturnType: fstypes.Named(plan.Name),
 			Body: []fsast.Node{
 				line(0, fmt.Sprintf("var %s: %s = %s.new()", nativeResultLocal, plan.Name, plan.Name)),
-				line(0, fmt.Sprintf("var %s: int = floori(%s)", whole, nativeValueParameter)),
+				line(0, fmt.Sprintf("var %s: long = floori(%s) as long", whole, nativeValueParameter)),
 				line(0, fmt.Sprintf("%s.%s = %s", nativeResultLocal, seconds.Name, whole)),
-				line(0, fmt.Sprintf("%s.%s = roundi((%s - float(%s)) * 1000000000.0)",
+				line(0, fmt.Sprintf("%s.%s = roundi((%s - float(%s)) * 1000000000.0) as int",
 					nativeResultLocal, nanos.Name, nativeValueParameter, whole)),
 				line(0, fmt.Sprintf("if %s.%s >= 1000000000:", nativeResultLocal, nanos.Name)),
 				line(1, fmt.Sprintf("%s.%s -= 1000000000", nativeResultLocal, nanos.Name)),
@@ -223,9 +223,9 @@ func durationNativeMembers(plan *messagePlan) []fsast.Node {
 			ReturnType: fstypes.Named(plan.Name),
 			Body: []fsast.Node{
 				line(0, fmt.Sprintf("var %s: %s = %s.new()", nativeResultLocal, plan.Name, plan.Name)),
-				line(0, fmt.Sprintf("var %s: int = int(%s)", whole, nativeValueParameter)),
+				line(0, fmt.Sprintf("var %s: long = %s as long", whole, nativeValueParameter)),
 				line(0, fmt.Sprintf("%s.%s = %s", nativeResultLocal, seconds.Name, whole)),
-				line(0, fmt.Sprintf("%s.%s = roundi((%s - float(%s)) * 1000000000.0)",
+				line(0, fmt.Sprintf("%s.%s = roundi((%s - float(%s)) * 1000000000.0) as int",
 					nativeResultLocal, nanos.Name, nativeValueParameter, whole)),
 				line(0, fmt.Sprintf("if %s.%s >= 1000000000:", nativeResultLocal, nanos.Name)),
 				line(1, fmt.Sprintf("%s.%s -= 1000000000", nativeResultLocal, nanos.Name)),
