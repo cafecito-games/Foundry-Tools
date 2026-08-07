@@ -73,9 +73,6 @@ var foundryEngineReservedTypes = map[string]engineTypeEntry{
 	"bool":                                {kind: engineTypeBuiltin},
 	"float":                               {kind: engineTypeBuiltin},
 	"int":                                 {kind: engineTypeBuiltin},
-	"long":                                {kind: engineTypeBuiltin},
-	"uint":                                {kind: engineTypeBuiltin},
-	"ulong":                               {kind: engineTypeBuiltin},
 	"AESContext":                          {kind: engineTypeNativeClass},
 	"AStar2D":                             {kind: engineTypeNativeClass},
 	"AStar3D":                             {kind: engineTypeNativeClass},
@@ -1127,6 +1124,7 @@ var foundryEngineReservedTypes = map[string]engineTypeEntry{
 	"XRVRS":                                             {kind: engineTypeNativeClass},
 	"ZIPPacker":                                         {kind: engineTypeNativeClass},
 	"ZIPReader":                                         {kind: engineTypeNativeClass},
+	"foundry.http.server.HTTPServer":                    {kind: engineTypeNativeClass},
 }
 
 var foundryEngineReservedMembers = map[string]engineMemberEntry{
