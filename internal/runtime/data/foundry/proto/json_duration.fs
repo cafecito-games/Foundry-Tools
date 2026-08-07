@@ -15,7 +15,7 @@ class_name JsonDuration extends RefCounted
 
 ## The largest magnitude either component may carry, matching the range a
 ## well-formed Duration message can hold.
-const MAXIMUM_SECONDS: int = 315576000000
+const MAXIMUM_SECONDS: long = 315576000000
 
 const MAXIMUM_NANOS: int = 999999999
 
@@ -29,7 +29,7 @@ const MAXIMUM_SAFE_DIGITS: int = 18
 ## MAXIMUM_SAFE_DIGITS), a point, a nine-digit fraction, and the suffix.
 const MAXIMUM_TEXT_LENGTH: int = 30
 
-static func format(seconds: int, nanos: int) -> (String, ProtobufError):
+static func format(seconds: long, nanos: int) -> (String, ProtobufError):
 	if seconds > MAXIMUM_SECONDS or seconds < -MAXIMUM_SECONDS:
 		return ("", ProtobufError.JSON_VALUE_OUT_OF_RANGE)
 	if nanos > MAXIMUM_NANOS or nanos < -MAXIMUM_NANOS:
@@ -40,7 +40,7 @@ static func format(seconds: int, nanos: int) -> (String, ProtobufError):
 	var sign_text: String = ""
 	if seconds < 0 or nanos < 0:
 		sign_text = "-"
-	var whole: int = seconds
+	var whole: long = seconds
 	if whole < 0:
 		whole = -whole
 	var fraction: int = nanos
@@ -59,13 +59,13 @@ static func _format_fraction(nanos: int) -> String:
 		return "." + _pad(nanos / 1000, 6)
 	return "." + _pad(nanos, 9)
 
-static func parse(text: String) -> (int, int, ProtobufError):
+static func parse(text: String) -> (long, int, ProtobufError):
 	## The grammar bounds the length from both sides, so a pathological input is
 	## refused before any of it is scanned rather than being walked to the end.
 	if text.length() < 2 or text.length() > MAXIMUM_TEXT_LENGTH:
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 	if text.substr(text.length() - 1, 1) != "s":
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 	var body: String = text.substr(0, text.length() - 1)
 
 	var negative: bool = false
@@ -87,38 +87,38 @@ static func parse(text: String) -> (int, int, ProtobufError):
 		whole_text = body.substr(0, point)
 		fraction_text = body.substr(point + 1, body.length() - point - 1)
 		if fraction_text.length() > 9:
-			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+			return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 	if whole_text.length() == 0 and (not has_point or fraction_text.length() == 0):
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 
-	var whole: int = 0
+	var whole: long = 0
 	if whole_text.length() > 0:
 		## A whole-seconds run of more than one digit may not start with a zero:
 		## the reference decoder reads a single leading zero and then refuses
 		## whatever digit follows it, so "01s" is malformed rather than a
 		## zero-padded "1s".
 		if whole_text.length() > 1 and whole_text.substr(0, 1) == "0":
-			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+			return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 		if not _is_digit_run(whole_text):
-			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+			return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 		## A syntactically valid run wider than fits safely in a 64-bit integer
 		## is numerically out of range rather than malformed, so it is reported
 		## that way without ever being accumulated into a value.
 		if whole_text.length() > MAXIMUM_SAFE_DIGITS:
-			return (0, 0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
+			return (0L, 0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
 		var (whole_value, whole_ok) = _digits(whole_text)
 		if not whole_ok:
-			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+			return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 		whole = whole_value
 	if whole > MAXIMUM_SECONDS:
-		return (0, 0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
+		return (0L, 0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
 
 	var nanos: int = 0
 	if fraction_text.length() > 0:
 		var (fraction, fraction_ok) = _digits(fraction_text)
 		if not fraction_ok:
-			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
-		nanos = fraction
+			return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		nanos = fraction as int
 		var scale: int = 9 - fraction_text.length()
 		while scale > 0:
 			nanos *= 10
@@ -137,10 +137,10 @@ static func _is_digit_run(text: String) -> bool:
 		index += 1
 	return true
 
-static func _digits(text: String) -> (int, bool):
+static func _digits(text: String) -> (long, bool):
 	if text.length() == 0:
 		return (0, false)
-	var value: int = 0
+	var value: long = 0
 	var index: int = 0
 	while index < text.length():
 		var character: String = text.substr(index, 1)

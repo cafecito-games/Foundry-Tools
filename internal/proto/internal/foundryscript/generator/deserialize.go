@@ -282,7 +282,7 @@ func deserializePackableRepeated(plan *fieldPlan) []fsast.Node {
 	nodes := []fsast.Node{line(3, "if "+wireTypeLocal+" == Wire.WIRE_LENGTH_DELIMITED:")}
 	nodes = append(nodes, readLength(4, length)...)
 	nodes = append(nodes,
-		line(4, fmt.Sprintf("var %s: int = %s.offset + %s.value", end, length, length)),
+		line(4, fmt.Sprintf("var %s: int = (%s.offset + %s.value) as int", end, length, length)),
 		line(4, fmt.Sprintf("%s = %s.offset", cursorLocal, length)),
 		line(4, fmt.Sprintf("while %s < %s:", cursorLocal, end)),
 	)
@@ -342,7 +342,7 @@ func deserializeMap(plan *fieldPlan) []fsast.Node {
 	}
 	nodes = append(nodes, readLength(3, length)...)
 	nodes = append(nodes,
-		line(3, fmt.Sprintf("var %s: int = %s.offset + %s.value", end, length, length)),
+		line(3, fmt.Sprintf("var %s: int = (%s.offset + %s.value) as int", end, length, length)),
 		line(3, fmt.Sprintf("%s = %s.offset", cursorLocal, length)),
 		line(3, fmt.Sprintf("var %s: %s = %s", key, plan.Key.Type.Render(), plan.Key.ZeroValue)),
 		line(3, fmt.Sprintf("var %s: %s = %s", value, plan.Value.Type.Render(), mapValueZero(plan.Value))),
@@ -415,12 +415,22 @@ func mapValueZero(value valuePlan) string {
 	return value.ZeroValue
 }
 
-// varintResultExpression converts a decoded varint back into the field type.
+// varintResultExpression converts a decoded carrier value back into the field
+// type. The signed and unsigned carriers hold the widest type in their family
+// (long / ulong), so a 32-bit field narrows explicitly: the checked conversion
+// reports a corrupt or truncated value rather than silently wrapping it.
 func varintResultExpression(value valuePlan, expression string) string {
 	if value.ProtoType == "bool" {
 		return expression + " != 0"
 	}
-	return expression
+	switch ScalarType(value.ProtoType).Render() {
+	case "int":
+		return expression + " as int"
+	case "uint":
+		return expression + " as uint"
+	default:
+		return expression
+	}
 }
 
 func wireTypeConstant(wireType int) string {

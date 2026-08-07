@@ -8,60 +8,36 @@ namespace foundry.proto
 ## Unsigned decimal text for the canonical JSON mapping of a uint64 or fixed64
 ## field.
 ##
-## A Foundry int is signed, so an unsigned value at or above 2^63 is carried as
-## a negative bit pattern and str() would print it with a minus sign: the widest
-## uint64 would read as "-1" rather than as its twenty digits. Both directions
-## here work on that bit pattern instead, and neither of them ever holds the
-## whole unsigned value in an int. A value is split into its quotient by ten and
-## its last digit, both of which a signed int holds comfortably, and it is put
-## back together by a shift, which moves the top bit into the sign rather than
-## overflowing on the way.
+## A ulong carries the full unsigned value directly, so formatting is str() and
+## parsing is digit-by-digit assembly. The widest value is 18446744073709551615
+## (2^64-1), and a checked multiply/add in the loop refuses anything larger.
 class_name JsonUint64 extends RefCounted
 
 ## The largest value this can carry, and the only text length whose digits have
 ## to be compared against it.
 const MAXIMUM_TEXT: String = "18446744073709551615"
 
-## Every bit but the sign, which turns Foundry's arithmetic >> into the logical
-## shift the unsigned halving needs.
-const WITHOUT_SIGN_BIT: int = 0x7FFFFFFFFFFFFFFF
+## Returns the unsigned decimal the given value stands for.
+static func format(value: ulong) -> String:
+	return str(value)
 
-## The bit pattern of 18446744073709551615, the widest value. A bare JSON number
-## can only reach it by rounding -- no double holds those digits exactly, and the
-## nearest one is 2^64 -- so a reader that accepts a bare number needs the value
-## the rounding stands for spelled out.
-const WIDEST_BITS: int = -1
-
-## Returns the unsigned decimal the given signed bit pattern stands for.
-static func format(value: int) -> String:
-	if value >= 0:
-		return str(value)
-	# floor(unsigned / 2), which always fits: the widest unsigned value halves
-	# to exactly the largest signed one.
-	var half: int = (value >> 1) & WITHOUT_SIGN_BIT
-	var quotient: int = half / 5
-	var last_digit: int = 2 * (half - quotient * 5) + (value & 1)
-	return str(quotient) + str(last_digit)
-
-## Returns the signed bit pattern the given unsigned decimal text stands for.
+## Returns the value the given unsigned decimal text stands for.
 ##
 ## The text has to be exactly what format() would print: digits only, no sign,
 ## and no leading zero. Anything else either is not a canonical JSON integer or
 ## would come back as different text, and a value past the unsigned range is
 ## refused rather than wrapped.
-static func parse(text: String) -> (int, ProtobufError):
+static func parse(text: String) -> (ulong, ProtobufError):
 	if not _is_canonical_decimal(text):
-		return (0, ProtobufError.JSON_TYPE_MISMATCH)
+		return (0UL, ProtobufError.JSON_TYPE_MISMATCH)
 	if not _is_in_range(text):
-		return (0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
-	# The text without its last digit is floor(unsigned / 10), small enough to
-	# parse directly once the range is known.
-	var quotient: int = 0
-	if text.length() > 1:
-		quotient = text.substr(0, text.length() - 1).to_int()
-	var last_digit: int = text.substr(text.length() - 1, 1).to_int()
-	var half: int = quotient * 5 + last_digit / 2
-	return ((half << 1) | (last_digit & 1), ProtobufError.OK)
+		return (0UL, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
+	var value: ulong = 0UL
+	var index: int = 0
+	while index < text.length():
+		value = value * 10UL + (text.substr(index, 1).to_int() as ulong)
+		index += 1
+	return (value, ProtobufError.OK)
 
 ## A leading zero is refused rather than ignored, matching the signed reader:
 ## it is text no emitter produces, and accepting it would mean accepting a

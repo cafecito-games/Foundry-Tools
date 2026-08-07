@@ -8,7 +8,7 @@ import foundry.proto
 final class_name UInt64Value extends RefCounted uses Message, JsonSerializable
 
 ## The uint64 value.
-var value: int = 0
+var value: ulong = 0UL
 
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
@@ -37,9 +37,9 @@ static func from_bytes(_pb_data: PackedByteArray) -> (UInt64Value?, ProtobufErro
 ## Serializes this message to protobuf wire data.
 func to_bytes() -> PackedByteArray:
 	var _pb_result: PackedByteArray = PackedByteArray()
-	if value != 0:
+	if value != 0UL:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_VARINT)))
-		_pb_result.append_array(Wire.encode_varint(value))
+		_pb_result.append_array(Wire.encode_varint_unsigned(value))
 	_pb_result.append_array(_pb_unknown_fields)
 	return _pb_result
 
@@ -56,7 +56,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 			1:
 				if _pb_wire_type != Wire.WIRE_VARINT:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _pb_value_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+				var _pb_value_read: VarintReadUnsigned = Wire.decode_varint_unsigned(_pb_data, _pb_offset)
 				if _pb_value_read.error != ProtobufError.OK:
 					return _pb_value_read.error
 				value = _pb_value_read.value
@@ -107,34 +107,32 @@ func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
 ## parser produces a double, so a value that large does not even arrive as
 ## a JsonNode.Int. The widest value rounds to 2^64 on the way in and is
 ## read as the value it rounded from rather than refused.
-static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
-	var _pb_value: int = 0
+static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (ulong, JsonDecodeError?):
+	var _pb_value: ulong = 0UL
 	match _pb_node:
 		JsonNode.Null:
 			pass
 		JsonNode.Int(var _pb_int):
 			if _pb_int < 0:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
-			_pb_value = _pb_int
+				return (0UL, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
+			_pb_value = _pb_int as ulong
 		JsonNode.Float(var _pb_float):
 			if _pb_float != floor(_pb_float):
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field cannot take a fractional number", _pb_path))
+				return (0UL, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field cannot take a fractional number", _pb_path))
 			if _pb_float > 18446744073709551616.0 or _pb_float < 0.0:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
+				return (0UL, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
 			if _pb_float == 18446744073709551616.0:
-				_pb_value = JsonUint64.WIDEST_BITS
-			elif _pb_float >= 9223372036854775808.0:
-				_pb_value = int(_pb_float - 18446744073709551616.0)
+				_pb_value = 18446744073709551615UL
 			else:
-				_pb_value = int(_pb_float)
+				_pb_value = (_pb_float as long) as ulong
 		JsonNode.Str(var _pb_text):
 			var (_pb_unsigned, _pb_unsigned_error) = JsonUint64.parse(_pb_text)
 			if _pb_unsigned_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
+				return (0UL, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
 			if _pb_unsigned_error != ProtobufError.OK:
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field cannot take this string", _pb_path))
+				return (0UL, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field cannot take this string", _pb_path))
 			_pb_value = _pb_unsigned
 		_:
-			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field takes a number or a string", _pb_path))
+			return (0UL, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field takes a number or a string", _pb_path))
 	var _pb_error: JsonDecodeError? = null
 	return (_pb_value, _pb_error)

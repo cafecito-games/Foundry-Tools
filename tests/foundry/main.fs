@@ -642,7 +642,7 @@ func check_any_ordinary_json() -> void:
 	check(not embedded_type.is_ok() and embedded_type.error.path == "$.int32Value", "an embedded type error keeps its root path")
 	var embedded_range: JsonResult[Any] = Any.from_json(JsonNode.object_of({
 		"@type": JsonNode.Str("type.googleapis.com/cafecito.json.v1.JsonSuite"),
-		"int32Value": JsonNode.Int(2147483648),
+		"int32Value": JsonNode.Float(2147483648.0),
 	}))
 	check(not embedded_range.is_ok() and embedded_range.error.path == "$.int32Value", "an embedded range error keeps its root path")
 	var embedded_alias_duplicate: JsonResult[Any] = Any.from_json(JsonNode.object_of({
@@ -843,7 +843,7 @@ func check_any_wkt_json() -> void:
 
 	var range_value: JsonResult[Any] = Any.from_json(JsonNode.object_of({
 		"@type": JsonNode.Str("type.googleapis.com/google.protobuf.Int32Value"),
-		"value": JsonNode.Int(2147483648),
+		"value": JsonNode.Float(2147483648.0),
 	}))
 	check(not range_value.is_ok() and range_value.error.path == "$.value", "WKT range failure reroots at $.value")
 	check(range_value.error.message.find("JSON_VALUE_OUT_OF_RANGE") >= 0, "WKT range failure preserves its category")
@@ -1253,7 +1253,7 @@ func populated_scalar_suite() -> ScalarSuite:
 	suite.double_value = -2.5
 	suite.float_value = 0.1
 	suite.fixed32_value = 4294967295
-	suite.fixed64_value = -1
+	suite.fixed64_value = 0xFFFFFFFFFFFFFFFFUL
 	suite.sfixed32_value = -2147483648
 	suite.sfixed64_value = min_int64()
 	suite.sint32_value = -2147483648
@@ -1266,10 +1266,10 @@ func populated_scalar_suite() -> ScalarSuite:
 
 ## Written as a subtraction because the literal for it does not fit the positive
 ## range the parser folds a unary minus over.
-func min_int64() -> int:
+func min_int64() -> long:
 	return -9223372036854775807 - 1
 
-func max_int64() -> int:
+func max_int64() -> long:
 	return 9223372036854775807
 
 func read_reference_bytes() -> PackedByteArray:
@@ -1278,7 +1278,7 @@ func read_reference_bytes() -> PackedByteArray:
 		printerr("FAIL: could not open res://scalars_reference.bin")
 		failures += 1
 		return PackedByteArray()
-	var data: PackedByteArray = file.get_buffer(file.get_length())
+	var data: PackedByteArray = file.get_buffer(file.get_length() as int)
 	file.close()
 	return data
 
@@ -1734,13 +1734,13 @@ func check_json_duration() -> void:
 ## are checked at the two boundaries that distinguishes: the widest signed value,
 ## which is the last one str() would get right, and the one above it.
 func check_json_uint64() -> void:
-	check(JsonUint64.format(0) == "0", "zero formats unsigned")
-	check(JsonUint64.format(1) == "1", "a small value formats unsigned")
-	check(JsonUint64.format(max_int64()) == "9223372036854775807", "the widest signed value formats unsigned")
+	check(JsonUint64.format(0UL) == "0", "zero formats unsigned")
+	check(JsonUint64.format(1UL) == "1", "a small value formats unsigned")
+	check(JsonUint64.format(max_int64() as ulong) == "9223372036854775807", "the widest signed value formats unsigned")
 	## min_int64() is the bit pattern of 2^63, the first value a signed int
 	## cannot state and the first one str() would print as a negative.
-	check(JsonUint64.format(min_int64()) == "9223372036854775808", "the first unsigned-only value formats unsigned")
-	check(JsonUint64.format(-1) == "18446744073709551615", "the widest unsigned value formats unsigned")
+	check(JsonUint64.format(0x8000000000000000UL) == "9223372036854775808", "the first unsigned-only value formats unsigned")
+	check(JsonUint64.format(0xFFFFFFFFFFFFFFFFUL) == "18446744073709551615", "the widest unsigned value formats unsigned")
 
 	var (zero_value, zero_error) = JsonUint64.parse("0")
 	check(zero_error == ProtobufError.OK, "zero parses")
@@ -1867,7 +1867,7 @@ func check_json_round_trip() -> void:
 	check(decoded.int32_keyed.has(-3) and decoded.int32_keyed[-3] == "negative", "an int32-keyed map round trips through JSON")
 	check(decoded.int64_keyed.has(min_int64()) and decoded.int64_keyed[min_int64()] == "narrowest",
 		"an int64-keyed map round trips through JSON")
-	check(decoded.uint64_keyed.has(-1) and decoded.uint64_keyed[-1] == "widest",
+	check(decoded.uint64_keyed.has(0xFFFFFFFFFFFFFFFFUL) and decoded.uint64_keyed[0xFFFFFFFFFFFFFFFFUL] == "widest",
 		"a uint64-keyed map round trips through JSON")
 	check(decoded.bool_keyed.has(true) and decoded.bool_keyed[true].label == "flagged", "a bool-keyed map round trips through JSON")
 	check(decoded.inner is JsonSuite.Inner and decoded.inner.code == "nested", "a nested message round trips through JSON")
@@ -1938,11 +1938,11 @@ func populated_json_suite() -> JsonSuite:
 	suite.int32_value = -2147483648
 	suite.int64_value = min_int64()
 	suite.uint32_value = 4294967295
-	suite.uint64_value = -1
+	suite.uint64_value = 0xFFFFFFFFFFFFFFFFUL
 	suite.sint32_value = -2147483648
 	suite.sint64_value = min_int64()
 	suite.fixed32_value = 4294967295
-	suite.fixed64_value = -1
+	suite.fixed64_value = 0xFFFFFFFFFFFFFFFFUL
 	suite.sfixed32_value = -2147483648
 	suite.sfixed64_value = max_int64()
 	suite.bool_value = true
@@ -1976,7 +1976,7 @@ func populated_json_suite() -> JsonSuite:
 	suite.counts["ore"] = 7
 	suite.int32_keyed[-3] = "negative"
 	suite.int64_keyed[min_int64()] = "narrowest"
-	suite.uint64_keyed[-1] = "widest"
+	suite.uint64_keyed[0xFFFFFFFFFFFFFFFFUL] = "widest"
 	var flagged: Reference = Reference.new()
 	flagged.label = "flagged"
 	suite.bool_keyed[true] = flagged
@@ -2055,7 +2055,7 @@ func check_engine_json_types() -> void:
 	## A 64-bit integer is emitted as a string because that is the only form
 	## that survives: sent as a bare JSON number it comes back in a different
 	## case entirely, so a decoder cannot assume Int for a 64-bit field.
-	var widest: int = 9223372036854775807
+	var widest: long = 9223372036854775807
 	check(json_text(JsonNode.Str(str(widest))) == '"9223372036854775807"', "a 64-bit integer encodes as a string")
 
 	var parsed_string: JsonResult[JsonNode] = JSON.parse_to_node('"9223372036854775807"')

@@ -72,7 +72,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_quantity_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
 				if _pb_quantity_read.error != ProtobufError.OK:
 					return _pb_quantity_read.error
-				quantity = _pb_quantity_read.value
+				quantity = _pb_quantity_read.value as int
 				_pb_offset = _pb_quantity_read.offset
 			_:
 				var _pb_skipped: SkipRead = Wire.capture_field(_pb_data, _pb_offset, _pb_tag.value, _pb_wire_type, _pb_unknown_fields)

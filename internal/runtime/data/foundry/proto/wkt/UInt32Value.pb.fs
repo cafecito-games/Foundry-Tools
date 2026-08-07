@@ -8,7 +8,7 @@ import foundry.proto
 final class_name UInt32Value extends RefCounted uses Message, JsonSerializable
 
 ## The uint32 value.
-var value: int = 0
+var value: uint = 0U
 
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
@@ -37,9 +37,9 @@ static func from_bytes(_pb_data: PackedByteArray) -> (UInt32Value?, ProtobufErro
 ## Serializes this message to protobuf wire data.
 func to_bytes() -> PackedByteArray:
 	var _pb_result: PackedByteArray = PackedByteArray()
-	if value != 0:
+	if value != 0U:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_VARINT)))
-		_pb_result.append_array(Wire.encode_varint(value))
+		_pb_result.append_array(Wire.encode_varint_unsigned(value))
 	_pb_result.append_array(_pb_unknown_fields)
 	return _pb_result
 
@@ -56,10 +56,10 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 			1:
 				if _pb_wire_type != Wire.WIRE_VARINT:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _pb_value_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+				var _pb_value_read: VarintReadUnsigned = Wire.decode_varint_unsigned(_pb_data, _pb_offset)
 				if _pb_value_read.error != ProtobufError.OK:
 					return _pb_value_read.error
-				value = _pb_value_read.value
+				value = _pb_value_read.value as uint
 				_pb_offset = _pb_value_read.offset
 			_:
 				var _pb_skipped: SkipRead = Wire.capture_field(_pb_data, _pb_offset, _pb_tag.value, _pb_wire_type, _pb_unknown_fields)
@@ -73,7 +73,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 ## JSON.stringify(message, "", false) renders it as text; the third argument
 ## turns off key sorting, which keeps members in field declaration order.
 func to_json() -> JsonNode:
-	return JsonNode.Int(value)
+	return JsonNode.Str(str(value))
 
 ## Decodes a proto3 canonical JSON document into a new UInt32Value message.
 ##
@@ -103,8 +103,8 @@ func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
 ## The canonical mapping accepts a JSON string and a whole JSON number as
 ## well as the number this emitter writes, so all three are read here. A
 ## value outside the field's domain is refused rather than truncated.
-static func _pb_json_read_uint32(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
-	var _pb_value: int = 0
+static func _pb_json_read_uint32(_pb_node: JsonNode, _pb_path: String) -> (uint, JsonDecodeError?):
+	var _pb_value: long = 0
 	match _pb_node:
 		JsonNode.Null:
 			pass
@@ -112,17 +112,17 @@ static func _pb_json_read_uint32(_pb_node: JsonNode, _pb_path: String) -> (int, 
 			_pb_value = _pb_int
 		JsonNode.Float(var _pb_float):
 			if _pb_float != floor(_pb_float):
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field cannot take a fractional number", _pb_path))
+				return (0U, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field cannot take a fractional number", _pb_path))
 			if _pb_float >= 4294967296.0 or _pb_float < 0.0:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 32-bit integer field cannot hold this value", _pb_path))
-			_pb_value = int(_pb_float)
+				return (0U, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 32-bit integer field cannot hold this value", _pb_path))
+			_pb_value = _pb_float as long
 		JsonNode.Str(var _pb_text):
 			if not _pb_text.is_valid_int():
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field cannot take this string", _pb_path))
-			_pb_value = _pb_text.to_int()
+				return (0U, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field cannot take this string", _pb_path))
+			_pb_value = _pb_text.to_int() as long
 		_:
-			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field takes a number or a string", _pb_path))
+			return (0U, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field takes a number or a string", _pb_path))
 	if _pb_value < 0 or _pb_value > 4294967295:
-		return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 32-bit integer field cannot hold this value", _pb_path))
+		return (0U, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 32-bit integer field cannot hold this value", _pb_path))
 	var _pb_error: JsonDecodeError? = null
-	return (_pb_value, _pb_error)
+	return (_pb_value as uint, _pb_error)

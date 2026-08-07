@@ -145,31 +145,31 @@ var float_value: float = 0.0
 var int32_value: int = 0
 
 ## The int64_value protobuf field.
-var int64_value: int = 0
+var int64_value: long = 0
 
 ## The uint32_value protobuf field.
-var uint32_value: int = 0
+var uint32_value: uint = 0U
 
 ## The uint64_value protobuf field.
-var uint64_value: int = 0
+var uint64_value: ulong = 0UL
 
 ## The sint32_value protobuf field.
 var sint32_value: int = 0
 
 ## The sint64_value protobuf field.
-var sint64_value: int = 0
+var sint64_value: long = 0
 
 ## The fixed32_value protobuf field.
-var fixed32_value: int = 0
+var fixed32_value: uint = 0U
 
 ## The fixed64_value protobuf field.
-var fixed64_value: int = 0
+var fixed64_value: ulong = 0UL
 
 ## The sfixed32_value protobuf field.
 var sfixed32_value: int = 0
 
 ## The sfixed64_value protobuf field.
-var sfixed64_value: int = 0
+var sfixed64_value: long = 0
 
 ## The bool_value protobuf field.
 var bool_value: bool = false
@@ -200,7 +200,7 @@ var nickname: String? = null
 var tags: Array[String] = []
 
 ## The tallies protobuf field.
-var tallies: Array[int] = []
+var tallies: Array[long] = []
 
 ## The flavors protobuf field.
 var flavors: Array[Flavor] = []
@@ -216,10 +216,10 @@ var counts: Dictionary[String, int] = {}
 var int32_keyed: Dictionary[int, String] = {}
 
 ## The int64_keyed protobuf field.
-var int64_keyed: Dictionary[int, String] = {}
+var int64_keyed: Dictionary[long, String] = {}
 
 ## The uint64_keyed protobuf field.
-var uint64_keyed: Dictionary[int, String] = {}
+var uint64_keyed: Dictionary[ulong, String] = {}
 
 ## The bool_keyed protobuf field.
 var bool_keyed: Dictionary[bool, Reference] = {}
@@ -288,24 +288,24 @@ func to_bytes() -> PackedByteArray:
 	if int64_value != 0:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(4, Wire.WIRE_VARINT)))
 		_pb_result.append_array(Wire.encode_varint(int64_value))
-	if uint32_value != 0:
+	if uint32_value != 0U:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(5, Wire.WIRE_VARINT)))
-		_pb_result.append_array(Wire.encode_varint(uint32_value))
-	if uint64_value != 0:
+		_pb_result.append_array(Wire.encode_varint_unsigned(uint32_value))
+	if uint64_value != 0UL:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(6, Wire.WIRE_VARINT)))
-		_pb_result.append_array(Wire.encode_varint(uint64_value))
+		_pb_result.append_array(Wire.encode_varint_unsigned(uint64_value))
 	if sint32_value != 0:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(7, Wire.WIRE_VARINT)))
 		_pb_result.append_array(Wire.encode_sint32(sint32_value))
 	if sint64_value != 0:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(8, Wire.WIRE_VARINT)))
 		_pb_result.append_array(Wire.encode_sint64(sint64_value))
-	if fixed32_value != 0:
+	if fixed32_value != 0U:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(9, Wire.WIRE_32BIT)))
-		_pb_result.append_array(Wire.encode_fixed32(fixed32_value))
-	if fixed64_value != 0:
+		_pb_result.append_array(Wire.encode_fixed32_unsigned(fixed32_value))
+	if fixed64_value != 0UL:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(10, Wire.WIRE_64BIT)))
-		_pb_result.append_array(Wire.encode_fixed64(fixed64_value))
+		_pb_result.append_array(Wire.encode_fixed64_unsigned(fixed64_value))
 	if sfixed32_value != 0:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(11, Wire.WIRE_32BIT)))
 		_pb_result.append_array(Wire.encode_fixed32(sfixed32_value))
@@ -352,7 +352,7 @@ func to_bytes() -> PackedByteArray:
 		_pb_result.append_array(_pb_tags_data)
 	if tallies.size() > 0:
 		var _pb_tallies_data: PackedByteArray = PackedByteArray()
-		for _pb_tallies_item: int in tallies:
+		for _pb_tallies_item: long in tallies:
 			_pb_tallies_data.append_array(Wire.encode_varint(_pb_tallies_item))
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(21, Wire.WIRE_LENGTH_DELIMITED)))
 		_pb_result.append_array(Wire.encode_varint(_pb_tallies_data.size()))
@@ -391,7 +391,7 @@ func to_bytes() -> PackedByteArray:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(25, Wire.WIRE_LENGTH_DELIMITED)))
 		_pb_result.append_array(Wire.encode_varint(_pb_int32_keyed_entry.size()))
 		_pb_result.append_array(_pb_int32_keyed_entry)
-	for _pb_int64_keyed_key: int in int64_keyed:
+	for _pb_int64_keyed_key: long in int64_keyed:
 		var _pb_int64_keyed_entry: PackedByteArray = PackedByteArray()
 		_pb_int64_keyed_entry.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_VARINT)))
 		_pb_int64_keyed_entry.append_array(Wire.encode_varint(_pb_int64_keyed_key))
@@ -402,10 +402,10 @@ func to_bytes() -> PackedByteArray:
 		_pb_result.append_array(Wire.encode_varint(Wire.make_tag(26, Wire.WIRE_LENGTH_DELIMITED)))
 		_pb_result.append_array(Wire.encode_varint(_pb_int64_keyed_entry.size()))
 		_pb_result.append_array(_pb_int64_keyed_entry)
-	for _pb_uint64_keyed_key: int in uint64_keyed:
+	for _pb_uint64_keyed_key: ulong in uint64_keyed:
 		var _pb_uint64_keyed_entry: PackedByteArray = PackedByteArray()
 		_pb_uint64_keyed_entry.append_array(Wire.encode_varint(Wire.make_tag(1, Wire.WIRE_VARINT)))
-		_pb_uint64_keyed_entry.append_array(Wire.encode_varint(_pb_uint64_keyed_key))
+		_pb_uint64_keyed_entry.append_array(Wire.encode_varint_unsigned(_pb_uint64_keyed_key))
 		_pb_uint64_keyed_entry.append_array(Wire.encode_varint(Wire.make_tag(2, Wire.WIRE_LENGTH_DELIMITED)))
 		var _pb_uint64_keyed_value_data: PackedByteArray = Wire.encode_string(uint64_keyed[_pb_uint64_keyed_key])
 		_pb_uint64_keyed_entry.append_array(Wire.encode_varint(_pb_uint64_keyed_value_data.size()))
@@ -505,7 +505,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_int32_value_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
 				if _pb_int32_value_read.error != ProtobufError.OK:
 					return _pb_int32_value_read.error
-				int32_value = _pb_int32_value_read.value
+				int32_value = _pb_int32_value_read.value as int
 				_pb_offset = _pb_int32_value_read.offset
 			4:
 				if _pb_wire_type != Wire.WIRE_VARINT:
@@ -518,15 +518,15 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 			5:
 				if _pb_wire_type != Wire.WIRE_VARINT:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _pb_uint32_value_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+				var _pb_uint32_value_read: VarintReadUnsigned = Wire.decode_varint_unsigned(_pb_data, _pb_offset)
 				if _pb_uint32_value_read.error != ProtobufError.OK:
 					return _pb_uint32_value_read.error
-				uint32_value = _pb_uint32_value_read.value
+				uint32_value = _pb_uint32_value_read.value as uint
 				_pb_offset = _pb_uint32_value_read.offset
 			6:
 				if _pb_wire_type != Wire.WIRE_VARINT:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _pb_uint64_value_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+				var _pb_uint64_value_read: VarintReadUnsigned = Wire.decode_varint_unsigned(_pb_data, _pb_offset)
 				if _pb_uint64_value_read.error != ProtobufError.OK:
 					return _pb_uint64_value_read.error
 				uint64_value = _pb_uint64_value_read.value
@@ -537,7 +537,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_sint32_value_read: VarintRead = Wire.read_sint32(_pb_data, _pb_offset)
 				if _pb_sint32_value_read.error != ProtobufError.OK:
 					return _pb_sint32_value_read.error
-				sint32_value = _pb_sint32_value_read.value
+				sint32_value = _pb_sint32_value_read.value as int
 				_pb_offset = _pb_sint32_value_read.offset
 			8:
 				if _pb_wire_type != Wire.WIRE_VARINT:
@@ -550,15 +550,15 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 			9:
 				if _pb_wire_type != Wire.WIRE_32BIT:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _pb_fixed32_value_read: FixedRead = Wire.read_fixed32(_pb_data, _pb_offset)
+				var _pb_fixed32_value_read: FixedReadUnsigned = Wire.read_fixed32(_pb_data, _pb_offset)
 				if _pb_fixed32_value_read.error != ProtobufError.OK:
 					return _pb_fixed32_value_read.error
-				fixed32_value = _pb_fixed32_value_read.value
+				fixed32_value = _pb_fixed32_value_read.value as uint
 				_pb_offset = _pb_fixed32_value_read.offset
 			10:
 				if _pb_wire_type != Wire.WIRE_64BIT:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _pb_fixed64_value_read: FixedRead = Wire.read_fixed64(_pb_data, _pb_offset)
+				var _pb_fixed64_value_read: FixedReadUnsigned = Wire.read_fixed64(_pb_data, _pb_offset)
 				if _pb_fixed64_value_read.error != ProtobufError.OK:
 					return _pb_fixed64_value_read.error
 				fixed64_value = _pb_fixed64_value_read.value
@@ -569,12 +569,12 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_sfixed32_value_read: FixedRead = Wire.read_sfixed32(_pb_data, _pb_offset)
 				if _pb_sfixed32_value_read.error != ProtobufError.OK:
 					return _pb_sfixed32_value_read.error
-				sfixed32_value = _pb_sfixed32_value_read.value
+				sfixed32_value = _pb_sfixed32_value_read.value as int
 				_pb_offset = _pb_sfixed32_value_read.offset
 			12:
 				if _pb_wire_type != Wire.WIRE_64BIT:
 					return ProtobufError.WIRE_TYPE_MISMATCH
-				var _pb_sfixed64_value_read: FixedRead = Wire.read_fixed64(_pb_data, _pb_offset)
+				var _pb_sfixed64_value_read: FixedRead = Wire.read_sfixed64(_pb_data, _pb_offset)
 				if _pb_sfixed64_value_read.error != ProtobufError.OK:
 					return _pb_sfixed64_value_read.error
 				sfixed64_value = _pb_sfixed64_value_read.value
@@ -654,7 +654,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					var _pb_tallies_length: VarintRead = Wire.read_length(_pb_data, _pb_offset)
 					if _pb_tallies_length.error != ProtobufError.OK:
 						return _pb_tallies_length.error
-					var _pb_tallies_end: int = _pb_tallies_length.offset + _pb_tallies_length.value
+					var _pb_tallies_end: int = (_pb_tallies_length.offset + _pb_tallies_length.value) as int
 					_pb_offset = _pb_tallies_length.offset
 					while _pb_offset < _pb_tallies_end:
 						var _pb_tallies_packed: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
@@ -677,7 +677,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 					var _pb_flavors_length: VarintRead = Wire.read_length(_pb_data, _pb_offset)
 					if _pb_flavors_length.error != ProtobufError.OK:
 						return _pb_flavors_length.error
-					var _pb_flavors_end: int = _pb_flavors_length.offset + _pb_flavors_length.value
+					var _pb_flavors_end: int = (_pb_flavors_length.offset + _pb_flavors_length.value) as int
 					_pb_offset = _pb_flavors_length.offset
 					while _pb_offset < _pb_flavors_end:
 						var _pb_flavors_packed: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
@@ -718,7 +718,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_counts_length: VarintRead = Wire.read_length(_pb_data, _pb_offset)
 				if _pb_counts_length.error != ProtobufError.OK:
 					return _pb_counts_length.error
-				var _pb_counts_end: int = _pb_counts_length.offset + _pb_counts_length.value
+				var _pb_counts_end: int = (_pb_counts_length.offset + _pb_counts_length.value) as int
 				_pb_offset = _pb_counts_length.offset
 				var _pb_counts_key: String = ""
 				var _pb_counts_value: int = 0
@@ -749,7 +749,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 								return _pb_counts_value_read.error
 							if _pb_counts_value_read.offset > _pb_counts_end:
 								return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH
-							_pb_counts_value = _pb_counts_value_read.value
+							_pb_counts_value = _pb_counts_value_read.value as int
 							_pb_offset = _pb_counts_value_read.offset
 						_:
 							var _pb_counts_skip: SkipRead = Wire.skip_field(_pb_data, _pb_offset, _pb_counts_entry_wire_type)
@@ -765,7 +765,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_int32_keyed_length: VarintRead = Wire.read_length(_pb_data, _pb_offset)
 				if _pb_int32_keyed_length.error != ProtobufError.OK:
 					return _pb_int32_keyed_length.error
-				var _pb_int32_keyed_end: int = _pb_int32_keyed_length.offset + _pb_int32_keyed_length.value
+				var _pb_int32_keyed_end: int = (_pb_int32_keyed_length.offset + _pb_int32_keyed_length.value) as int
 				_pb_offset = _pb_int32_keyed_length.offset
 				var _pb_int32_keyed_key: int = 0
 				var _pb_int32_keyed_value: String = ""
@@ -786,7 +786,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 								return _pb_int32_keyed_key_read.error
 							if _pb_int32_keyed_key_read.offset > _pb_int32_keyed_end:
 								return ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH
-							_pb_int32_keyed_key = _pb_int32_keyed_key_read.value
+							_pb_int32_keyed_key = _pb_int32_keyed_key_read.value as int
 							_pb_offset = _pb_int32_keyed_key_read.offset
 						2:
 							if _pb_int32_keyed_entry_wire_type != Wire.WIRE_LENGTH_DELIMITED:
@@ -812,9 +812,9 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_int64_keyed_length: VarintRead = Wire.read_length(_pb_data, _pb_offset)
 				if _pb_int64_keyed_length.error != ProtobufError.OK:
 					return _pb_int64_keyed_length.error
-				var _pb_int64_keyed_end: int = _pb_int64_keyed_length.offset + _pb_int64_keyed_length.value
+				var _pb_int64_keyed_end: int = (_pb_int64_keyed_length.offset + _pb_int64_keyed_length.value) as int
 				_pb_offset = _pb_int64_keyed_length.offset
-				var _pb_int64_keyed_key: int = 0
+				var _pb_int64_keyed_key: long = 0
 				var _pb_int64_keyed_value: String = ""
 				while _pb_offset < _pb_int64_keyed_end:
 					var _pb_int64_keyed_entry_tag: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
@@ -859,9 +859,9 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_uint64_keyed_length: VarintRead = Wire.read_length(_pb_data, _pb_offset)
 				if _pb_uint64_keyed_length.error != ProtobufError.OK:
 					return _pb_uint64_keyed_length.error
-				var _pb_uint64_keyed_end: int = _pb_uint64_keyed_length.offset + _pb_uint64_keyed_length.value
+				var _pb_uint64_keyed_end: int = (_pb_uint64_keyed_length.offset + _pb_uint64_keyed_length.value) as int
 				_pb_offset = _pb_uint64_keyed_length.offset
-				var _pb_uint64_keyed_key: int = 0
+				var _pb_uint64_keyed_key: ulong = 0UL
 				var _pb_uint64_keyed_value: String = ""
 				while _pb_offset < _pb_uint64_keyed_end:
 					var _pb_uint64_keyed_entry_tag: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
@@ -875,7 +875,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 						1:
 							if _pb_uint64_keyed_entry_wire_type != Wire.WIRE_VARINT:
 								return ProtobufError.WIRE_TYPE_MISMATCH
-							var _pb_uint64_keyed_key_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
+							var _pb_uint64_keyed_key_read: VarintReadUnsigned = Wire.decode_varint_unsigned(_pb_data, _pb_offset)
 							if _pb_uint64_keyed_key_read.error != ProtobufError.OK:
 								return _pb_uint64_keyed_key_read.error
 							if _pb_uint64_keyed_key_read.offset > _pb_uint64_keyed_end:
@@ -906,7 +906,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_bool_keyed_length: VarintRead = Wire.read_length(_pb_data, _pb_offset)
 				if _pb_bool_keyed_length.error != ProtobufError.OK:
 					return _pb_bool_keyed_length.error
-				var _pb_bool_keyed_end: int = _pb_bool_keyed_length.offset + _pb_bool_keyed_length.value
+				var _pb_bool_keyed_end: int = (_pb_bool_keyed_length.offset + _pb_bool_keyed_length.value) as int
 				_pb_offset = _pb_bool_keyed_length.offset
 				var _pb_bool_keyed_key: bool = false
 				var _pb_bool_keyed_value: Reference = Reference.new()
@@ -1046,17 +1046,17 @@ func to_json() -> JsonNode:
 		_pb_json["int32Value"] = JsonNode.Int(int32_value)
 	if int64_value != 0:
 		_pb_json["int64Value"] = JsonNode.Str(str(int64_value))
-	if uint32_value != 0:
-		_pb_json["uint32Value"] = JsonNode.Int(uint32_value)
-	if uint64_value != 0:
+	if uint32_value != 0U:
+		_pb_json["uint32Value"] = JsonNode.Str(str(uint32_value))
+	if uint64_value != 0UL:
 		_pb_json["uint64Value"] = JsonNode.Str(JsonUint64.format(uint64_value))
 	if sint32_value != 0:
 		_pb_json["sint32Value"] = JsonNode.Int(sint32_value)
 	if sint64_value != 0:
 		_pb_json["sint64Value"] = JsonNode.Str(str(sint64_value))
-	if fixed32_value != 0:
-		_pb_json["fixed32Value"] = JsonNode.Int(fixed32_value)
-	if fixed64_value != 0:
+	if fixed32_value != 0U:
+		_pb_json["fixed32Value"] = JsonNode.Str(str(fixed32_value))
+	if fixed64_value != 0UL:
 		_pb_json["fixed64Value"] = JsonNode.Str(JsonUint64.format(fixed64_value))
 	if sfixed32_value != 0:
 		_pb_json["sfixed32Value"] = JsonNode.Int(sfixed32_value)
@@ -1083,7 +1083,7 @@ func to_json() -> JsonNode:
 		_pb_json["tags"] = JsonNode.array_of(_pb_tags_items)
 	if tallies.size() > 0:
 		var _pb_tallies_items: Array[JsonNode] = []
-		for _pb_tallies_item: int in tallies:
+		for _pb_tallies_item: long in tallies:
 			_pb_tallies_items.append(JsonNode.Str(str(_pb_tallies_item)))
 		_pb_json["tallies"] = JsonNode.array_of(_pb_tallies_items)
 	if flavors.size() > 0:
@@ -1108,12 +1108,12 @@ func to_json() -> JsonNode:
 		_pb_json["int32Keyed"] = JsonNode.object_of(_pb_int32_keyed_fields)
 	if int64_keyed.size() > 0:
 		var _pb_int64_keyed_fields: Dictionary[String, JsonNode] = {}
-		for _pb_int64_keyed_key: int in int64_keyed:
+		for _pb_int64_keyed_key: long in int64_keyed:
 			_pb_int64_keyed_fields[str(_pb_int64_keyed_key)] = JsonNode.Str(int64_keyed[_pb_int64_keyed_key])
 		_pb_json["int64Keyed"] = JsonNode.object_of(_pb_int64_keyed_fields)
 	if uint64_keyed.size() > 0:
 		var _pb_uint64_keyed_fields: Dictionary[String, JsonNode] = {}
-		for _pb_uint64_keyed_key: int in uint64_keyed:
+		for _pb_uint64_keyed_key: ulong in uint64_keyed:
 			_pb_uint64_keyed_fields[JsonUint64.format(_pb_uint64_keyed_key)] = JsonNode.Str(uint64_keyed[_pb_uint64_keyed_key])
 		_pb_json["uint64Keyed"] = JsonNode.object_of(_pb_uint64_keyed_fields)
 	if bool_keyed.size() > 0:
@@ -1682,7 +1682,7 @@ func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
 ## well as the number this emitter writes, so all three are read here. A
 ## value outside the field's domain is refused rather than truncated.
 static func _pb_json_read_int32(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
-	var _pb_value: int = 0
+	var _pb_value: long = 0
 	match _pb_node:
 		JsonNode.Null:
 			pass
@@ -1693,25 +1693,25 @@ static func _pb_json_read_int32(_pb_node: JsonNode, _pb_path: String) -> (int, J
 				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a signed 32-bit integer field cannot take a fractional number", _pb_path))
 			if _pb_float >= 2147483648.0 or _pb_float < -2147483648.0:
 				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a signed 32-bit integer field cannot hold this value", _pb_path))
-			_pb_value = int(_pb_float)
+			_pb_value = _pb_float as long
 		JsonNode.Str(var _pb_text):
 			if not _pb_text.is_valid_int():
 				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a signed 32-bit integer field cannot take this string", _pb_path))
-			_pb_value = _pb_text.to_int()
+			_pb_value = _pb_text.to_int() as long
 		_:
 			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a signed 32-bit integer field takes a number or a string", _pb_path))
 	if _pb_value < -2147483648 or _pb_value > 2147483647:
 		return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a signed 32-bit integer field cannot hold this value", _pb_path))
 	var _pb_error: JsonDecodeError? = null
-	return (_pb_value, _pb_error)
+	return (_pb_value as int, _pb_error)
 
 ## Reads an unsigned 32-bit integer field out of a JSON value.
 ##
 ## The canonical mapping accepts a JSON string and a whole JSON number as
 ## well as the number this emitter writes, so all three are read here. A
 ## value outside the field's domain is refused rather than truncated.
-static func _pb_json_read_uint32(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
-	var _pb_value: int = 0
+static func _pb_json_read_uint32(_pb_node: JsonNode, _pb_path: String) -> (uint, JsonDecodeError?):
+	var _pb_value: long = 0
 	match _pb_node:
 		JsonNode.Null:
 			pass
@@ -1719,20 +1719,20 @@ static func _pb_json_read_uint32(_pb_node: JsonNode, _pb_path: String) -> (int, 
 			_pb_value = _pb_int
 		JsonNode.Float(var _pb_float):
 			if _pb_float != floor(_pb_float):
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field cannot take a fractional number", _pb_path))
+				return (0U, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field cannot take a fractional number", _pb_path))
 			if _pb_float >= 4294967296.0 or _pb_float < 0.0:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 32-bit integer field cannot hold this value", _pb_path))
-			_pb_value = int(_pb_float)
+				return (0U, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 32-bit integer field cannot hold this value", _pb_path))
+			_pb_value = _pb_float as long
 		JsonNode.Str(var _pb_text):
 			if not _pb_text.is_valid_int():
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field cannot take this string", _pb_path))
-			_pb_value = _pb_text.to_int()
+				return (0U, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field cannot take this string", _pb_path))
+			_pb_value = _pb_text.to_int() as long
 		_:
-			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field takes a number or a string", _pb_path))
+			return (0U, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 32-bit integer field takes a number or a string", _pb_path))
 	if _pb_value < 0 or _pb_value > 4294967295:
-		return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 32-bit integer field cannot hold this value", _pb_path))
+		return (0U, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 32-bit integer field cannot hold this value", _pb_path))
 	var _pb_error: JsonDecodeError? = null
-	return (_pb_value, _pb_error)
+	return (_pb_value as uint, _pb_error)
 
 ## Reads a 64-bit integer field out of a JSON value.
 ##
@@ -1740,8 +1740,8 @@ static func _pb_json_read_uint32(_pb_node: JsonNode, _pb_path: String) -> (int, 
 ## accepted because the canonical mapping requires it, and is lossy past
 ## 2^53: the engine's parser produces a double, so a value that large does
 ## not even arrive as a JsonNode.Int.
-static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
-	var _pb_value: int = 0
+static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (long, JsonDecodeError?):
+	var _pb_value: long = 0
 	match _pb_node:
 		JsonNode.Null:
 			pass
@@ -1749,20 +1749,20 @@ static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (int, J
 			_pb_value = _pb_int
 		JsonNode.Float(var _pb_float):
 			if _pb_float != floor(_pb_float):
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take a fractional number", _pb_path))
+				return (0L, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take a fractional number", _pb_path))
 			if _pb_float > 9223372036854775808.0 or _pb_float < -9223372036854775808.0:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field cannot hold this value", _pb_path))
-			_pb_value = int(_pb_float)
+				return (0L, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field cannot hold this value", _pb_path))
+			_pb_value = _pb_float as long
 		JsonNode.Str(var _pb_text):
 			if not _pb_text.is_valid_int():
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take this string", _pb_path))
-			_pb_value = _pb_text.to_int()
+				return (0L, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field cannot take this string", _pb_path))
+			_pb_value = _pb_text.to_int() as long
 			if str(_pb_value) != _pb_text:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field takes a decimal string it can hold exactly", _pb_path))
+				return (0L, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: a 64-bit integer field takes a decimal string it can hold exactly", _pb_path))
 		_:
-			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field takes a number or a string", _pb_path))
+			return (0L, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field takes a number or a string", _pb_path))
 	var _pb_error: JsonDecodeError? = null
-	return (_pb_value, _pb_error)
+	return (_pb_value as long, _pb_error)
 
 ## Reads an unsigned 64-bit integer field out of a JSON value.
 ##
@@ -1773,35 +1773,33 @@ static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (int, J
 ## parser produces a double, so a value that large does not even arrive as
 ## a JsonNode.Int. The widest value rounds to 2^64 on the way in and is
 ## read as the value it rounded from rather than refused.
-static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
-	var _pb_value: int = 0
+static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (ulong, JsonDecodeError?):
+	var _pb_value: ulong = 0UL
 	match _pb_node:
 		JsonNode.Null:
 			pass
 		JsonNode.Int(var _pb_int):
 			if _pb_int < 0:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
-			_pb_value = _pb_int
+				return (0UL, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
+			_pb_value = _pb_int as ulong
 		JsonNode.Float(var _pb_float):
 			if _pb_float != floor(_pb_float):
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field cannot take a fractional number", _pb_path))
+				return (0UL, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field cannot take a fractional number", _pb_path))
 			if _pb_float > 18446744073709551616.0 or _pb_float < 0.0:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
+				return (0UL, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
 			if _pb_float == 18446744073709551616.0:
-				_pb_value = JsonUint64.WIDEST_BITS
-			elif _pb_float >= 9223372036854775808.0:
-				_pb_value = int(_pb_float - 18446744073709551616.0)
+				_pb_value = 18446744073709551615UL
 			else:
-				_pb_value = int(_pb_float)
+				_pb_value = (_pb_float as long) as ulong
 		JsonNode.Str(var _pb_text):
 			var (_pb_unsigned, _pb_unsigned_error) = JsonUint64.parse(_pb_text)
 			if _pb_unsigned_error == ProtobufError.JSON_VALUE_OUT_OF_RANGE:
-				return (0, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
+				return (0UL, JsonDecodeError.create("JSON_VALUE_OUT_OF_RANGE: an unsigned 64-bit integer field cannot hold this value", _pb_path))
 			if _pb_unsigned_error != ProtobufError.OK:
-				return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field cannot take this string", _pb_path))
+				return (0UL, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field cannot take this string", _pb_path))
 			_pb_value = _pb_unsigned
 		_:
-			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field takes a number or a string", _pb_path))
+			return (0UL, JsonDecodeError.create("JSON_TYPE_MISMATCH: an unsigned 64-bit integer field takes a number or a string", _pb_path))
 	var _pb_error: JsonDecodeError? = null
 	return (_pb_value, _pb_error)
 

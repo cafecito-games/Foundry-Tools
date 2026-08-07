@@ -72,7 +72,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_fields_length: VarintRead = Wire.read_length(_pb_data, _pb_offset)
 				if _pb_fields_length.error != ProtobufError.OK:
 					return _pb_fields_length.error
-				var _pb_fields_end: int = _pb_fields_length.offset + _pb_fields_length.value
+				var _pb_fields_end: int = (_pb_fields_length.offset + _pb_fields_length.value) as int
 				_pb_offset = _pb_fields_length.offset
 				var _pb_fields_key: String = ""
 				var _pb_fields_value: Value = Value.new()

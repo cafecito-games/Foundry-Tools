@@ -14,10 +14,10 @@ namespace foundry.proto
 class_name JsonTimestamp extends RefCounted
 
 ## 0001-01-01T00:00:00Z, the earliest instant the canonical mapping allows.
-const MINIMUM_SECONDS: int = -62135596800
+const MINIMUM_SECONDS: long = -62135596800
 
 ## 9999-12-31T23:59:59Z, the latest.
-const MAXIMUM_SECONDS: int = 253402300799
+const MAXIMUM_SECONDS: long = 253402300799
 
 const MAXIMUM_NANOS: int = 999999999
 
@@ -29,15 +29,17 @@ const MINIMUM_TEXT_LENGTH: int = 20
 ## The longest, a nine-digit fraction and a numeric offset.
 const MAXIMUM_TEXT_LENGTH: int = 35
 
-static func format(seconds: int, nanos: int) -> (String, ProtobufError):
+static func format(seconds: long, nanos: int) -> (String, ProtobufError):
 	if seconds < MINIMUM_SECONDS or seconds > MAXIMUM_SECONDS:
 		return ("", ProtobufError.JSON_VALUE_OUT_OF_RANGE)
 	if nanos < 0 or nanos > MAXIMUM_NANOS:
 		return ("", ProtobufError.JSON_VALUE_OUT_OF_RANGE)
 
-	var days: int = _floor_divide(seconds, SECONDS_PER_DAY)
-	var second_of_day: int = seconds - days * SECONDS_PER_DAY
-	var (year, month, day) = _civil_from_days(days)
+	var days: long = seconds / SECONDS_PER_DAY
+	if seconds % SECONDS_PER_DAY != 0 and seconds < 0:
+		days -= 1
+	var second_of_day: int = (seconds - days * (SECONDS_PER_DAY as long)) as int
+	var (year, month, day) = _civil_from_days(days as int)
 
 	var text: String = _pad(year, 4) + "-" + _pad(month, 2) + "-" + _pad(day, 2)
 	text += "T" + _pad(second_of_day / 3600, 2)
@@ -57,18 +59,18 @@ static func _format_fraction(nanos: int) -> String:
 		return "." + _pad(nanos / 1000, 6)
 	return "." + _pad(nanos, 9)
 
-static func parse(text: String) -> (int, int, ProtobufError):
+static func parse(text: String) -> (long, int, ProtobufError):
 	## The grammar bounds the length from both sides, so a pathological input is
 	## refused before any of it is scanned rather than being walked to the end.
 	if text.length() < MINIMUM_TEXT_LENGTH or text.length() > MAXIMUM_TEXT_LENGTH:
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 	if text.substr(4, 1) != "-" or text.substr(7, 1) != "-":
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 	var designator: String = text.substr(10, 1)
 	if designator != "T" and designator != "t":
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 	if text.substr(13, 1) != ":" or text.substr(16, 1) != ":":
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 
 	var (year, year_ok) = _digits(text, 0, 4)
 	var (month, month_ok) = _digits(text, 5, 2)
@@ -77,11 +79,11 @@ static func parse(text: String) -> (int, int, ProtobufError):
 	var (minute, minute_ok) = _digits(text, 14, 2)
 	var (second, second_ok) = _digits(text, 17, 2)
 	if not (year_ok and month_ok and day_ok and hour_ok and minute_ok and second_ok):
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 	if month < 1 or month > 12 or day < 1 or day > _days_in_month(year, month):
-		return (0, 0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
+		return (0L, 0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
 	if hour > 23 or minute > 59 or second > 59:
-		return (0, 0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
+		return (0L, 0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
 
 	var cursor: int = 19
 	var nanos: int = 0
@@ -91,10 +93,10 @@ static func parse(text: String) -> (int, int, ProtobufError):
 		while cursor + digit_count < text.length() and _is_digit(text.substr(cursor + digit_count, 1)):
 			digit_count += 1
 		if digit_count == 0 or digit_count > 9:
-			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+			return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 		var (fraction, fraction_ok) = _digits(text, cursor, digit_count)
 		if not fraction_ok:
-			return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+			return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 		nanos = fraction
 		var scale: int = 9 - digit_count
 		while scale > 0:
@@ -104,34 +106,34 @@ static func parse(text: String) -> (int, int, ProtobufError):
 
 	var (offset_seconds, offset_ok) = _parse_offset(text, cursor)
 	if not offset_ok:
-		return (0, 0, ProtobufError.JSON_TYPE_MISMATCH)
+		return (0L, 0, ProtobufError.JSON_TYPE_MISMATCH)
 
 	var days: int = _days_from_civil(year, month, day)
-	var seconds: int = days * SECONDS_PER_DAY + hour * 3600 + minute * 60 + second
+	var seconds: long = (days as long) * SECONDS_PER_DAY + hour * 3600 + minute * 60 + second
 	seconds -= offset_seconds
 	if seconds < MINIMUM_SECONDS or seconds > MAXIMUM_SECONDS:
-		return (0, 0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
+		return (0L, 0, ProtobufError.JSON_VALUE_OUT_OF_RANGE)
 	return (seconds, nanos, ProtobufError.OK)
 
 ## Returns the offset in seconds east of UTC, and whether the suffix was
 ## well-formed. A `Z` is a zero offset.
-static func _parse_offset(text: String, cursor: int) -> (int, bool):
+static func _parse_offset(text: String, cursor: int) -> (long, bool):
 	if cursor >= text.length():
-		return (0, false)
+		return (0L, false)
 	var designator: String = text.substr(cursor, 1)
 	if designator == "Z" or designator == "z":
 		if cursor + 1 != text.length():
-			return (0, false)
-		return (0, true)
+			return (0L, false)
+		return (0L, true)
 	if designator != "+" and designator != "-":
-		return (0, false)
+		return (0L, false)
 	if cursor + 6 != text.length() or text.substr(cursor + 3, 1) != ":":
-		return (0, false)
+		return (0L, false)
 	var (hours, hours_ok) = _digits(text, cursor + 1, 2)
 	var (minutes, minutes_ok) = _digits(text, cursor + 4, 2)
 	if not (hours_ok and minutes_ok) or hours > 23 or minutes > 59:
-		return (0, false)
-	var total: int = hours * 3600 + minutes * 60
+		return (0L, false)
+	var total: long = hours * 3600 + minutes * 60
 	if designator == "-":
 		return (-total, true)
 	return (total, true)

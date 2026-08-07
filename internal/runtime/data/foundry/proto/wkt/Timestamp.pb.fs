@@ -72,7 +72,7 @@ final class_name Timestamp extends RefCounted uses Message, JsonSerializable
 ## Represents seconds of UTC time since Unix epoch 1970-01-01T00:00:00Z. Must
 ## be between -62135596800 and 253402300799 inclusive (which corresponds to
 ## 0001-01-01T00:00:00Z to 9999-12-31T23:59:59Z).
-var seconds: int = 0
+var seconds: long = 0
 
 ## Non-negative fractions of a second at nanosecond resolution. This field is
 ## the nanosecond portion of the duration, not an alternative to seconds.
@@ -141,7 +141,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_nanos_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
 				if _pb_nanos_read.error != ProtobufError.OK:
 					return _pb_nanos_read.error
-				nanos = _pb_nanos_read.value
+				nanos = _pb_nanos_read.value as int
 				_pb_offset = _pb_nanos_read.offset
 			_:
 				var _pb_skipped: SkipRead = Wire.capture_field(_pb_data, _pb_offset, _pb_tag.value, _pb_wire_type, _pb_unknown_fields)
@@ -168,9 +168,9 @@ static func from_unix_time(_pb_value: float) -> (Timestamp?, ProtobufError):
 
 static func _from_valid_unix_time(_pb_value: float) -> Timestamp:
 	var _pb_result: Timestamp = Timestamp.new()
-	var _pb_whole: int = floori(_pb_value)
+	var _pb_whole: long = floori(_pb_value) as long
 	_pb_result.seconds = _pb_whole
-	_pb_result.nanos = roundi((_pb_value - float(_pb_whole)) * 1000000000.0)
+	_pb_result.nanos = roundi((_pb_value - float(_pb_whole)) * 1000000000.0) as int
 	if _pb_result.nanos >= 1000000000:
 		_pb_result.nanos -= 1000000000
 		_pb_result.seconds += 1

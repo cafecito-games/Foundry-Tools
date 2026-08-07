@@ -7,61 +7,137 @@ const WIRE_64BIT: int = 1
 const WIRE_LENGTH_DELIMITED: int = 2
 const WIRE_32BIT: int = 5
 
-static func make_tag(field_number: int, wire_type: int) -> int:
-	return (field_number << 3) | wire_type
+static func make_tag(field_number: int, wire_type: int) -> long:
+	return ((field_number as long) << 3) | (wire_type as long)
 
-static func get_wire_type(tag: int) -> int:
-	return tag & 0x7
+static func get_wire_type(tag: long) -> int:
+	return (tag & 0x7) as int
 
-static func get_field_number(tag: int) -> int:
-	return tag >> 3
+static func get_field_number(tag: long) -> int:
+	return (tag >> 3) as int
 
-static func encode_varint(value: int) -> PackedByteArray:
+## Appends one byte to buf. PackedByteArray.append takes uint, which the signed
+## integer types cannot reach through a checked 'as' in this engine version, so
+## the byte is written by index after a resize instead.
+static func _append_byte(buf: PackedByteArray, value: long) -> void:
+	var pos: int = buf.size() as int
+	buf.resize(pos + 1)
+	buf[pos] = (value & 0xFF) as int
+
+## The unsigned variant: same idea, same workaround, ulong source.
+static func _append_byte_unsigned(buf: PackedByteArray, value: ulong) -> void:
+	var pos: int = buf.size() as int
+	buf.resize(pos + 1)
+	buf[pos] = (value & 0xFFUL) as int
+
+## Encodes a signed varint. int widens to long, so every signed integer
+## field — int32, sint32, int64, sint64 — passes through here, as do tags,
+## lengths, bools, and enum wire values.
+static func encode_varint(value: long) -> PackedByteArray:
 	var result: PackedByteArray = PackedByteArray()
-	var unsigned_value: int = value
-	while unsigned_value > 0x7F or unsigned_value < 0:
-		result.append((unsigned_value & 0x7F) | 0x80)
-		unsigned_value = (unsigned_value >> 7) & 0x01FFFFFFFFFFFFFF
-	result.append(unsigned_value & 0x7F)
+	var remaining: long = value
+	while remaining > 0x7F or remaining < 0:
+		_append_byte(result, (remaining & 0x7F) | 0x80)
+		remaining = (remaining >> 7) & 0x01FFFFFFFFFFFFFF
+	_append_byte(result, remaining & 0x7F)
+	return result
+
+## Encodes an unsigned varint. uint widens to ulong, so uint32 and uint64
+## fields share this path. Unsigned right shift stops the loop without a
+## sign-extension mask.
+static func encode_varint_unsigned(value: ulong) -> PackedByteArray:
+	var result: PackedByteArray = PackedByteArray()
+	var remaining: ulong = value
+	while remaining > 0x7FUL:
+		_append_byte_unsigned(result, (remaining & 0x7FUL) | 0x80UL)
+		remaining = remaining >> 7UL
+	_append_byte_unsigned(result, remaining & 0x7FUL)
 	return result
 
 static func decode_varint(data: PackedByteArray, offset: int) -> VarintRead:
-	var result_value: int = 0
+	var result_value: long = 0
 	var shift: int = 0
 	var cursor: int = offset
 	while cursor < data.size():
-		var byte: int = data[cursor]
-		result_value |= (byte & 0x7F) << shift
+		var byte_val: int = data[cursor]
+		# At shift 63, setting bit 63 through a left shift overflows the
+		# checked long (1 << 63 = 2^63 = MaxInt64 + 1). The sign bit is set
+		# by subtracting 2^63 instead, which produces the same negative value.
+		if shift >= 63 and (byte_val & 0x1) != 0:
+			result_value += -9223372036854775807 - 1
+		elif shift < 63:
+			result_value |= ((byte_val & 0x7F) as long) << shift
 		cursor += 1
-		if (byte & 0x80) == 0:
+		if (byte_val & 0x80) == 0:
 			return VarintRead(result_value, cursor, ProtobufError.OK)
 		shift += 7
 		if shift > 63:
 			return VarintRead(0, cursor, ProtobufError.VARINT_TOO_LONG)
 	return VarintRead(0, cursor, ProtobufError.VARINT_NOT_FOUND)
 
-## Encodes the low four bytes of value, little-endian. fixed32 and sfixed32
-## put the same bytes on the wire and differ only in how a reader interprets
-## the top bit, so both encode through here.
-static func encode_fixed32(value: int) -> PackedByteArray:
+## Decodes a varint into the unsigned carrier. Used for uint32 and uint64,
+## whose top-half range has no signed spelling.
+static func decode_varint_unsigned(data: PackedByteArray, offset: int) -> VarintReadUnsigned:
+	var result_value: ulong = 0UL
+	var shift: int = 0
+	var cursor: int = offset
+	while cursor < data.size():
+		var byte_val: int = data[cursor]
+		result_value |= ((byte_val & 0x7F) as ulong) << (shift as ulong)
+		cursor += 1
+		if (byte_val & 0x80) == 0:
+			return VarintReadUnsigned(result_value, cursor, ProtobufError.OK)
+		shift += 7
+		if shift > 63:
+			return VarintReadUnsigned(0UL, cursor, ProtobufError.VARINT_TOO_LONG)
+	return VarintReadUnsigned(0UL, cursor, ProtobufError.VARINT_NOT_FOUND)
+
+## Encodes the low four bytes of value, little-endian. sfixed32 passes
+## through here; fixed32 uses the unsigned variant.
+static func encode_fixed32(value: long) -> PackedByteArray:
 	var result: PackedByteArray = PackedByteArray()
-	result.append(value & 0xFF)
-	result.append((value >> 8) & 0xFF)
-	result.append((value >> 16) & 0xFF)
-	result.append((value >> 24) & 0xFF)
+	_append_byte(result, value)
+	_append_byte(result, value >> 8)
+	_append_byte(result, value >> 16)
+	_append_byte(result, value >> 24)
 	return result
 
-## Encodes all eight bytes of value, little-endian. As with the 32-bit pair,
-## fixed64 and sfixed64 share this and differ only on the way back out.
-static func encode_fixed64(value: int) -> PackedByteArray:
+## Encodes the low four bytes of an unsigned value, little-endian. fixed32
+## fields carry values up to 2^32-1.
+static func encode_fixed32_unsigned(value: ulong) -> PackedByteArray:
 	var result: PackedByteArray = PackedByteArray()
-	var remaining: int = value
-	var index: int = 0
-	while index < 8:
-		result.append(remaining & 0xFF)
-		# Masking each byte makes the arithmetic shift's sign extension moot.
-		remaining = remaining >> 8
-		index += 1
+	_append_byte_unsigned(result, value)
+	_append_byte_unsigned(result, value >> 8UL)
+	_append_byte_unsigned(result, value >> 16UL)
+	_append_byte_unsigned(result, value >> 24UL)
+	return result
+
+## Encodes all eight bytes of value, little-endian. sfixed64 passes through
+## here; fixed64 uses the unsigned variant.
+static func encode_fixed64(value: long) -> PackedByteArray:
+	var result: PackedByteArray = PackedByteArray()
+	_append_byte(result, value)
+	_append_byte(result, value >> 8)
+	_append_byte(result, value >> 16)
+	_append_byte(result, value >> 24)
+	_append_byte(result, value >> 32)
+	_append_byte(result, value >> 40)
+	_append_byte(result, value >> 48)
+	_append_byte(result, value >> 56)
+	return result
+
+## Encodes all eight bytes of an unsigned value, little-endian. fixed64
+## fields carry values up to 2^64-1.
+static func encode_fixed64_unsigned(value: ulong) -> PackedByteArray:
+	var result: PackedByteArray = PackedByteArray()
+	_append_byte_unsigned(result, value)
+	_append_byte_unsigned(result, value >> 8UL)
+	_append_byte_unsigned(result, value >> 16UL)
+	_append_byte_unsigned(result, value >> 24UL)
+	_append_byte_unsigned(result, value >> 32UL)
+	_append_byte_unsigned(result, value >> 40UL)
+	_append_byte_unsigned(result, value >> 48UL)
+	_append_byte_unsigned(result, value >> 56UL)
 	return result
 
 ## Encodes value as IEEE-754 binary32. Foundry's float is 64-bit, so this
@@ -120,30 +196,57 @@ static func encode_sint32(value: int) -> PackedByteArray:
 	return encode_varint(zigzag_encode_32(value))
 
 ## Encodes value as a zig-zag varint over 64 bits.
-static func encode_sint64(value: int) -> PackedByteArray:
-	return encode_varint(zigzag_encode_64(value))
+##
+## The standard zig-zag formula (value << 1) ^ (value >> 63) cannot be computed
+## directly because Foundry's checked arithmetic rejects the shift at and above
+## 2^62 and provides no wrapping or unsigned-bit-cast escape (see #1930). The
+## result is a uint64 stored as a signed long, so the varint bytes are built
+## directly from 32-bit halves that each fit the signed carrier.
+static func encode_sint64(value: long) -> PackedByteArray:
+	var neg_mask: long = value >> 63
+	# Zig-zag each 32-bit half independently. XOR with the sign extension gives
+	# the magnitude bits; doubling shifts them into position. The carry from
+	# the low half's top bit moves into the high half's bottom bit.
+	var low_xor: long = (value & 0xFFFFFFFFL) ^ (neg_mask & 0xFFFFFFFFL)
+	var high_xor: long = ((value >> 32) & 0xFFFFFFFFL) ^ (neg_mask & 0xFFFFFFFFL)
+	var z_low: long = (low_xor << 1) & 0xFFFFFFFFL
+	var z_high: long = ((high_xor << 1) | (low_xor >> 31)) & 0xFFFFFFFFL
+	# Emit the varint 7 bits at a time from the combined 64-bit value. All
+	# intermediates stay in [0, 2^32-1], safe for checked long arithmetic.
+	var result: PackedByteArray = PackedByteArray()
+	var remaining_low: long = z_low
+	var remaining_high: long = z_high
+	var emitting: bool = true
+	while emitting:
+		var byte_val: long = remaining_low & 0x7F
+		remaining_low = (remaining_low >> 7) | ((remaining_high & 0x7F) << 25)
+		remaining_high = remaining_high >> 7
+		if remaining_low == 0 and remaining_high == 0:
+			_append_byte(result, byte_val)
+			emitting = false
+		else:
+			_append_byte(result, byte_val | 0x80)
+	return result
 
-static func zigzag_encode_32(value: int) -> int:
-	return ((value << 1) ^ (value >> 31)) & 0xFFFFFFFF
+static func zigzag_encode_32(value: int) -> long:
+	# Widen before shifting: value << 1 overflows checked int at MinInt32.
+	var wide: long = value as long
+	return ((wide << 1) ^ (wide >> 31)) & 0xFFFFFFFFL
 
-static func zigzag_encode_64(value: int) -> int:
-	return (value << 1) ^ (value >> 63)
+static func zigzag_decode_32(value: long) -> int:
+	var encoded: long = value & 0xFFFFFFFFL
+	return ((encoded >> 1) ^ -(encoded & 1)) as int
 
-static func zigzag_decode_32(value: int) -> int:
-	var encoded: int = value & 0xFFFFFFFF
-	return (encoded >> 1) ^ -(encoded & 1)
-
-static func zigzag_decode_64(value: int) -> int:
+static func zigzag_decode_64(value: long) -> long:
 	# The mask stands in for a logical shift; Foundry's >> is arithmetic, and
 	# the top bit is a value bit here rather than a sign.
-	return ((value >> 1) & 0x7FFFFFFFFFFFFFFF) ^ -(value & 1)
+	return ((value >> 1) & 0x7FFFFFFFFFFFFFFFL) ^ -(value & 1)
 
-## Reads four bytes as an unsigned 32-bit value, so fixed32 spans 0 to 2^32-1
-## rather than wrapping negative.
-static func read_fixed32(data: PackedByteArray, offset: int) -> FixedRead:
+## Reads four bytes as an unsigned 32-bit value. fixed32 spans 0 to 2^32-1.
+static func read_fixed32(data: PackedByteArray, offset: int) -> FixedReadUnsigned:
 	if offset + 4 > data.size():
-		return FixedRead(0, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
-	return FixedRead(data.decode_u32(offset), offset + 4, ProtobufError.OK)
+		return FixedReadUnsigned(0UL, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
+	return FixedReadUnsigned(_read_unsigned_le(data, offset, 4), offset + 4, ProtobufError.OK)
 
 ## Reads four bytes as a signed 32-bit value.
 static func read_sfixed32(data: PackedByteArray, offset: int) -> FixedRead:
@@ -151,13 +254,26 @@ static func read_sfixed32(data: PackedByteArray, offset: int) -> FixedRead:
 		return FixedRead(0, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
 	return FixedRead(data.decode_s32(offset), offset + 4, ProtobufError.OK)
 
-## Reads eight bytes. fixed64 and sfixed64 both land here: Foundry's int is
-## signed 64-bit, so the bits are preserved either way and only the printed
-## value of the top half of the fixed64 range differs from its proto meaning.
-static func read_fixed64(data: PackedByteArray, offset: int) -> FixedRead:
+## Reads eight bytes as an unsigned 64-bit value. fixed64 spans 0 to 2^64-1.
+static func read_fixed64(data: PackedByteArray, offset: int) -> FixedReadUnsigned:
+	if offset + 8 > data.size():
+		return FixedReadUnsigned(0UL, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
+	return FixedReadUnsigned(_read_unsigned_le(data, offset, 8), offset + 8, ProtobufError.OK)
+
+## Reads eight bytes as a signed 64-bit value.
+static func read_sfixed64(data: PackedByteArray, offset: int) -> FixedRead:
 	if offset + 8 > data.size():
 		return FixedRead(0, offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
 	return FixedRead(data.decode_s64(offset), offset + 8, ProtobufError.OK)
+
+## Reads `byte_count` bytes as a little-endian unsigned integer.
+static func _read_unsigned_le(data: PackedByteArray, offset: int, byte_count: int) -> ulong:
+	var value: ulong = 0UL
+	var index: int = 0
+	while index < byte_count:
+		value |= (data[offset + index] as ulong) << ((index * 8) as ulong)
+		index += 1
+	return value
 
 ## Reads four bytes as IEEE-754 binary32, widened into Foundry's 64-bit float.
 static func read_float(data: PackedByteArray, offset: int) -> FloatRead:
@@ -215,14 +331,14 @@ static func read_string(data: PackedByteArray, offset: int) -> StringRead:
 	var length: VarintRead = read_length(data, offset)
 	if length.error != ProtobufError.OK:
 		return StringRead("", offset, length.error)
-	return decode_string(data, length.offset, length.value)
+	return decode_string(data, length.offset, length.value as int)
 
 ## Reads a length-prefixed bytes field, prefix and payload together.
 static func read_bytes(data: PackedByteArray, offset: int) -> BytesRead:
 	var length: VarintRead = read_length(data, offset)
 	if length.error != ProtobufError.OK:
 		return BytesRead(PackedByteArray(), offset, length.error)
-	return decode_bytes(data, length.offset, length.value)
+	return decode_bytes(data, length.offset, length.value as int)
 
 ## Merges a length-prefixed submessage into target and reports the new offset.
 ## Merging rather than replacing is what protobuf requires when a singular
@@ -231,13 +347,13 @@ static func read_message(data: PackedByteArray, offset: int, target: Message) ->
 	var length: VarintRead = read_length(data, offset)
 	if length.error != ProtobufError.OK:
 		return SkipRead(offset, length.error)
-	var end: int = length.offset + length.value
+	var end: int = (length.offset + length.value) as int
 	return SkipRead(end, target.merge_from_bytes(data.slice(length.offset, end)))
 
 ## Copies one unrecognized field, tag included, into sink and advances past it.
 ## proto3 requires unknown fields to survive a decode/re-encode round trip, so
 ## a peer on a newer schema does not lose data passing through an older binding.
-static func capture_field(data: PackedByteArray, offset: int, tag: int, wire_type: int, sink: PackedByteArray) -> SkipRead:
+static func capture_field(data: PackedByteArray, offset: int, tag: long, wire_type: int, sink: PackedByteArray) -> SkipRead:
 	var skipped: SkipRead = skip_field(data, offset, wire_type)
 	if skipped.error != ProtobufError.OK:
 		return skipped
@@ -258,7 +374,7 @@ static func skip_field(data: PackedByteArray, offset: int, wire_type: int) -> Sk
 				return SkipRead(offset, length.error)
 			if length.value < 0 or length.offset + length.value > data.size():
 				return SkipRead(offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)
-			return SkipRead(length.offset + length.value, ProtobufError.OK)
+			return SkipRead((length.offset + length.value) as int, ProtobufError.OK)
 		WIRE_32BIT:
 			if offset + 4 > data.size():
 				return SkipRead(offset, ProtobufError.LENGTH_DELIMITED_SIZE_MISMATCH)

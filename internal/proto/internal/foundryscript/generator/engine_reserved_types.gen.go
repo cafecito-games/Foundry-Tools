@@ -29,7 +29,7 @@ type engineMemberEntry struct {
 	owner string
 }
 
-const foundryEngineTypeSourceVersion = "0.1.alpha21.gh.c11e3a080"
+const foundryEngineTypeSourceVersion = "0.1.alpha25.gh.13c65c1fc"
 
 const foundryEngineMessageBaseClass = "RefCounted"
 
@@ -1124,6 +1124,7 @@ var foundryEngineReservedTypes = map[string]engineTypeEntry{
 	"XRVRS":                                             {kind: engineTypeNativeClass},
 	"ZIPPacker":                                         {kind: engineTypeNativeClass},
 	"ZIPReader":                                         {kind: engineTypeNativeClass},
+	"foundry.http.server.HTTPServer":                    {kind: engineTypeNativeClass},
 }
 
 var foundryEngineReservedMembers = map[string]engineMemberEntry{
