@@ -51,7 +51,7 @@ final class_name Duration extends RefCounted uses Message, JsonSerializable
 ## Signed seconds of the span of time. Must be from -315,576,000,000
 ## to +315,576,000,000 inclusive. Note: these bounds are computed from:
 ## 60 sec/min * 60 min/hr * 24 hr/day * 365.25 days/year * 10000 years
-var seconds: int = 0
+var seconds: long = 0
 
 ## Signed fractions of a second at nanosecond resolution of the span
 ## of time. Durations less than one second are represented with a 0
@@ -121,7 +121,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_nanos_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
 				if _pb_nanos_read.error != ProtobufError.OK:
 					return _pb_nanos_read.error
-				nanos = _pb_nanos_read.value
+				nanos = _pb_nanos_read.value as int
 				_pb_offset = _pb_nanos_read.offset
 			_:
 				var _pb_skipped: SkipRead = Wire.capture_field(_pb_data, _pb_offset, _pb_tag.value, _pb_wire_type, _pb_unknown_fields)

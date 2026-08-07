@@ -697,6 +697,10 @@ func scalarZeroValue(protoType string) string {
 		return "false"
 	case "float", "double":
 		return "0.0"
+	case "uint32", "fixed32":
+		return "0U"
+	case "uint64", "fixed64":
+		return "0UL"
 	default:
 		return "0"
 	}
@@ -712,34 +716,49 @@ func (v valuePlan) isPackable() bool {
 // encodeCall renders the runtime call that frames one value of this type.
 // Each scalar names its own codec, so the generated source states the framing
 // the schema asked for instead of leaving it implied by the tag.
+//
+// Unsigned fields route through the _unsigned codec family because their
+// carrier (ulong) cannot reach the signed carrier (long) the default codecs
+// accept. The framing is identical; only the parameter type differs.
 func (v valuePlan) encodeCall(expression string) string {
 	switch v.ProtoType {
 	case "float":
 		return "Wire.encode_float(" + expression + ")"
 	case "double":
 		return "Wire.encode_double(" + expression + ")"
-	case "fixed32", "sfixed32":
+	case "fixed32":
+		return "Wire.encode_fixed32_unsigned(" + expression + ")"
+	case "sfixed32":
 		return "Wire.encode_fixed32(" + expression + ")"
-	case "fixed64", "sfixed64":
+	case "fixed64":
+		return "Wire.encode_fixed64_unsigned(" + expression + ")"
+	case "sfixed64":
 		return "Wire.encode_fixed64(" + expression + ")"
 	case "sint32":
 		return "Wire.encode_sint32(" + expression + ")"
 	case "sint64":
 		return "Wire.encode_sint64(" + expression + ")"
+	case "uint32", "uint64":
+		return "Wire.encode_varint_unsigned(" + expression + ")"
 	default:
 		return "Wire.encode_varint(" + varintExpression(v, expression) + ")"
 	}
 }
 
 // readCarrier is the tuple a read of this type returns. They differ because
-// the value they carry does: an int for the integral types, a float for the
-// two IEEE-754 ones.
+// the value they carry does: a long or ulong for the integral types, a float
+// for the two IEEE-754 ones. Unsigned scalars get their own carrier so the
+// full unsigned 64-bit range survives without crossing carriers.
 func (v valuePlan) readCarrier() string {
 	switch v.ProtoType {
 	case "float", "double":
 		return "FloatRead"
-	case "fixed32", "sfixed32", "fixed64", "sfixed64":
+	case "fixed32", "fixed64":
+		return "FixedReadUnsigned"
+	case "sfixed32", "sfixed64":
 		return "FixedRead"
+	case "uint32", "uint64":
+		return "VarintReadUnsigned"
 	default:
 		return "VarintRead"
 	}
@@ -747,10 +766,9 @@ func (v valuePlan) readCarrier() string {
 
 // readFunction is the runtime call that reads one untagged value of this type.
 //
-// fixed64 and sfixed64 share a reader: Foundry's int is signed 64-bit, so both
-// keep every bit and differ only in what the number means. The 32-bit pair
-// cannot share, since fixed32 spans a range that does not fit the sign
-// convention of sfixed32.
+// fixed64 and sfixed64 no longer share a reader: fixed64 lands in the unsigned
+// carrier and sfixed64 in the signed one, and the two carriers cannot meet.
+// The 32-bit pair was already split for the same reason.
 func (v valuePlan) readFunction() string {
 	switch v.ProtoType {
 	case "float":
@@ -761,12 +779,16 @@ func (v valuePlan) readFunction() string {
 		return "Wire.read_fixed32"
 	case "sfixed32":
 		return "Wire.read_sfixed32"
-	case "fixed64", "sfixed64":
+	case "fixed64":
 		return "Wire.read_fixed64"
+	case "sfixed64":
+		return "Wire.read_sfixed64"
 	case "sint32":
 		return "Wire.read_sint32"
 	case "sint64":
 		return "Wire.read_sint64"
+	case "uint32", "uint64":
+		return "Wire.decode_varint_unsigned"
 	default:
 		return "Wire.decode_varint"
 	}

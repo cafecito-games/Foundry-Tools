@@ -51,6 +51,15 @@ func TestTypeReferenceKeepsNesting(t *testing.T) {
 
 func TestScalarTypeMapping(t *testing.T) {
 	require.Equal(t, "int", ScalarType("int32").Render())
+	require.Equal(t, "int", ScalarType("sint32").Render())
+	require.Equal(t, "int", ScalarType("sfixed32").Render())
+	require.Equal(t, "uint", ScalarType("uint32").Render())
+	require.Equal(t, "uint", ScalarType("fixed32").Render())
+	require.Equal(t, "long", ScalarType("int64").Render())
+	require.Equal(t, "long", ScalarType("sint64").Render())
+	require.Equal(t, "long", ScalarType("sfixed64").Render())
+	require.Equal(t, "ulong", ScalarType("uint64").Render())
+	require.Equal(t, "ulong", ScalarType("fixed64").Render())
 	require.Equal(t, "float", ScalarType("double").Render())
 	require.Equal(t, "String", ScalarType("string").Render())
 	require.Equal(t, "PackedByteArray", ScalarType("bytes").Render())
@@ -649,7 +658,7 @@ func TestGenerateEnumFieldsUseHostedWireConversion(t *testing.T) {
 	// Each case is declared with its wire number, so the conversion out is a cast.
 	require.Contains(t, enumSource, "\tfunc to_wire() -> int:\n\t\treturn self as int\n")
 	// Self is what resolves to the namespaced enum from inside its own body.
-	require.Contains(t, enumSource, "\tstatic func from_wire(value: int) -> Self?:")
+	require.Contains(t, enumSource, "\tstatic func from_wire(value: long) -> Self?:")
 	require.Contains(t, enumSource, "\t\t\t\treturn PlayerStatus.PLAYER_STATUS_ONLINE")
 	// An open enum reports an unrecognized value rather than folding it to zero.
 	require.Contains(t, enumSource, "\t\t\t_:\n\t\t\t\treturn null\n")
@@ -723,7 +732,7 @@ func TestGenerateEscapesEnumValueNamedForAHostedFunction(t *testing.T) {
 
 			// The functions the collision is against are still emitted intact.
 			require.Contains(t, enumSource, "func to_wire() -> int:")
-			require.Contains(t, enumSource, "static func from_wire(value: int) -> Self?:")
+			require.Contains(t, enumSource, "static func from_wire(value: long) -> Self?:")
 			require.Contains(t, enumSource, "func to_json_name() -> String:")
 			require.Contains(t, enumSource, "static func from_json_name(name: String) -> Self?:")
 
@@ -783,7 +792,7 @@ func TestGenerateOneofAsTaggedUnion(t *testing.T) {
 	require.Contains(t, source, "var payload: PlayerPayloadCase? = null")
 	require.Contains(t, source, "match payload:")
 	require.Contains(t, source, "PlayerPayloadCase.Text(var _pb_payload_text):")
-	require.Contains(t, source, "payload = PlayerPayloadCase.Amount(_pb_payload_amount_read.value)")
+	require.Contains(t, source, "payload = PlayerPayloadCase.Amount(_pb_payload_amount_read.value as int)")
 	// No separate per-case fields and no which_case discriminator.
 	require.NotContains(t, source, "var text: String")
 	require.NotContains(t, source, "which_case")
@@ -864,13 +873,14 @@ func TestGenerateFixedWidthScalars(t *testing.T) {
 		encode   string
 		carrier  string
 		read     string
+		result   string
 	}{
-		"fixed32":  {"var score: int = 0", "Wire.WIRE_32BIT", "Wire.encode_fixed32(score)", "FixedRead", "Wire.read_fixed32"},
-		"sfixed32": {"var score: int = 0", "Wire.WIRE_32BIT", "Wire.encode_fixed32(score)", "FixedRead", "Wire.read_sfixed32"},
-		"float":    {"var score: float = 0.0", "Wire.WIRE_32BIT", "Wire.encode_float(score)", "FloatRead", "Wire.read_float"},
-		"fixed64":  {"var score: int = 0", "Wire.WIRE_64BIT", "Wire.encode_fixed64(score)", "FixedRead", "Wire.read_fixed64"},
-		"sfixed64": {"var score: int = 0", "Wire.WIRE_64BIT", "Wire.encode_fixed64(score)", "FixedRead", "Wire.read_fixed64"},
-		"double":   {"var score: float = 0.0", "Wire.WIRE_64BIT", "Wire.encode_double(score)", "FloatRead", "Wire.read_double"},
+		"fixed32":  {"var score: uint = 0U", "Wire.WIRE_32BIT", "Wire.encode_fixed32_unsigned(score)", "FixedReadUnsigned", "Wire.read_fixed32", "score = _pb_score_read.value as uint"},
+		"sfixed32": {"var score: int = 0", "Wire.WIRE_32BIT", "Wire.encode_fixed32(score)", "FixedRead", "Wire.read_sfixed32", "score = _pb_score_read.value as int"},
+		"float":    {"var score: float = 0.0", "Wire.WIRE_32BIT", "Wire.encode_float(score)", "FloatRead", "Wire.read_float", "score = _pb_score_read.value"},
+		"fixed64":  {"var score: ulong = 0UL", "Wire.WIRE_64BIT", "Wire.encode_fixed64_unsigned(score)", "FixedReadUnsigned", "Wire.read_fixed64", "score = _pb_score_read.value"},
+		"sfixed64": {"var score: long = 0", "Wire.WIRE_64BIT", "Wire.encode_fixed64(score)", "FixedRead", "Wire.read_sfixed64", "score = _pb_score_read.value"},
+		"double":   {"var score: float = 0.0", "Wire.WIRE_64BIT", "Wire.encode_double(score)", "FloatRead", "Wire.read_double", "score = _pb_score_read.value"},
 	}
 
 	for scalar, want := range cases {
@@ -882,7 +892,7 @@ func TestGenerateFixedWidthScalars(t *testing.T) {
 			require.Contains(t, source, "_pb_result.append_array("+want.encode+")")
 			require.Contains(t, source, "if _pb_wire_type != "+want.wireType+":")
 			require.Contains(t, source, "var _pb_score_read: "+want.carrier+" = "+want.read+"(_pb_data, _pb_offset)")
-			require.Contains(t, source, "score = _pb_score_read.value")
+			require.Contains(t, source, want.result)
 
 			// A fixed-width value is never framed as a varint.
 			require.NotContains(t, source, "Wire.encode_varint(score)")
@@ -893,15 +903,22 @@ func TestGenerateFixedWidthScalars(t *testing.T) {
 // sint32 and sint64 stay varints, but zig-zag first, so a small negative costs
 // one byte rather than ten.
 func TestGenerateZigZagScalars(t *testing.T) {
-	for _, scalar := range []string{"sint32", "sint64"} {
+	cases := map[string]struct {
+		declared string
+		result   string
+	}{
+		"sint32": {"var score: int = 0", "score = _pb_score_read.value as int"},
+		"sint64": {"var score: long = 0", "score = _pb_score_read.value"},
+	}
+	for scalar, want := range cases {
 		t.Run(scalar, func(t *testing.T) {
 			source := playerSource(t, []*protoast.Field{{FieldType: scalar, Name: "score", Number: 1}})
 
-			require.Contains(t, source, "var score: int = 0")
+			require.Contains(t, source, want.declared)
 			require.Contains(t, source, "Wire.make_tag(1, Wire.WIRE_VARINT)")
 			require.Contains(t, source, "_pb_result.append_array(Wire.encode_"+scalar+"(score))")
 			require.Contains(t, source, "var _pb_score_read: VarintRead = Wire.read_"+scalar+"(_pb_data, _pb_offset)")
-			require.Contains(t, source, "score = _pb_score_read.value")
+			require.Contains(t, source, want.result)
 
 			// The plain varint codec would put a negative on the wire as ten bytes.
 			require.NotContains(t, source, "Wire.encode_varint(score)")
@@ -1102,12 +1119,12 @@ func TestGenerateFixedWidthScalarsInMapsAndOneofs(t *testing.T) {
 	}}, nil))
 	message := files["cafecito/game/v1/Player.pb.fs"]
 
-	require.Contains(t, message, "var ratios: Dictionary[int, float] = {}")
+	require.Contains(t, message, "var ratios: Dictionary[long, float] = {}")
 	// Inside the entry, key and value carry field numbers 1 and 2 with their
 	// own framing rather than the map field's.
 	require.Contains(t, message, "Wire.encode_fixed64(_pb_ratios_key)")
 	require.Contains(t, message, "Wire.encode_float(ratios[_pb_ratios_key])")
-	require.Contains(t, message, "var _pb_ratios_key_read: FixedRead = Wire.read_fixed64(_pb_data, _pb_offset)")
+	require.Contains(t, message, "var _pb_ratios_key_read: FixedRead = Wire.read_sfixed64(_pb_data, _pb_offset)")
 	require.Contains(t, message, "var _pb_ratios_value_read: FloatRead = Wire.read_float(_pb_data, _pb_offset)")
 
 	require.Contains(t, message, "Wire.encode_double(_pb_payload_ratio)")
@@ -1735,9 +1752,9 @@ func TestGenerateEscapesEngineTypeMessageMembersEverywhere(t *testing.T) {
 		"for _pb_Resource_key: String in Resource_:",
 		"Resource_[_pb_Resource_key]",
 		"match Object_:",
-		"Node_ = _pb_Node_read.value",
+		"Node_ = _pb_Node_read.value as int",
 		"String_ = _pb_String_read.value",
-		"Timer_.append(_pb_Timer_read.value)",
+		"Timer_.append(_pb_Timer_read.value as int)",
 		"Resource_[_pb_Resource_key] = _pb_Resource_value",
 		"Object_ = PlayerObjectCase.Image(_pb_Object_Image_read.value)",
 	} {
@@ -2450,7 +2467,7 @@ func TestJSONDecodeBoundsAnUnsigned32BitFieldOnItsOwnRange(t *testing.T) {
 	source := jsonPlayerSource(t, &protoast.Field{FieldType: "uint32", Name: "count", Number: 1})
 
 	require.Contains(t, source,
-		"static func _pb_json_read_uint32(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):")
+		"static func _pb_json_read_uint32(_pb_node: JsonNode, _pb_path: String) -> (uint, JsonDecodeError?):")
 	require.Contains(t, source, "if _pb_value < 0 or _pb_value > 4294967295:")
 }
 
@@ -2463,7 +2480,7 @@ func TestJSONDecodeAcceptsAllThreeCasesForA64BitField(t *testing.T) {
 	)
 
 	require.Contains(t, source,
-		"static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):")
+		"static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (long, JsonDecodeError?):")
 	require.Contains(t, source, "_pb_value = _pb_text.to_int()")
 	// The largest int64 arrives as exactly 2^63, because the parser produces a
 	// double; refusing it would refuse a conformant document, so it is the
@@ -2487,14 +2504,14 @@ func TestJSONDecodeReadsAnUnsigned64BitFieldThroughItsOwnReader(t *testing.T) {
 	)
 
 	require.Contains(t, source,
-		"static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):")
+		"static func _pb_json_read_uint64(_pb_node: JsonNode, _pb_path: String) -> (ulong, JsonDecodeError?):")
 	require.Contains(t, source, "var (_pb_unsigned, _pb_unsigned_error) = JsonUint64.parse(_pb_text)")
 	// The widest value has no double of its own and arrives rounded to 2^64, so
 	// that bound is the documented lossy edge rather than a value to refuse; a
 	// negative number is not a uint64 at all.
 	require.Contains(t, source, "if _pb_float > 18446744073709551616.0 or _pb_float < 0.0:")
 	require.Contains(t, source, "if _pb_float == 18446744073709551616.0:")
-	require.Contains(t, source, "_pb_value = JsonUint64.WIDEST_BITS")
+	require.Contains(t, source, "_pb_value = 18446744073709551615UL")
 	require.Contains(t, source, "if _pb_int < 0:")
 	// The signed reader is not emitted when no signed 64-bit field asks for it.
 	require.NotContains(t, source, "_pb_json_read_int64")

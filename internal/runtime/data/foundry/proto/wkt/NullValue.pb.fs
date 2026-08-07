@@ -12,7 +12,7 @@ enum_name NullValue:
 		return self as int
 
 	## Returns the case for a protobuf wire value, or null if it names none.
-	static func from_wire(value: int) -> Self?:
+	static func from_wire(value: long) -> Self?:
 		match value:
 			0:
 				return NullValue.NULL_VALUE

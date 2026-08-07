@@ -231,15 +231,23 @@ func jsonValueExpression(value valuePlan, expression string) string {
 	case "double":
 		return jsonFloatMethod + "(" + expression + ")"
 	case "uint64", "fixed64":
-		// An unsigned 64-bit value is carried in a signed host int, so str()
-		// prints everything at or above 2^63 as a negative decimal. The runtime
-		// helper reads the same bit pattern as the unsigned value it stands for.
+		// An unsigned 64-bit value is carried as a ulong, so str() would print
+		// it as an unsigned decimal directly — but the widest values exceed
+		// 2^53, so a bare JSON number cannot round-trip. The runtime helper
+		// emits the exact decimal the canonical mapping requires.
 		return jsonNodeType + ".Str(" + jsonUint64Type + ".format(" + expression + "))"
 	case "int64", "sint64", "sfixed64":
 		// A 64-bit integer is written as a string because that is the only form
 		// that survives a round trip: sent as a bare JSON number, a value past
 		// 2^53 comes back from the engine's parser as a Float, having lost
 		// precision on the way.
+		return jsonNodeType + ".Str(str(" + expression + "))"
+	case "uint32", "fixed32":
+		// An unsigned 32-bit value is carried on the unsigned carrier, which
+		// JsonNode.Int's signed int slot cannot accept. A decimal string is
+		// the safe representation: the full uint32 range round-trips, and the
+		// reader accepts it through its string arm the way it does for 64-bit
+		// fields.
 		return jsonNodeType + ".Str(str(" + expression + "))"
 	default:
 		return jsonNodeType + ".Int(" + expression + ")"

@@ -295,7 +295,7 @@ func enumWireFunctions(typeName string, enum *protoast.Enum) []fsast.Node {
 			Doc:        fromWireDoc(),
 			Static:     true,
 			Name:       fromWireMethod,
-			Parameters: []fsast.Parameter{{Name: "value", Type: fstypes.Named("int")}},
+			Parameters: []fsast.Parameter{{Name: "value", Type: fstypes.Named("long")}},
 			// Self is the spelling that resolves to the namespaced enum from
 			// inside its own body; the bare name does not unify with it in
 			// every position, notably a tagged-union case argument.

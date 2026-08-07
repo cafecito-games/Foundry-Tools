@@ -8,7 +8,7 @@ import foundry.proto
 final class_name Int64Value extends RefCounted uses Message, JsonSerializable
 
 ## The int64 value.
-var value: int = 0
+var value: long = 0
 
 ## Fields this schema does not recognize, kept verbatim so a re-encode is lossless.
 var _pb_unknown_fields: PackedByteArray = PackedByteArray()
@@ -104,8 +104,8 @@ func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
 ## accepted because the canonical mapping requires it, and is lossy past
 ## 2^53: the engine's parser produces a double, so a value that large does
 ## not even arrive as a JsonNode.Int.
-static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
-	var _pb_value: int = 0
+static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (long, JsonDecodeError?):
+	var _pb_value: long = 0
 	match _pb_node:
 		JsonNode.Null:
 			pass
@@ -126,4 +126,4 @@ static func _pb_json_read_int64(_pb_node: JsonNode, _pb_path: String) -> (int, J
 		_:
 			return (0, JsonDecodeError.create("JSON_TYPE_MISMATCH: a 64-bit integer field takes a number or a string", _pb_path))
 	var _pb_error: JsonDecodeError? = null
-	return (_pb_value, _pb_error)
+	return (_pb_value as long, _pb_error)

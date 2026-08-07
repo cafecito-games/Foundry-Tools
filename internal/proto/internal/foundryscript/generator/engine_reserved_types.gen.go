@@ -29,7 +29,7 @@ type engineMemberEntry struct {
 	owner string
 }
 
-const foundryEngineTypeSourceVersion = "0.1.alpha21.gh.c11e3a080"
+const foundryEngineTypeSourceVersion = "0.1.alpha25.gh.13c65c1fc"
 
 const foundryEngineMessageBaseClass = "RefCounted"
 
@@ -73,6 +73,9 @@ var foundryEngineReservedTypes = map[string]engineTypeEntry{
 	"bool":                                {kind: engineTypeBuiltin},
 	"float":                               {kind: engineTypeBuiltin},
 	"int":                                 {kind: engineTypeBuiltin},
+	"long":                                {kind: engineTypeBuiltin},
+	"uint":                                {kind: engineTypeBuiltin},
+	"ulong":                               {kind: engineTypeBuiltin},
 	"AESContext":                          {kind: engineTypeNativeClass},
 	"AStar2D":                             {kind: engineTypeNativeClass},
 	"AStar3D":                             {kind: engineTypeNativeClass},

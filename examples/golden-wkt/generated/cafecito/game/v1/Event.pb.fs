@@ -134,7 +134,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_checkpoints_length: VarintRead = Wire.read_length(_pb_data, _pb_offset)
 				if _pb_checkpoints_length.error != ProtobufError.OK:
 					return _pb_checkpoints_length.error
-				var _pb_checkpoints_end: int = _pb_checkpoints_length.offset + _pb_checkpoints_length.value
+				var _pb_checkpoints_end: int = (_pb_checkpoints_length.offset + _pb_checkpoints_length.value) as int
 				_pb_offset = _pb_checkpoints_length.offset
 				var _pb_checkpoints_key: String = ""
 				var _pb_checkpoints_value: Timestamp = Timestamp.new()

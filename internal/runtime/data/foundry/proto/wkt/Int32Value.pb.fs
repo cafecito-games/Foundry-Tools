@@ -59,7 +59,7 @@ func merge_from_bytes(_pb_data: PackedByteArray) -> ProtobufError:
 				var _pb_value_read: VarintRead = Wire.decode_varint(_pb_data, _pb_offset)
 				if _pb_value_read.error != ProtobufError.OK:
 					return _pb_value_read.error
-				value = _pb_value_read.value
+				value = _pb_value_read.value as int
 				_pb_offset = _pb_value_read.offset
 			_:
 				var _pb_skipped: SkipRead = Wire.capture_field(_pb_data, _pb_offset, _pb_tag.value, _pb_wire_type, _pb_unknown_fields)
@@ -104,7 +104,7 @@ func _pb_merge_from_json(_pb_node: JsonNode) -> JsonDecodeError?:
 ## well as the number this emitter writes, so all three are read here. A
 ## value outside the field's domain is refused rather than truncated.
 static func _pb_json_read_int32(_pb_node: JsonNode, _pb_path: String) -> (int, JsonDecodeError?):
-	var _pb_value: int = 0
+	var _pb_value: long = 0
 	match _pb_node:
 		JsonNode.Null:
 			pass

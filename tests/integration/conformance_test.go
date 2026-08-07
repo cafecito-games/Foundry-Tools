@@ -83,12 +83,12 @@ func TestConformanceSchemaGenerates(t *testing.T) {
 	// that drops back to varints fails here rather than only in the engine.
 	require.Contains(t, source, "Wire.encode_float(optional_float)")
 	require.Contains(t, source, "Wire.encode_double(optional_double)")
-	require.Contains(t, source, "Wire.encode_fixed32(optional_fixed32)")
-	require.Contains(t, source, "Wire.encode_fixed64(optional_fixed64)")
+	require.Contains(t, source, "Wire.encode_fixed32_unsigned(optional_fixed32)")
+	require.Contains(t, source, "Wire.encode_fixed64_unsigned(optional_fixed64)")
 	require.Contains(t, source, "Wire.encode_sint32(optional_sint32)")
 	require.Contains(t, source, "Wire.encode_sint64(optional_sint64)")
 	require.Contains(t, source, "var _pb_optional_sfixed32_read: FixedRead = Wire.read_sfixed32(_pb_data, _pb_offset)")
-	require.Contains(t, source, "var _pb_optional_sfixed64_read: FixedRead = Wire.read_fixed64(_pb_data, _pb_offset)")
+	require.Contains(t, source, "var _pb_optional_sfixed64_read: FixedRead = Wire.read_sfixed64(_pb_data, _pb_offset)")
 
 	// Recursion, direct and mutual, resolves rather than looping the emitter.
 	require.Contains(t, source, "var recursive_message: TestAllTypesProto3? = null")

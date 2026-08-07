@@ -43,7 +43,7 @@ jobs:
         run: scripts/ci/install-foundry.sh
         env:
           GH_TOKEN: ${{ secrets.FOUNDRY_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-          FOUNDRY_RELEASE_TAG: v0.1.0-alpha.21
+          FOUNDRY_RELEASE_TAG: v0.1.0-alpha.25
           FOUNDRY_ASSET_PATTERN: linux.x86_64.zip
 
       - name: Run Foundry tests
